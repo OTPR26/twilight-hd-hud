@@ -78,3 +78,94 @@ jobs:
           name: twilight-hd-hud-windows-x86_64
           path: build/mods/twilight_hd_hud.dusk
           if-no-files-found: error
+
+  apple-mobile:
+    name: Build iOS and tvOS
+    runs-on: macos-latest
+    steps:
+      - name: Check out HUD source
+        uses: actions/checkout@v4
+
+      - name: Check out compatible Dusklight source
+        uses: actions/checkout@v4
+        with:
+          repository: BeZide93/dusk
+          ref: 0320c49ada59032d52bd609854fb9d3f3cdbdbb7
+          submodules: recursive
+          path: dusklight
+
+      - name: Install build tools
+        run: brew install cmake ninja
+
+      - name: Prepare Apple link stubs
+        shell: bash
+        run: |
+          mkdir -p build-stubs
+          curl -L --fail --output build-stubs/stub-ios-arm64 \
+            https://github.com/encounter/dusklight/releases/download/sdk/stub-ios-arm64
+          curl -L --fail --output build-stubs/symgen \
+            https://github.com/encounter/symgen/releases/download/v1.3.2/symgen-macos-arm64
+          chmod +x build-stubs/symgen
+          build-stubs/symgen stub \
+            --out build-stubs/stub-tvos-arm64 \
+            --format macho \
+            --platform tvos \
+            --min-os 14.5 \
+            --arch arm64 \
+            <(nm -jU build-stubs/stub-ios-arm64)
+
+      - name: Configure iOS
+        run: >
+          cmake -S . -B build-ios -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DDUSK_DIR="${GITHUB_WORKSPACE}/dusklight"
+          -DCMAKE_TOOLCHAIN_FILE="${GITHUB_WORKSPACE}/dusklight/ios.toolchain.cmake"
+          -DPLATFORM=OS64
+          -DDEPLOYMENT_TARGET=14.0
+          -DENABLE_BITCODE=OFF
+          -DENABLE_ARC=OFF
+          -DENABLE_VISIBILITY=ON
+          -DDUSK_GAME_EXE="${GITHUB_WORKSPACE}/build-stubs/stub-ios-arm64"
+
+      - name: Build iOS
+        run: cmake --build build-ios
+
+      - name: Configure tvOS
+        run: >
+          cmake -S . -B build-tvos -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DDUSK_DIR="${GITHUB_WORKSPACE}/dusklight"
+          -DCMAKE_TOOLCHAIN_FILE="${GITHUB_WORKSPACE}/dusklight/ios.toolchain.cmake"
+          -DPLATFORM=TVOS
+          -DDEPLOYMENT_TARGET=14.5
+          -DENABLE_BITCODE=OFF
+          -DENABLE_ARC=OFF
+          -DENABLE_VISIBILITY=ON
+          -DDUSK_GAME_EXE="${GITHUB_WORKSPACE}/build-stubs/stub-tvos-arm64"
+
+      - name: Build tvOS
+        run: cmake --build build-tvos
+
+      - name: Combine Apple package
+        shell: bash
+        run: |
+          mkdir -p build-apple-package
+          ditto -x -k build-ios/mods/twilight_hd_hud.dusk build-apple-package
+          mkdir -p build-apple-package/lib/tvos-arm64
+          cp build-tvos/twilight_hd_hud_stage/lib/tvos-arm64/mod.so \
+            build-apple-package/lib/tvos-arm64/mod.so
+          cd build-apple-package
+          zip -q -r ../Twilight-HD-HUD-iOS-tvOS.dusk .
+
+      - name: Verify Apple modules
+        shell: bash
+        run: |
+          unzip -l Twilight-HD-HUD-iOS-tvOS.dusk | grep 'lib/ios-arm64/mod.so'
+          unzip -l Twilight-HD-HUD-iOS-tvOS.dusk | grep 'lib/tvos-arm64/mod.so'
+
+      - name: Upload iOS and tvOS package
+        uses: actions/upload-artifact@v4
+        with:
+          name: twilight-hd-hud-ios-tvos
+          path: Twilight-HD-HUD-iOS-tvOS.dusk
+          if-no-files-found: error
