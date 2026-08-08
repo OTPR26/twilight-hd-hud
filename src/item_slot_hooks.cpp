@@ -523,6 +523,8 @@ void apply_button_layout_preference(dMeter2Draw_c* meter) {
     if (layout == ButtonLayout::Nintendo) {
         set_face_button_texture(meter, MULTI_CHAR('a_btn'), buttonA);
         set_face_button_texture(meter, MULTI_CHAR('b_btn'), buttonB);
+        set_face_button_texture(meter, MULTI_CHAR('x_btn'), archive_texture("wiiu_x.bti"));
+        set_face_button_texture(meter, MULTI_CHAR('y_btn'), archive_texture("wiiu_y.bti"));
         return;
     }
 
