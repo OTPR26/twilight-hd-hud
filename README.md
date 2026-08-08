@@ -41,6 +41,4 @@ The resulting package is written to `build/mods/twilight_hd_hud.dusk`.
 
 Project code is available under the MIT License.
 
-The bundled TP Definitive Edition+ UI and HUD texture subset was created by ValdarTP and remains under the [Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 license](https://creativecommons.org/licenses/by-nc-nd/4.0/). Full attribution and source details are in [THIRD_PARTY_TEXTURES.md](res/THIRD_PARTY_TEXTURES.md).
-
 Twilight Princess, its characters, and its original assets are properties of Nintendo. This is an unofficial fan project and is not affiliated with or endorsed by Nintendo or the Dusklight developers.
