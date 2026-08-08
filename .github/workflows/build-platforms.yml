@@ -1,0 +1,80 @@
+name: Build platform packages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out HUD source
+        uses: actions/checkout@v4
+
+      - name: Check out compatible Dusklight source
+        uses: actions/checkout@v4
+        with:
+          repository: BeZide93/dusk
+          ref: 0320c49ada59032d52bd609854fb9d3f3cdbdbb7
+          submodules: recursive
+          path: dusklight
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DDUSK_DIR="${GITHUB_WORKSPACE}/dusklight"
+
+      - name: Build package
+        run: cmake --build build
+
+      - name: Upload Linux package
+        uses: actions/upload-artifact@v4
+        with:
+          name: twilight-hd-hud-linux-x86_64
+          path: build/mods/twilight_hd_hud.dusk
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-2025
+    steps:
+      - name: Check out HUD source
+        uses: actions/checkout@v4
+
+      - name: Check out compatible Dusklight source
+        uses: actions/checkout@v4
+        with:
+          repository: BeZide93/dusk
+          ref: 0320c49ada59032d52bd609854fb9d3f3cdbdbb7
+          submodules: recursive
+          path: dusklight
+
+      - name: Enable MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Install Ninja
+        run: choco install ninja --no-progress -y
+
+      - name: Configure
+        shell: pwsh
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DDUSK_DIR="$env:GITHUB_WORKSPACE/dusklight"
+
+      - name: Build package
+        run: cmake --build build
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: twilight-hd-hud-windows-x86_64
+          path: build/mods/twilight_hd_hud.dusk
+          if-no-files-found: error
