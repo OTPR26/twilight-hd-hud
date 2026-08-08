@@ -37,6 +37,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <cstring>
 
 namespace twilight_hd_hud {
@@ -104,6 +105,7 @@ RingZButtonPrompt s_ringZPrompt;
 alignas(32) u8 s_zHudItemTexBuf[2][2][0xC00];
 u8 s_zHudItemTexPage = 0;
 u8 s_zHudLastItem = dItemNo_NONE_e;
+dMeter2Draw_c* s_zHudItemMeter = nullptr;
 J2DPicture* s_zItemNumTex[3] = {};
 J2DPicture* s_rupeeDigitTex[4] = {};
 J2DPicture* s_wiiURButtonPicture = nullptr;
@@ -1258,6 +1260,11 @@ void pane_trans_to_global_center(CPaneMgr* pane, const f32 targetX, const f32 ta
 }
 
 void change_z_hud_item_texture(dMeter2Draw_c* meter, const u8 itemNo) {
+    if (s_zHudItemMeter != meter) {
+        s_zHudItemMeter = meter;
+        s_zHudLastItem = dItemNo_NONE_e;
+    }
+
     const u8 textureItem = hud_texture_item(itemNo);
     if (s_zHudLastItem == textureItem) {
         return;
@@ -1559,8 +1566,16 @@ void draw_z_hud_item_meters(dMeter2Draw_c* meter) {
 void update_z_hud_item(dMeter2Draw_c* meter) {
     if (meter == nullptr || meter->mpItemR == nullptr ||
         meter->mpLightXY[2] == nullptr || meter->mpButtonXY[2] == nullptr ||
-        meter->mpItemXYPane[2] == nullptr || daPy_py_c::checkNowWolf())
+        meter->mpItemXYPane[2] == nullptr)
     {
+        return;
+    }
+
+    if (daPy_py_c::checkNowWolf()) {
+        // The stock HUD reuses these panes while Link transforms. Reload both
+        // item layers when the human HUD returns, even if the selected item did
+        // not change.
+        s_zHudLastItem = dItemNo_NONE_e;
         return;
     }
 
@@ -2551,9 +2566,32 @@ void after_player_execute(ModContext*, void* args, void*, void*) {
     }
 }
 
-ModResult add_hook(ModResult result, ModError* error) {
-    return result == MOD_OK ? MOD_OK :
-        mods::set_error(error, result, "failed to install Twilight HD HUD Z item slot hooks");
+template <class Hook>
+ModResult add_pre_hook(const char* name, HookPreFn callback, ModError* error) {
+    const ModResult result = mods::hook_add_pre<Hook>(svc_hook, callback);
+    if (result == MOD_OK) {
+        return MOD_OK;
+    }
+
+    char message[192];
+    std::snprintf(message, sizeof(message),
+        "failed to install Twilight HD HUD hook: %s (error %d)",
+        name, static_cast<int>(result));
+    return mods::set_error(error, result, message);
+}
+
+template <class Hook>
+ModResult add_post_hook(const char* name, HookPostFn callback, ModError* error) {
+    const ModResult result = mods::hook_add_post<Hook>(svc_hook, callback);
+    if (result == MOD_OK) {
+        return MOD_OK;
+    }
+
+    char message[192];
+    std::snprintf(message, sizeof(message),
+        "failed to install Twilight HD HUD hook: %s (error %d)",
+        name, static_cast<int>(result));
+    return mods::set_error(error, result, message);
 }
 
 void free_resource(ResourceBuffer& resource) {
@@ -2625,81 +2663,45 @@ void shutdown_wolf_action_icons() {
 }
 
 ModResult install_item_slot_hooks(ModError* error) {
-    ModResult result = mods::hook_add_pre<GetSelectItemHook>(svc_hook, before_get_select_item);
-    if (result == MOD_OK) {
-        result = mods::hook_add_post<SetSelectItemHook>(svc_hook, after_set_select_item);
+#define ADD_PRE(type, callback, name) \
+    if (const ModResult result = add_pre_hook<type>(name, callback, error); result != MOD_OK) { \
+        return result; \
     }
-    if (result == MOD_OK) {
-        result = mods::hook_add_post<PadReadHook>(svc_hook, after_pad_read);
+#define ADD_POST(type, callback, name) \
+    if (const ModResult result = add_post_hook<type>(name, callback, error); result != MOD_OK) { \
+        return result; \
     }
-    if (result == MOD_OK) {
-        result = mods::hook_add_post<RingCreateHook>(svc_hook, after_ring_create);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_pre<RingDeleteHook>(svc_hook, before_ring_delete);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_post<RingDrawHook>(svc_hook, after_ring_draw);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_pre<MeterDrawHook>(svc_hook, before_meter_draw);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_post<MeterDrawHook>(svc_hook, after_meter_draw);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_post<MeterMoveButtonCrossHook>(svc_hook,
-            after_meter_move_button_cross);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_pre<MeterDrawKanteraHook>(svc_hook, before_meter_draw_kantera);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_pre<MeterDrawOxygenHook>(svc_hook, before_meter_draw_oxygen);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_post<MeterMidnaAlphaHook>(svc_hook, after_meter_midna_alpha);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_pre<MeterMapDrawHook>(svc_hook, before_meter_map_draw);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_post<MeterMapDrawHook>(svc_hook, after_meter_map_draw);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_pre<RingSetActiveCursorHook>(svc_hook, before_ring_set_active_cursor);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_post<RingSetActiveCursorHook>(svc_hook, after_ring_set_active_cursor);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_pre<RingIsMixItemOnHook>(svc_hook, before_ring_is_mix_item_on);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_pre<RingIsMixItemOffHook>(svc_hook, before_ring_is_mix_item_off);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_pre<MidnaTalkTriggerHook>(svc_hook, before_midna_talk_trigger);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_pre<CheckItemButtonChangeHook>(svc_hook, before_check_item_button_change);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_pre<CheckItemChangeFromButtonHook>(svc_hook, before_check_item_change_from_button);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_pre<CheckSetItemTriggerHook>(svc_hook, before_check_set_item_trigger);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_pre<CheckItemSetButtonHook>(svc_hook, before_check_item_set_button);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_pre<SetHeavyBootsHook>(svc_hook, before_set_heavy_boots);
-    }
-    if (result == MOD_OK) {
-        result = mods::hook_add_post<PlayerExecuteHook>(svc_hook, after_player_execute);
-    }
-    return add_hook(result, error);
+
+    ADD_PRE(GetSelectItemHook, before_get_select_item, "get selected item");
+    ADD_POST(SetSelectItemHook, after_set_select_item, "set selected item");
+    ADD_POST(PadReadHook, after_pad_read, "controller read");
+    ADD_POST(RingCreateHook, after_ring_create, "item ring create");
+    ADD_PRE(RingDeleteHook, before_ring_delete, "item ring delete");
+    ADD_POST(RingDrawHook, after_ring_draw, "item ring draw");
+    ADD_PRE(MeterDrawHook, before_meter_draw, "HUD draw (before)");
+    ADD_POST(MeterDrawHook, after_meter_draw, "HUD draw (after)");
+    ADD_POST(MeterMoveButtonCrossHook, after_meter_move_button_cross, "D-pad update");
+    ADD_PRE(MeterDrawKanteraHook, before_meter_draw_kantera, "lantern meter draw");
+    ADD_PRE(MeterDrawOxygenHook, before_meter_draw_oxygen, "oxygen meter draw");
+    ADD_POST(MeterMidnaAlphaHook, after_meter_midna_alpha, "Midna icon opacity");
+    ADD_PRE(MeterMapDrawHook, before_meter_map_draw, "minimap draw (before)");
+    ADD_POST(MeterMapDrawHook, after_meter_map_draw, "minimap draw (after)");
+    ADD_PRE(RingSetActiveCursorHook, before_ring_set_active_cursor, "item ring cursor (before)");
+    ADD_POST(RingSetActiveCursorHook, after_ring_set_active_cursor, "item ring cursor (after)");
+    ADD_PRE(RingIsMixItemOnHook, before_ring_is_mix_item_on, "item combination enable");
+    ADD_PRE(RingIsMixItemOffHook, before_ring_is_mix_item_off, "item combination disable");
+    ADD_PRE(MidnaTalkTriggerHook, before_midna_talk_trigger, "Midna input");
+    ADD_PRE(CheckItemButtonChangeHook, before_check_item_button_change, "item button change");
+    ADD_PRE(CheckItemChangeFromButtonHook, before_check_item_change_from_button,
+        "item change from button");
+    ADD_PRE(CheckSetItemTriggerHook, before_check_set_item_trigger, "item trigger");
+    ADD_PRE(CheckItemSetButtonHook, before_check_item_set_button, "item button lookup");
+    ADD_PRE(SetHeavyBootsHook, before_set_heavy_boots, "heavy boots toggle");
+    ADD_POST(PlayerExecuteHook, after_player_execute, "player update");
+
+#undef ADD_PRE
+#undef ADD_POST
+    return MOD_OK;
 }
 
 }  // namespace twilight_hd_hud
