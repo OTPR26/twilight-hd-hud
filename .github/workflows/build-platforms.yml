@@ -16,8 +16,8 @@ jobs:
       - name: Check out compatible Dusklight source
         uses: actions/checkout@v4
         with:
-          repository: BeZide93/dusk
-          ref: 0320c49ada59032d52bd609854fb9d3f3cdbdbb7
+          repository: TwilitRealm/dusklight
+          ref: 82e2fd4bea95c101ad15caf4ea6ad051132c82e8
           submodules: recursive
           path: dusklight
 
@@ -49,8 +49,8 @@ jobs:
       - name: Check out compatible Dusklight source
         uses: actions/checkout@v4
         with:
-          repository: BeZide93/dusk
-          ref: 0320c49ada59032d52bd609854fb9d3f3cdbdbb7
+          repository: TwilitRealm/dusklight
+          ref: 82e2fd4bea95c101ad15caf4ea6ad051132c82e8
           submodules: recursive
           path: dusklight
 
@@ -88,8 +88,8 @@ jobs:
       - name: Check out compatible Dusklight source
         uses: actions/checkout@v4
         with:
-          repository: BeZide93/dusk
-          ref: 0320c49ada59032d52bd609854fb9d3f3cdbdbb7
+          repository: TwilitRealm/dusklight
+          ref: 82e2fd4bea95c101ad15caf4ea6ad051132c82e8
           submodules: recursive
           path: dusklight
 
@@ -128,8 +128,8 @@ jobs:
       - name: Check out compatible Dusklight source
         uses: actions/checkout@v4
         with:
-          repository: BeZide93/dusk
-          ref: 0320c49ada59032d52bd609854fb9d3f3cdbdbb7
+          repository: TwilitRealm/dusklight
+          ref: 82e2fd4bea95c101ad15caf4ea6ad051132c82e8
           submodules: recursive
           path: dusklight
 
@@ -178,8 +178,8 @@ jobs:
       - name: Check out compatible Dusklight source
         uses: actions/checkout@v4
         with:
-          repository: BeZide93/dusk
-          ref: 0320c49ada59032d52bd609854fb9d3f3cdbdbb7
+          repository: TwilitRealm/dusklight
+          ref: 82e2fd4bea95c101ad15caf4ea6ad051132c82e8
           submodules: recursive
           path: dusklight
 

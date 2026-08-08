@@ -1,6 +1,10 @@
 # Twilight HD HUD
 
-Twilight HD HUD brings a *Twilight Princess HD*-inspired HUD and controller layout to [Dusklight](https://github.com/BeZide93/dusk).
+Twilight HD HUD brings a *Twilight Princess HD*-inspired HUD and controller layout to [Dusklight](https://github.com/TwilitRealm/dusklight).
+
+## Compatibility
+
+Dusklight **v1.4.1-129 or newer** is required. The mod is built and tested against the official Dusklight repository.
 
 ## Features
 
