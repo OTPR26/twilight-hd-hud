@@ -76,7 +76,7 @@ The project builds against the Dusklight mod SDK. Supported build targets are:
 | Desktop and Android | Windows x64, Linux x64 / Steam Deck, macOS Apple Silicon, Android ARM64 |
 | iOS and tvOS | iPhone and iPad ARM64, Apple TV ARM64 |
 
-The included workflow builds and verifies Windows, Linux, iOS, and tvOS against the compatible Dusklight revision recorded in the workflow file. The release packages also contain locally verified macOS Apple Silicon and Android ARM64 modules.
+The included workflow builds and verifies Windows x64, Linux x64, macOS Apple Silicon, Android ARM64, iOS ARM64, and tvOS ARM64 against the compatible Dusklight revision recorded in the workflow file.
 
 ### Host-platform build
 

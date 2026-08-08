@@ -79,6 +79,95 @@ jobs:
           path: build/mods/twilight_hd_hud.dusk
           if-no-files-found: error
 
+  macos:
+    runs-on: macos-latest
+    steps:
+      - name: Check out HUD source
+        uses: actions/checkout@v4
+
+      - name: Check out compatible Dusklight source
+        uses: actions/checkout@v4
+        with:
+          repository: BeZide93/dusk
+          ref: 0320c49ada59032d52bd609854fb9d3f3cdbdbb7
+          submodules: recursive
+          path: dusklight
+
+      - name: Install build tools
+        run: brew install cmake ninja
+
+      - name: Download macOS link stub
+        run: |
+          mkdir -p build-stubs
+          curl -L --fail --output build-stubs/stub-macos-arm64 \
+            https://github.com/encounter/dusklight/releases/download/sdk/stub-macos-arm64
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DDUSK_DIR="${GITHUB_WORKSPACE}/dusklight"
+          -DDUSK_GAME_EXE="${GITHUB_WORKSPACE}/build-stubs/stub-macos-arm64"
+
+      - name: Build package
+        run: cmake --build build
+
+      - name: Upload macOS package
+        uses: actions/upload-artifact@v4
+        with:
+          name: twilight-hd-hud-macos-arm64
+          path: build/mods/twilight_hd_hud.dusk
+          if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out HUD source
+        uses: actions/checkout@v4
+
+      - name: Check out compatible Dusklight source
+        uses: actions/checkout@v4
+        with:
+          repository: BeZide93/dusk
+          ref: 0320c49ada59032d52bd609854fb9d3f3cdbdbb7
+          submodules: recursive
+          path: dusklight
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+          sdkmanager "ndk;28.2.13676358"
+
+      - name: Download Android link stub
+        run: |
+          mkdir -p build-stubs
+          curl -L --fail --output build-stubs/stub-android-aarch64.so \
+            https://github.com/encounter/dusklight/releases/download/sdk/stub-android-aarch64.so
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DDUSK_DIR="${GITHUB_WORKSPACE}/dusklight"
+          -DCMAKE_TOOLCHAIN_FILE="${ANDROID_SDK_ROOT}/ndk/28.2.13676358/build/cmake/android.toolchain.cmake"
+          -DANDROID_ABI=arm64-v8a
+          -DANDROID_PLATFORM=android-28
+          -DDUSK_GAME_EXE="${GITHUB_WORKSPACE}/build-stubs/stub-android-aarch64.so"
+
+      - name: Build package
+        run: cmake --build build
+
+      - name: Upload Android package
+        uses: actions/upload-artifact@v4
+        with:
+          name: twilight-hd-hud-android-aarch64
+          path: build/mods/twilight_hd_hud.dusk
+          if-no-files-found: error
+
   apple-mobile:
     name: Build iOS and tvOS
     runs-on: macos-latest
