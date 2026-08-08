@@ -69,7 +69,18 @@ Physical controller bindings still depend on the active Dusklight controller pro
 
 ## Building
 
-The project builds against the Dusklight mod SDK. The included workflow produces Windows, Linux, iOS, and tvOS packages against the compatible Dusklight revision recorded in the workflow file. The release also includes locally verified macOS Apple Silicon and Android ARM64 modules.
+The project builds against the Dusklight mod SDK. Supported build targets are:
+
+| Download | Native targets |
+| --- | --- |
+| Desktop and Android | Windows x64, Linux x64 / Steam Deck, macOS Apple Silicon, Android ARM64 |
+| iOS and tvOS | iPhone and iPad ARM64, Apple TV ARM64 |
+
+The included workflow builds and verifies Windows, Linux, iOS, and tvOS against the compatible Dusklight revision recorded in the workflow file. The release packages also contain locally verified macOS Apple Silicon and Android ARM64 modules.
+
+### Host-platform build
+
+This command builds the native module for the current host or configured toolchain:
 
 ```sh
 cmake -S . -B build -G Ninja \
@@ -79,6 +90,10 @@ cmake --build build
 ```
 
 The resulting package is written to `build/mods/twilight_hd_hud.dusk`.
+
+### iOS and tvOS builds
+
+Apple mobile targets require the iOS or tvOS CMake toolchain and the matching Dusklight link stub. The complete, reproducible commands are in the `Build iOS and tvOS` job in [the build workflow](.github/workflows/build-platforms.yml). That job builds both ARM64 modules, verifies them, and combines them into the separate `Twilight-HD-HUD-iOS-tvOS.dusk` package.
 
 ## Credits and licensing
 
