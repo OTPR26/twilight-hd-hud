@@ -22,6 +22,7 @@ void initialize_wolf_action_icons();
 void shutdown_wolf_action_icons();
 void initialize_face_button_textures();
 void shutdown_face_button_textures();
+void shutdown_item_slot_resources();
 }
 
 extern "C" {
@@ -51,6 +52,7 @@ MOD_EXPORT ModResult mod_update(ModError*) {
 }
 
 MOD_EXPORT ModResult mod_shutdown(ModError*) {
+    twilight_hd_hud::shutdown_item_slot_resources();
     twilight_hd_hud::shutdown_face_button_textures();
     twilight_hd_hud::shutdown_wolf_action_icons();
     svc_log->info(mod_ctx, "Twilight HD HUD stopped");

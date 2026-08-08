@@ -2656,6 +2656,10 @@ void shutdown_face_button_textures() {
     free_resource(s_faceButtonBResource);
 }
 
+void shutdown_item_slot_resources() {
+    destroy_ring_z_prompt(s_ringZPrompt.ring);
+}
+
 void shutdown_wolf_action_icons() {
     free_picture(s_senseIconResource, s_senseIconPicture);
     free_picture(s_digIconResource, s_digIconPicture);
@@ -2676,7 +2680,9 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_POST(SetSelectItemHook, after_set_select_item, "set selected item");
     ADD_POST(PadReadHook, after_pad_read, "controller read");
     ADD_POST(RingCreateHook, after_ring_create, "item ring create");
+#if !defined(_WIN32)
     ADD_PRE(RingDeleteHook, before_ring_delete, "item ring delete");
+#endif
     ADD_POST(RingDrawHook, after_ring_draw, "item ring draw");
     ADD_PRE(MeterDrawHook, before_meter_draw, "HUD draw (before)");
     ADD_POST(MeterDrawHook, after_meter_draw, "HUD draw (after)");
