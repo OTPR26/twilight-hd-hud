@@ -1,7 +1,7 @@
 {
   "id": "org.twilight.hd_hud",
   "name": "Twilight HD HUD",
-  "version": "0.1.2-preview",
+  "version": "0.1.3-preview",
   "author": "Hyrule Hysteria",
   "description": "A focused Twilight Princess HD-style HUD and control-layout package for Dusklight."
 }
