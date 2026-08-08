@@ -1,10 +1,10 @@
 # Twilight HD HUD
 
-Twilight HD HUD brings a *Twilight Princess HD*-inspired heads-up display and controller layout to [Dusklight](https://github.com/BeZide93/dusk).
+Twilight HD HUD brings a *Twilight Princess HD*-inspired HUD and controller layout to [Dusklight](https://github.com/BeZide93/dusk).
 
 ## Features
 
-- Wii U-inspired life, Midna, D-Pad, minimap, item, action, and rupee placement
+- Wii U-inspired buttons, D-Pad, minimap, rupee placement
 - Three item slots using X, Y, and R
 - Independent D-Pad and minimap behavior
 - Human and wolf action artwork
@@ -21,16 +21,6 @@ Twilight HD HUD brings a *Twilight Princess HD*-inspired heads-up display and co
 
 The package does not contain game files. A compatible, legally obtained disc image is required by Dusklight.
 
-## Controls
-
-- X, Y, and R: equipped items
-- D-Pad Up: Midna
-- D-Pad Down: Items
-- D-Pad Left/Right: minimap toggle
-- ZL: targeting and defending
-- A: context action
-- B: attack
-- Right stick: free camera
 
 Physical controller bindings still depend on the active Dusklight controller profile.
 
