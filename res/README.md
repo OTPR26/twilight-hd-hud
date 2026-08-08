@@ -36,12 +36,12 @@ of a complete physical controller profile is not yet exposed by the current mod 
 Copy `twilight_hd_hud.dusk` into the `mods` directory inside the active Dusklight data folder,
 then restart the game or reload mods from the mod manager.
 
-## Optional HD textures
+## Bundled HD interface textures
 
-The TP Definitive Edition+ texture pack can provide complementary high-resolution environments,
-fonts, HUD artwork and button textures. Download it from its original page and install the
-untouched files into `texture_replacements/GZ2`:
+The package includes an unchanged subset of the TP Definitive Edition+ UI and HUD textures.
+Attribution, source information, and licensing are recorded in `THIRD_PARTY_TEXTURES.md`.
+
+The complete optional texture pack, including environments and characters, remains available
+from its original page:
 
 https://gamebanana.com/mods/676609
-
-The texture files are not included in this package.
