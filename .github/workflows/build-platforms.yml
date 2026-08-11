@@ -168,6 +168,48 @@ jobs:
           path: build/mods/twilight_hd_hud.dusk
           if-no-files-found: error
 
+  desktop-package:
+    name: Combine desktop and Android package
+    needs: [linux, windows, macos, android]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download native packages
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Combine native modules
+        shell: bash
+        run: |
+          mkdir -p package modules
+          unzip -q artifacts/twilight-hd-hud-linux-x86_64/twilight_hd_hud.dusk \
+            -d package
+          for platform in \
+            twilight-hd-hud-windows-x86_64 \
+            twilight-hd-hud-macos-arm64 \
+            twilight-hd-hud-android-aarch64
+          do
+            rm -rf modules/*
+            unzip -q "artifacts/${platform}/twilight_hd_hud.dusk" -d modules
+            cp -R modules/lib/. package/lib/
+          done
+          (cd package && zip -q -r ../Twilight-HD-HUD-Desktop-Android.dusk .)
+
+      - name: Verify desktop and Android modules
+        shell: bash
+        run: |
+          unzip -l Twilight-HD-HUD-Desktop-Android.dusk | grep 'lib/linux-x86_64/mod.so'
+          unzip -l Twilight-HD-HUD-Desktop-Android.dusk | grep 'lib/windows-amd64/mod.dll'
+          unzip -l Twilight-HD-HUD-Desktop-Android.dusk | grep 'lib/macos-arm64/mod.so'
+          unzip -l Twilight-HD-HUD-Desktop-Android.dusk | grep 'lib/android-aarch64/mod.so'
+
+      - name: Upload desktop and Android package
+        uses: actions/upload-artifact@v4
+        with:
+          name: twilight-hd-hud-desktop-android
+          path: Twilight-HD-HUD-Desktop-Android.dusk
+          if-no-files-found: error
+
   apple-mobile:
     name: Build iOS and tvOS
     runs-on: macos-latest

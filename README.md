@@ -16,6 +16,9 @@ Dusklight **v1.4.1-129 or newer** is required. The mod is built and tested again
 - HUD sizes of 75%, 100%, and 125%
 - Native modules for Windows x64, Linux x64, macOS Apple Silicon, Android ARM64, iOS ARM64, and tvOS ARM64
 
+Planned improvements are tracked in [ROADMAP.md](ROADMAP.md).
+Release history is recorded in [CHANGELOG.md](CHANGELOG.md).
+
 ## Downloads
 
 The release provides two `.dusk` packages:
