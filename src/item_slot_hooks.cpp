@@ -323,6 +323,17 @@ J2DPicture* as_picture(J2DPane* pane) {
     return static_cast<J2DPicture*>(pane);
 }
 
+const char* text_box_string(const J2DTextBox* text) {
+    if (text == nullptr) {
+        return nullptr;
+    }
+#if TARGET_PC
+    return text->getStringPtr().buffer;
+#else
+    return text->getStringPtr();
+#endif
+}
+
 J2DPicture* first_picture_pane(J2DPane* pane) {
     if (J2DPicture* picture = as_picture(pane)) {
         return picture;
@@ -1082,10 +1093,10 @@ void style_file_select_action_buttons(dFile_select_c* menu) {
             // glyphs when J2D lays out "Copy" as one string. Draw this one
             // label in three pieces so only p receives the small baseline
             // correction already used by the Copy destination title.
+            const char* currentLabel = text_box_string(text);
             const bool isCopyLabel =
                 text->search(MULTI_CHAR('hd_ac0')) != nullptr ||
-                (text->getStringPtr() != nullptr &&
-                    std::strcmp(text->getStringPtr(), "Copy") == 0);
+                (currentLabel != nullptr && std::strcmp(currentLabel, "Copy") == 0);
             if (isCopyLabel) {
                 text->setString("");
                 constexpr f32 labelSize = 16.0f;
@@ -1555,9 +1566,11 @@ void style_copy_destination_metadata_overlay(dFile_select_c* menu,
         return static_cast<J2DTextBox*>(source->search(tag));
     };
     auto copyString = [](J2DTextBox* target, J2DTextBox* from,
-                          const char* fallback) {
-        if (target == nullptr) return;
-        const char* value = from != nullptr ? from->getStringPtr() : fallback;
+        const char* fallback) {
+        if (target == nullptr) {
+            return;
+        }
+        const char* value = from != nullptr ? text_box_string(from) : fallback;
         target->setString(value != nullptr ? value : fallback);
     };
 
@@ -2482,8 +2495,7 @@ void style_save_select_title(dMenu_save_c* menu) {
         static_cast<J2DTextBox*>(
             menu->mpHeaderTxtPane[menu->mHeaderTxtType]->getPanePtr()) :
         nullptr;
-    const char* nativeString = nativeTitle != nullptr ?
-        nativeTitle->getStringPtr() : nullptr;
+    const char* nativeString = text_box_string(nativeTitle);
     const bool active = nativeString != nullptr &&
         std::strstr(nativeString, "Save to which log?") != nullptr;
     J2DPane* group = screen->search(MULTI_CHAR('hd_stit'));
@@ -3750,7 +3762,8 @@ void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
             text->setCharSpace(actionText->getCharSpace());
             text->setLineSpace(actionText->getLineSpace());
             const char* label = destination < 5 ? "Items" : "Map";
-            if (std::strcmp(text->getStringPtr(), label) != 0) {
+            const char* currentLabel = text_box_string(text);
+            if (currentLabel == nullptr || std::strcmp(currentLabel, label) != 0) {
                 text->setString(0x40, label);
             }
         }
