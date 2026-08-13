@@ -64,9 +64,11 @@ constexpr u8 kZItemSlot = SELECT_ITEM_DOWN;
 constexpr int kExtendedSelectItemCount = 3;
 constexpr int kSelectItemNotFound = 3;
 constexpr int kItemProcBootsEquip = 1;
-constexpr u32 kFirstNativeFaceButton = 0;
-constexpr u32 kLastNativeFaceButton = 3;
 int s_descenderCorrectionDrawDepth = 0;
+dFile_select_c* s_activeFileSelect = nullptr;
+bool s_fileSelectYesNoLayoutReady = false;
+f32 s_fileSelectYesNoX[2] = {};
+f32 s_fileSelectYesNoY[2] = {};
 
 struct WolfIconLayout {
     f32 offsetX;
@@ -112,12 +114,15 @@ DEFINE_HOOK(&JUTResFont::drawChar_scale, ResFontDrawCharHook);
 DEFINE_HOOK(&dFile_select_c::_create, FileSelectCreateHook);
 DEFINE_HOOK(&dFile_select_c::_move, FileSelectMoveHook);
 DEFINE_HOOK(&dFile_select_c::_draw, FileSelectDrawHook);
+DEFINE_HOOK(&dDlst_FileSel_c::draw, FileSelectMainDrawHook);
 DEFINE_HOOK(&dMenu_save_c::screenSet, SaveMenuScreenSetHook);
 DEFINE_HOOK(&dMenu_save_c::_delete, SaveMenuDeleteHook);
 DEFINE_HOOK(&dMenu_save_c::_draw2, SaveMenuDrawHook);
 DEFINE_HOOK(&dMenu_save_c::menuSaveWide, SaveMenuWideHook);
 DEFINE_HOOK(&dDlst_MenuSave_c::draw, SaveDlstDrawHook);
+DEFINE_HOOK(&dMw_c::_execute, MenuWindowExecuteHook);
 DEFINE_HOOK(&daAlink_c::midnaTalkTrigger, MidnaTalkTriggerHook);
+DEFINE_HOOK(&daAlink_c::setStickData, SetStickDataHook);
 DEFINE_HOOK(&mDoCPd_c::read, PadReadHook);
 DEFINE_HOOK(&daAlink_c::checkItemButtonChange, CheckItemButtonChangeHook);
 DEFINE_HOOK(&daAlink_c::checkItemChangeFromButton, CheckItemChangeFromButtonHook);
@@ -185,9 +190,36 @@ bool s_zHeavyBootsWaitRelease = false;
 u8 s_zHeavyBootsGuardFrames = 0;
 bool s_dpadMidnaHeld = false;
 bool s_dpadMidnaTrig = false;
-u32 s_checkedControllerVid = 0;
-u32 s_checkedControllerPid = 0;
-bool s_checkedControllerBindings = false;
+bool s_menuWindowUpHeld = false;
+bool s_menuWindowUpTrig = false;
+
+enum class DusklightActionBind {
+    FirstPersonCamera,
+    CallMidna,
+};
+
+using GetActionBindTrigFn = bool (*)(DusklightActionBind, u32);
+GetActionBindTrigFn s_getActionBindTrig = nullptr;
+
+bool midna_action_triggered() {
+    return s_getActionBindTrig != nullptr &&
+        s_getActionBindTrig(DusklightActionBind::CallMidna, PAD_1);
+}
+
+void resolve_action_binding_functions() {
+    void* address = nullptr;
+    HookSymbolFlags flags = {};
+    const ModResult result = svc_hook->resolve(
+        mod_ctx, "dusk::getActionBindTrig", &address, &flags);
+    if (result == MOD_OK && address != nullptr) {
+        s_getActionBindTrig = reinterpret_cast<GetActionBindTrigFn>(address);
+        return;
+    }
+
+    s_getActionBindTrig = nullptr;
+    svc_log->warn(mod_ctx,
+        "Unable to read Dusklight's Call Midna binding; D-pad Up remains available");
+}
 
 struct HudPaneTransformState {
     J2DPane* pane = nullptr;
@@ -550,6 +582,39 @@ ResTIMG const* archive_texture(const char* textureName) {
 ResTIMG const* resource_texture(const ResourceBuffer& resource) {
     return resource.data != nullptr && resource.size >= sizeof(ResTIMG) ?
         static_cast<ResTIMG const*>(resource.data) : nullptr;
+}
+
+ResTIMG const* menu_face_button_texture(const bool nativeAAction) {
+    ResTIMG const* buttonA = resource_texture(s_faceButtonAResource);
+    ResTIMG const* buttonB = resource_texture(s_faceButtonBResource);
+    if (buttonA == nullptr) {
+        buttonA = archive_texture("wiiu_a.bti");
+    }
+    if (buttonB == nullptr) {
+        buttonB = archive_texture("wiiu_b.bti");
+    }
+
+    switch (button_layout()) {
+    case ButtonLayout::Nintendo:
+        return nativeAAction ? buttonA : buttonB;
+    case ButtonLayout::Xbox:
+        // The actions retain their original positions. Only the printed
+        // letters change to match the Xbox south/east face-button layout.
+        return nativeAAction ? buttonB : buttonA;
+    case ButtonLayout::Universal:
+        return archive_texture("tt_zelda_button_ab_maru.bti");
+    }
+    return nativeAAction ? buttonA : buttonB;
+}
+
+void update_menu_face_button(J2DScreen* screen, const u64 tag,
+    const bool nativeAAction) {
+    auto* picture = screen != nullptr ?
+        as_picture(screen->search(tag)) : nullptr;
+    ResTIMG const* texture = menu_face_button_texture(nativeAAction);
+    if (picture != nullptr && texture != nullptr) {
+        picture->changeTexture(texture, 0);
+    }
 }
 
 void set_face_button_texture(dMeter2Draw_c* meter, const u64 pictureTag,
@@ -987,8 +1052,8 @@ void apply_dmap_hd_layout(dMenu_DmapBg_c* map) {
         };
         constexpr f32 rowY[] = {10.0f, 28.0f};
         ResTIMG const* icons[] = {
-            resource_texture(s_faceButtonAResource),
-            resource_texture(s_faceButtonBResource),
+            menu_face_button_texture(true),
+            menu_face_button_texture(false),
         };
         for (std::size_t index = 0; index < 2; ++index) {
             auto* text = JKR_NEW J2DTextBox(textTags[index],
@@ -1021,6 +1086,8 @@ void apply_dmap_hd_layout(dMenu_DmapBg_c* map) {
         titleGroup->scale(mDoGph_gInf_c::hudAspectScaleDown, 1.0f);
     }
     if (promptGroup != nullptr) {
+        update_menu_face_button(map->mButtonScreen, MULTI_CHAR('hd_daic'), true);
+        update_menu_face_button(map->mButtonScreen, MULTI_CHAR('hd_dbic'), false);
         promptGroup->move(438.0f, 4.0f);
         promptGroup->scale(mDoGph_gInf_c::hudAspectScaleDown, 1.0f);
     }
@@ -1124,8 +1191,8 @@ void add_fmap_top_overlay(dMenu_Fmap2DTop_c* map) {
         MULTI_CHAR('hd_fri0'), MULTI_CHAR('hd_fai1'), MULTI_CHAR('hd_fbi2'),
     };
     ResTIMG const* iconTextures[] = {
-        archive_texture("wiiu_r.bti"), resource_texture(s_faceButtonAResource),
-        resource_texture(s_faceButtonBResource),
+        archive_texture("wiiu_r.bti"), menu_face_button_texture(true),
+        menu_face_button_texture(false),
     };
     J2DPane* controlAnchor = map->mpContPane->getPanePtr();
     if (controlAnchor == nullptr) {
@@ -1203,6 +1270,8 @@ void apply_fmap_top(dMenu_Fmap2DTop_c* map) {
         return;
     }
     add_fmap_top_overlay(map);
+    update_menu_face_button(map->mpTitleScreen, MULTI_CHAR('hd_fai1'), true);
+    update_menu_face_button(map->mpTitleScreen, MULTI_CHAR('hd_fbi2'), false);
     position_fmap_prompt_overlay(map);
 
     constexpr u64 titleTags[] = {
@@ -1466,8 +1535,12 @@ void update_option_widescreen_canvas(dMenu_Option_c* menu) {
 }
 
 void add_option_prompts(dMenu_Option_c* menu) {
-    if (menu == nullptr || menu->mpScreenIcon == nullptr ||
-        menu->mpScreenIcon->search(MULTI_CHAR('hd_oprm')) != nullptr) {
+    if (menu == nullptr || menu->mpScreenIcon == nullptr) {
+        return;
+    }
+    if (menu->mpScreenIcon->search(MULTI_CHAR('hd_oprm')) != nullptr) {
+        update_menu_face_button(menu->mpScreenIcon, MULTI_CHAR('hd_oapi'), true);
+        update_menu_face_button(menu->mpScreenIcon, MULTI_CHAR('hd_obpi'), false);
         return;
     }
 
@@ -1503,13 +1576,13 @@ void add_option_prompts(dMenu_Option_c* menu) {
 
     addPicture(MULTI_CHAR('hd_oapi'),
         JGeometry::TBox2<f32>(558.0f, 14.0f, 585.0f, 41.0f),
-        resource_texture(s_faceButtonAResource));
+        menu_face_button_texture(true));
     addPicture(MULTI_CHAR('hd_obck'),
         JGeometry::TBox2<f32>(508.0f, 35.0f, 547.0f, 51.0f),
         resource_texture(s_fileSelectBackLabelResource));
     addPicture(MULTI_CHAR('hd_obpi'),
         JGeometry::TBox2<f32>(546.0f, 32.0f, 573.0f, 59.0f),
-        resource_texture(s_faceButtonBResource));
+        menu_face_button_texture(false));
     addPicture(MULTI_CHAR('hd_oflr'),
         JGeometry::TBox2<f32>(562.0f, 29.0f, 600.0f, 67.0f),
         resource_texture(s_fileSelectPromptFlourishResource), 205);
@@ -1654,8 +1727,11 @@ void replace_option_tv_brick_layer(J2DPane* pane, ResTIMG const* brickTexture,
 }
 
 void add_tv_settings_hd_overlay(J2DScreen* screen, JUTFont* font) {
-    if (screen == nullptr || font == nullptr ||
-        screen->search(MULTI_CHAR('hd_tvov')) != nullptr) {
+    if (screen == nullptr || font == nullptr) {
+        return;
+    }
+    if (screen->search(MULTI_CHAR('hd_tvov')) != nullptr) {
+        update_menu_face_button(screen, MULTI_CHAR('hd_tvap'), true);
         return;
     }
 
@@ -1729,7 +1805,7 @@ void add_tv_settings_hd_overlay(J2DScreen* screen, JUTFont* font) {
         JUtility::TColor(255, 255, 255, 255));
     overlay->appendChild(complete);
 
-    if (ResTIMG const* greyA = resource_texture(s_faceButtonAResource)) {
+    if (ResTIMG const* greyA = menu_face_button_texture(true)) {
         auto* button = JKR_NEW J2DPicture(MULTI_CHAR('hd_tvap'),
             JGeometry::TBox2<f32>(558.0f, 14.0f, 585.0f, 41.0f), greyA, nullptr);
         configure_hd_picture(button);
@@ -1911,21 +1987,27 @@ ResTIMG const* file_select_archive_texture(dFile_select_c* menu,
 // File Selection and copy menus --------------------------------------------
 
 void replace_file_select_prompt(CPaneMgrAlpha* paneManager,
-    ResTIMG const* replacement) {
+    ResTIMG const* replacement, const u64 buttonTag) {
     J2DPane* group = paneManager != nullptr ? paneManager->getPanePtr() : nullptr;
     if (group == nullptr || replacement == nullptr) {
         return;
     }
 
-    J2DPicture* button = nullptr;
-    f32 largestArea = 0.0f;
-    find_largest_picture(group, button, largestArea);
+    auto* button = static_cast<J2DPicture*>(group->searchUserInfo(buttonTag));
     if (button == nullptr) {
-        return;
+        f32 largestArea = 0.0f;
+        find_largest_picture(group, button, largestArea);
+        if (button == nullptr) {
+            return;
+        }
+        // Mark the native disc once. Later layout changes can then update the
+        // same picture without treating the Back label or flourish overlays
+        // as candidate button art and without hiding those overlays again.
+        button->setUserInfo(buttonTag);
+        hide_other_pictures(group, button);
     }
 
     const JGeometry::TBox2<f32> bounds = button->getBounds();
-    hide_other_pictures(group, button);
     button->changeTexture(replacement, 0);
     button->resize(bounds.getWidth(), bounds.getHeight());
     button->move(bounds.i.x, bounds.i.y);
@@ -3021,7 +3103,14 @@ void style_copy_destination_yes_no(dFile_select_c* menu, bool active) {
         // and produce a visible flash when changing choices, so detach them.
         group->setAnimation(static_cast<J2DAnmTransform*>(nullptr));
         group->scale(1.0f, 1.0f);
-        move_file_select_pane_center(group, centers[index], 365.0f);
+        if (s_fileSelectYesNoLayoutReady) {
+            group->translate(s_fileSelectYesNoX[index],
+                s_fileSelectYesNoY[index]);
+        } else {
+            move_file_select_pane_center(group, centers[index], 365.0f);
+            s_fileSelectYesNoX[index] = group->getTranslateX();
+            s_fileSelectYesNoY[index] = group->getTranslateY();
+        }
         group->setAlpha(255);
         hide_other_pictures(group, frame);
         frame->resize(142.0f, 26.0f);
@@ -3056,6 +3145,9 @@ void style_copy_destination_yes_no(dFile_select_c* menu, bool active) {
             menu->mSelIcon->setAlphaRate(1.0f);
             position_cursor_outside_frame(menu->mSelIcon, frame);
         }
+    }
+    if (active) {
+        s_fileSelectYesNoLayoutReady = true;
     }
 }
 
@@ -3498,9 +3590,9 @@ void apply_file_select_hd_style(dFile_select_c* menu) {
     }
 
     replace_file_select_prompt(menu->mAbtnPane,
-        resource_texture(s_faceButtonAResource));
+        menu_face_button_texture(true), MULTI_CHAR('hd_fsab'));
     replace_file_select_prompt(menu->mBbtnPane,
-        resource_texture(s_faceButtonBResource));
+        menu_face_button_texture(false), MULTI_CHAR('hd_fsbb'));
     hide_collect_decoration_texture(menu->fileSel.Scr,
         file_select_archive_texture(menu, "tt_zelda_button_ab_maru.bti"));
     scale_file_select_button(menu->mAbtnPane, 0.88f);
@@ -3882,7 +3974,12 @@ void add_save_menu_title_rules(dMenu_save_c* menu) {
 
 void add_save_menu_fixed_prompts(dMenu_save_c* menu) {
     J2DScreen* screen = menu != nullptr ? menu->mSaveSel.Scr : nullptr;
-    if (screen == nullptr || screen->search(MULTI_CHAR('hd_sprm')) != nullptr) {
+    if (screen == nullptr) {
+        return;
+    }
+    if (screen->search(MULTI_CHAR('hd_sprm')) != nullptr) {
+        update_menu_face_button(screen, MULTI_CHAR('hd_sapi'), true);
+        update_menu_face_button(screen, MULTI_CHAR('hd_sbpi'), false);
         return;
     }
     auto* group = JKR_NEW J2DPane(MULTI_CHAR('hd_sprm'),
@@ -3913,13 +4010,13 @@ void add_save_menu_fixed_prompts(dMenu_save_c* menu) {
 
     addPicture(MULTI_CHAR('hd_sapi'),
         JGeometry::TBox2<f32>(558.0f, 14.0f, 585.0f, 41.0f),
-        resource_texture(s_faceButtonAResource));
+        menu_face_button_texture(true));
     addPicture(MULTI_CHAR('hd_sbck'),
         JGeometry::TBox2<f32>(508.0f, 34.0f, 547.0f, 50.0f),
         resource_texture(s_fileSelectBackLabelResource));
     addPicture(MULTI_CHAR('hd_sbpi'),
         JGeometry::TBox2<f32>(546.0f, 32.0f, 573.0f, 59.0f),
-        resource_texture(s_faceButtonBResource));
+        menu_face_button_texture(false));
     addPicture(MULTI_CHAR('hd_sflr'),
         JGeometry::TBox2<f32>(562.0f, 29.0f, 600.0f, 67.0f),
         resource_texture(s_fileSelectPromptFlourishResource), 205);
@@ -3994,9 +4091,9 @@ void style_save_menu_prompts(dMenu_save_c* menu) {
         return;
     }
     replace_file_select_prompt(menu->mpABtnIcon,
-        resource_texture(s_faceButtonAResource));
+        menu_face_button_texture(true), MULTI_CHAR('hd_smab'));
     replace_file_select_prompt(menu->mpBBtnIcon,
-        resource_texture(s_faceButtonBResource));
+        menu_face_button_texture(false), MULTI_CHAR('hd_smbb'));
     scale_file_select_button(menu->mpABtnIcon, 0.88f);
     clear_file_select_prompt_panel(menu->mpBackTxt);
     clear_file_select_prompt_panel(menu->mpConfirmTxt);
@@ -5698,12 +5795,11 @@ void position_midna_hud(dMeter2Draw_c* meter) {
     }
 
     // The standalone L badge does not participate reliably in the stock HUD's
-    // visibility path. Use the established portable layout instead: Midna is
-    // attached to and displayed over D-Pad Up.
+    // visibility path. Attach Midna to the D-Pad group and display her above
+    // the Up direction, which is also her gameplay input.
     J2DPane* anchorPane = meter->mpScreen->search(MULTI_CHAR('juji_n'));
     constexpr f32 positionX = 8.0f;
-    // Midna now occupies the former Items row above the D-Pad while D-Pad
-    // Down remains her input binding.
+    // Midna occupies the former Items row above the D-Pad.
     constexpr f32 positionY = -21.0f;
 
     if (anchorPane == nullptr) {
@@ -6212,61 +6308,7 @@ void after_set_select_item(ModContext*, void* args, void*, void*) {
     sync_play_select_item(mods::arg<int>(args, 0));
 }
 
-void repair_missing_y_item_binding() {
-    u32 mappingCount = 0;
-    PADButtonMapping* mappings = PADGetButtonMappings(PAD_1, &mappingCount);
-    if (mappings == nullptr || mappingCount == 0) {
-        s_checkedControllerBindings = false;
-        return;
-    }
-
-    u32 vid = 0;
-    u32 pid = 0;
-    PADGetVidPid(PAD_1, &vid, &pid);
-    if (s_checkedControllerBindings && vid == s_checkedControllerVid &&
-        pid == s_checkedControllerPid)
-    {
-        return;
-    }
-
-    s_checkedControllerBindings = true;
-    s_checkedControllerVid = vid;
-    s_checkedControllerPid = pid;
-
-    PADButtonMapping* yMapping = nullptr;
-    std::array<bool, 4> usedFaceButtons = {};
-    for (u32 i = 0; i < mappingCount; ++i) {
-        PADButtonMapping& mapping = mappings[i];
-        if (mapping.padButton == PAD_BUTTON_Y) {
-            yMapping = &mapping;
-        }
-        if ((mapping.padButton == PAD_BUTTON_A || mapping.padButton == PAD_BUTTON_B ||
-             mapping.padButton == PAD_BUTTON_X || mapping.padButton == PAD_BUTTON_Y) &&
-            mapping.nativeButton <= kLastNativeFaceButton)
-        {
-            usedFaceButtons[mapping.nativeButton] = true;
-        }
-    }
-
-    if (yMapping == nullptr || yMapping->nativeButton != PAD_NATIVE_BUTTON_INVALID) {
-        return;
-    }
-
-    // A partially configured Nintendo-style profile can leave Y unbound. Use
-    // the one unused face button so the repair also respects swapped A/B and X/Y layouts.
-    for (u32 nativeButton = kFirstNativeFaceButton;
-         nativeButton <= kLastNativeFaceButton; ++nativeButton)
-    {
-        if (!usedFaceButtons[nativeButton]) {
-            PADSetButtonMapping(PAD_1, {nativeButton, PAD_BUTTON_Y});
-            break;
-        }
-    }
-}
-
 void after_pad_read(ModContext*, void*, void*, void*) {
-    repair_missing_y_item_binding();
-
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
     if (z_item_menu_or_pause_context()) {
         s_dpadMidnaHeld = false;
@@ -6274,24 +6316,36 @@ void after_pad_read(ModContext*, void*, void*, void*) {
         return;
     }
 
-    // The third item remains on the GameCube Z input internally. Translate
-    // Dusklight's logical R shoulder into Z during gameplay so controller
-    // profiles that expose R directly can still activate the third item.
-    if ((pad.mButtonFlags & PAD_TRIGGER_R) != 0) {
-        pad.mButtonFlags = (pad.mButtonFlags & ~PAD_TRIGGER_R) | PAD_TRIGGER_Z;
-    }
-    if ((pad.mPressedButtonFlags & PAD_TRIGGER_R) != 0) {
-        pad.mPressedButtonFlags =
-            (pad.mPressedButtonFlags & ~PAD_TRIGGER_R) | PAD_TRIGGER_Z;
-    }
-
     s_dpadMidnaHeld = (pad.mButtonFlags & PAD_BUTTON_UP) != 0;
     s_dpadMidnaTrig = (pad.mPressedButtonFlags & PAD_BUTTON_UP) != 0;
-    if (s_dpadMidnaHeld) {
-        pad.mButtonFlags &= ~PAD_BUTTON_UP;
+}
+
+void after_set_stick_data(ModContext*, void* args, void*, void*) {
+    auto* link = mods::arg<daAlink_c*>(args, 0);
+    if (link == nullptr || z_item_menu_or_pause_context()) {
+        return;
     }
-    if (s_dpadMidnaTrig) {
-        pad.mPressedButtonFlags &= ~PAD_BUTTON_UP;
+
+    // A dedicated Dusklight action binding takes precedence over the third
+    // item if both resolve to the same physical control.
+    if (midna_action_triggered()) {
+        link->mItemTrigger &= ~daAlink_c::BTN_Z;
+        return;
+    }
+
+    if (controller_compatibility() != ControllerCompatibility::FixedTphd) {
+        return;
+    }
+
+    // The fixed layout treats logical R as an additional third-item input,
+    // but does so only after the game's input snapshot is built. The shared
+    // controller profile and the pad state seen by Dusklight and other mods
+    // remain untouched.
+    if (mDoCPd_c::getTrigR(PAD_1)) {
+        link->mItemTrigger |= daAlink_c::BTN_Z;
+    }
+    if (mDoCPd_c::getHoldR(PAD_1)) {
+        link->mItemButton |= daAlink_c::BTN_Z;
     }
 }
 
@@ -6303,6 +6357,9 @@ void after_collect_create(ModContext*, void* args, void*, void*) {
 HookAction before_fmap_move(ModContext*, void*, void*, void*) {
     // The map's Portals action is still wired to GameCube Z internally.
     // Translate the displayed R shoulder only while this map processes input.
+    if (controller_compatibility() != ControllerCompatibility::FixedTphd) {
+        return HOOK_CONTINUE;
+    }
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
     if ((pad.mButtonFlags & PAD_TRIGGER_R) != 0) {
         pad.mButtonFlags |= PAD_TRIGGER_Z;
@@ -6352,6 +6409,9 @@ HookAction before_option_move(ModContext*, void*, void*, void*) {
     // The original display submenu is bound to GameCube Z. The HD layout uses
     // the physical R shoulder, so translate R only while the Options menu is
     // processing input; gameplay's separate R-item mapping remains untouched.
+    if (controller_compatibility() != ControllerCompatibility::FixedTphd) {
+        return HOOK_CONTINUE;
+    }
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
     if ((pad.mButtonFlags & PAD_TRIGGER_R) != 0) {
         pad.mButtonFlags |= PAD_TRIGGER_Z;
@@ -6432,7 +6492,9 @@ HookAction before_option_draw_arrows(ModContext*, void* args, void*, void*) {
 }
 
 void after_file_select_create(ModContext*, void* args, void*, void*) {
-    apply_file_select_hd_style(mods::arg<dFile_select_c*>(args, 0));
+    s_activeFileSelect = mods::arg<dFile_select_c*>(args, 0);
+    s_fileSelectYesNoLayoutReady = false;
+    apply_file_select_hd_style(s_activeFileSelect);
 }
 
 void after_file_select_move(ModContext*, void* args, void*, void*) {
@@ -6445,6 +6507,10 @@ HookAction before_file_select_draw(ModContext*, void* args, void*, void*) {
     // constructing a new dFile_select_c. Reapply only idempotent styling here
     // so the reset path cannot restore native lines, panels, or row artwork.
     replace_file_select_background(menu);
+    replace_file_select_prompt(menu->mAbtnPane,
+        menu_face_button_texture(true), MULTI_CHAR('hd_fsab'));
+    replace_file_select_prompt(menu->mBbtnPane,
+        menu_face_button_texture(false), MULTI_CHAR('hd_fsbb'));
     remove_file_select_stonework(menu);
     remove_file_select_decorative_bands(menu);
     simplify_file_select_rows(menu);
@@ -6462,11 +6528,25 @@ HookAction before_file_select_draw(ModContext*, void* args, void*, void*) {
     style_copy_destination_screen(menu);
     position_file_select_cursor(menu);
     // Copy and Erase confirmations share File Selection's native Yes/No
-    // screen. Apply the compact action-button treatment last so the normal
-    // row-cursor pass cannot pull the highlight corners off the active choice.
+    // screen. Restore the cached local translations after the native choice
+    // animation has run so neither button can slide during selection changes.
     style_copy_destination_yes_no(menu,
         copy_destination_confirm_state(menu));
     return HOOK_CONTINUE;
+}
+
+HookAction before_file_select_main_draw(ModContext*, void*, void*, void*) {
+    // File Selection queues this screen for a later draw. Keep the descender
+    // correction active while that queued screen renders so titles such as
+    // "Quest Log" use the same baseline as the other updated menus.
+    ++s_descenderCorrectionDrawDepth;
+    return HOOK_CONTINUE;
+}
+
+void after_file_select_main_draw(ModContext*, void*, void*, void*) {
+    if (s_descenderCorrectionDrawDepth > 0) {
+        --s_descenderCorrectionDrawDepth;
+    }
 }
 
 void after_save_menu_screen_set(ModContext*, void* args, void*, void*) {
@@ -6493,6 +6573,7 @@ HookAction before_save_menu_draw(ModContext*, void* args, void*, void*) {
         update_save_menu_row_selection(menu);
         style_save_select_title(menu);
         style_save_menu_prompts(menu);
+        add_save_menu_fixed_prompts(menu);
         style_save_menu_yes_no_buttons(menu);
     }
     return HOOK_CONTINUE;
@@ -6803,7 +6884,9 @@ HookAction before_ring_set_active_cursor(ModContext*, void* args, void*, void*) 
         return HOOK_SKIP_ORIGINAL;
     }
 
-    if (mDoCPd_c::getTrigR(PAD_1)) {
+    if (controller_compatibility() == ControllerCompatibility::FixedTphd &&
+        mDoCPd_c::getTrigR(PAD_1))
+    {
         s_pendingAssign = {};
         if (item_assign_allowed(ring)) {
             assign_current_item(ring, kZItemSlot);
@@ -6867,8 +6950,30 @@ HookAction before_midna_talk_trigger(ModContext*, void* args, void* retval, void
         return HOOK_CONTINUE;
     }
 
-    *static_cast<BOOL*>(retval) = s_dpadMidnaTrig || consume_touch_midna_trigger();
+    *static_cast<BOOL*>(retval) =
+        s_dpadMidnaTrig || midna_action_triggered() || consume_touch_midna_trigger();
     return HOOK_SKIP_ORIGINAL;
+}
+
+HookAction before_menu_window_execute(ModContext*, void*, void*, void*) {
+    // Up belongs to Midna during gameplay. Hide it only while the gameplay
+    // menu dispatcher checks whether it should open the item wheel.
+    interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
+    s_menuWindowUpHeld = (pad.mButtonFlags & PAD_BUTTON_UP) != 0;
+    s_menuWindowUpTrig = (pad.mPressedButtonFlags & PAD_BUTTON_UP) != 0;
+    pad.mButtonFlags &= ~PAD_BUTTON_UP;
+    pad.mPressedButtonFlags &= ~PAD_BUTTON_UP;
+    return HOOK_CONTINUE;
+}
+
+void after_menu_window_execute(ModContext*, void*, void*, void*) {
+    interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
+    if (s_menuWindowUpHeld) {
+        pad.mButtonFlags |= PAD_BUTTON_UP;
+    }
+    if (s_menuWindowUpTrig) {
+        pad.mPressedButtonFlags |= PAD_BUTTON_UP;
+    }
 }
 
 HookAction before_check_item_button_change(ModContext*, void* args, void*, void*) {
@@ -7239,6 +7344,18 @@ void shutdown_face_button_textures() {
 
 void shutdown_item_slot_resources() {
     destroy_ring_z_prompt(s_ringZPrompt.ring);
+    s_pendingAssign = {};
+    s_activeFileSelect = nullptr;
+    s_activeSaveMenu = nullptr;
+    s_activeCollectMenu = nullptr;
+    s_descenderCorrectionDrawDepth = 0;
+    s_fileSelectYesNoLayoutReady = false;
+    s_dpadMidnaHeld = false;
+    s_dpadMidnaTrig = false;
+    s_menuWindowUpHeld = false;
+    s_menuWindowUpTrig = false;
+    s_getActionBindTrig = nullptr;
+    clear_z_heavy_boots_input_lock();
 }
 
 void shutdown_wolf_action_icons() {
@@ -7248,6 +7365,8 @@ void shutdown_wolf_action_icons() {
 }
 
 ModResult install_item_slot_hooks(ModError* error) {
+    resolve_action_binding_functions();
+
 #define ADD_PRE(type, callback, name) \
     if (const ModResult result = add_pre_hook<type>(name, callback, error); result != MOD_OK) { \
         return result; \
@@ -7260,6 +7379,7 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_PRE(GetSelectItemHook, before_get_select_item, "get selected item");
     ADD_POST(SetSelectItemHook, after_set_select_item, "set selected item");
     ADD_POST(PadReadHook, after_pad_read, "controller read");
+    ADD_POST(SetStickDataHook, after_set_stick_data, "scoped third-item input");
     ADD_POST(RingCreateHook, after_ring_create, "item ring create");
 #if !defined(_WIN32)
     ADD_PRE(RingDeleteHook, before_ring_delete, "item ring delete");
@@ -7307,11 +7427,17 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_POST(FileSelectCreateHook, after_file_select_create, "file selection HD style");
     ADD_POST(FileSelectMoveHook, after_file_select_move, "file selection HD prompt position");
     ADD_PRE(FileSelectDrawHook, before_file_select_draw, "file selection HD text");
+    ADD_PRE(FileSelectMainDrawHook, before_file_select_main_draw,
+        "file selection descender scope");
+    ADD_POST(FileSelectMainDrawHook, after_file_select_main_draw,
+        "file selection descender cleanup");
     ADD_POST(SaveMenuScreenSetHook, after_save_menu_screen_set, "save menu HD style");
     ADD_PRE(SaveMenuDeleteHook, before_save_menu_delete, "save menu cleanup");
     ADD_PRE(SaveMenuDrawHook, before_save_menu_draw, "save menu HD draw");
     ADD_POST(SaveMenuWideHook, after_save_menu_wide, "save menu HD wide layout");
     ADD_PRE(SaveDlstDrawHook, before_save_dlst_draw, "save menu HD final draw");
+    ADD_PRE(MenuWindowExecuteHook, before_menu_window_execute, "Midna pause-menu input");
+    ADD_POST(MenuWindowExecuteHook, after_menu_window_execute, "Midna input restore");
     ADD_PRE(RingSetActiveCursorHook, before_ring_set_active_cursor, "item ring cursor (before)");
     ADD_POST(RingSetActiveCursorHook, after_ring_set_active_cursor, "item ring cursor (after)");
     ADD_POST(RingSetMixMessageHook, after_ring_set_mix_message,

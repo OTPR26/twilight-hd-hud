@@ -65,6 +65,20 @@ ModResult build_hud_tab(
     {
         return MOD_ERROR;
     }
+    static constexpr const char* kControllerCompatibility[] = {
+        "Follow Dusklight Bindings",
+        "TPHD Fixed Layout",
+    };
+    if (add_select(ctx, left, "Controller Compatibility",
+            controller_compatibility_config_var(), kControllerCompatibility,
+            std::size(kControllerCompatibility),
+            "Follow Dusklight Bindings respects the active controller profile and is recommended. "
+            "TPHD Fixed Layout also accepts logical R for the third item and related menu actions. "
+            "D-Pad Up calls Midna in both modes; a separate Dusklight Call Midna binding is also honored.")
+        != MOD_OK)
+    {
+        return MOD_ERROR;
+    }
     static constexpr const char* kHudSizes[] = {
         "75%",
         "100%",
