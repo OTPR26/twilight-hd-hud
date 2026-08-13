@@ -100,9 +100,8 @@ DEFINE_HOOK(&dMeterMap_c::draw, MeterMapDrawHook);
 DEFINE_HOOK(&dMenu_Collect2D_c::_create, CollectCreateHook);
 DEFINE_HOOK(&dMenu_Collect2D_c::_delete, CollectDeleteHook);
 DEFINE_HOOK(&dMenu_Fmap_c::_move, FmapMoveHook);
-DEFINE_HOOK(&dMenu_Fmap2DBack_c::draw, FmapBackDrawHook);
-DEFINE_HOOK(&dMenu_Fmap2DTop_c::draw, FmapTopDrawHook);
-DEFINE_HOOK(&dMenu_DmapBg_c::draw, DmapBgDrawHook);
+DEFINE_HOOK(&dMenu_Fmap_c::_draw, FmapDrawHook);
+DEFINE_HOOK(&dMenu_Dmap_c::_draw, DmapDrawHook);
 DEFINE_HOOK(&dMenu_Option_c::_create, OptionCreateHook);
 DEFINE_HOOK(&dMenu_Option_c::_move, OptionMoveHook);
 DEFINE_HOOK(&dMenu_Option_c::_draw, OptionDrawHook);
@@ -6314,21 +6313,22 @@ HookAction before_fmap_move(ModContext*, void*, void*, void*) {
     return HOOK_CONTINUE;
 }
 
-HookAction before_fmap_back_draw(ModContext*, void* args, void*, void*) {
-    auto* map = mods::arg<dMenu_Fmap2DBack_c*>(args, 0);
-    apply_fmap_background(map);
-    return HOOK_CONTINUE;
-}
-
-HookAction before_fmap_top_draw(ModContext*, void* args, void*, void*) {
+HookAction before_fmap_draw(ModContext*, void* args, void*, void*) {
     // Prompt strings are rewritten as map zoom state changes, so mirror the
     // current values immediately before every field-map draw.
-    apply_fmap_top(mods::arg<dMenu_Fmap2DTop_c*>(args, 0));
+    auto* map = mods::arg<dMenu_Fmap_c*>(args, 0);
+    if (map != nullptr) {
+        apply_fmap_background(map->mpDraw2DBack);
+        apply_fmap_top(map->mpDraw2DTop);
+    }
     return HOOK_CONTINUE;
 }
 
-HookAction before_dmap_bg_draw(ModContext*, void* args, void*, void*) {
-    apply_dmap_hd_layout(mods::arg<dMenu_DmapBg_c*>(args, 0));
+HookAction before_dmap_draw(ModContext*, void* args, void*, void*) {
+    auto* map = mods::arg<dMenu_Dmap_c*>(args, 0);
+    if (map != nullptr) {
+        apply_dmap_hd_layout(map->mpDrawBg);
+    }
     return HOOK_CONTINUE;
 }
 
@@ -7286,9 +7286,9 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_POST(CollectCreateHook, after_collect_create, "collection menu buttons");
     ADD_PRE(CollectDeleteHook, before_collect_delete, "collection menu cleanup");
     ADD_PRE(FmapMoveHook, before_fmap_move, "field map portals R button mapping");
-    ADD_PRE(FmapBackDrawHook, before_fmap_back_draw, "field map HD background");
-    ADD_PRE(FmapTopDrawHook, before_fmap_top_draw, "field map HD title and prompts");
-    ADD_PRE(DmapBgDrawHook, before_dmap_bg_draw,
+    ADD_PRE(FmapDrawHook, before_fmap_draw,
+        "field map HD background, title, and prompts");
+    ADD_PRE(DmapDrawHook, before_dmap_draw,
         "dungeon map HD background, title, and prompts");
     ADD_POST(OptionCreateHook, after_option_create, "options menu HD style");
     ADD_POST(BrightCheckScreenSetHook, after_brightness_check_screen_set,
