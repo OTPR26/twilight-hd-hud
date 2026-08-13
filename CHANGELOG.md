@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.6.0 - 2026-08-12
+
+- Restyle the Options and Device Settings screens with the cleaner
+  *Twilight Princess HD*-inspired menu treatment.
+- Replace legacy stone-wall menu backgrounds and update controller prompts
+  with the matching A, B, and R button artwork.
+- Redesign the field map header, background, and controls while keeping the
+  map and prompt layout stable across aspect ratios and window resizing.
+- Bring dungeon maps into the same visual system with updated titles,
+  typography, prompts, and background treatment.
+- Correct menu descenders and remove leftover native frame decorations.
+
 ## v0.5.0 - 2026-08-11
 
 - Redesign the File Selection, file-copy, save, and Collection screens with a

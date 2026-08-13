@@ -7,10 +7,12 @@
 #include "Z2AudioLib/Z2SeMgr.h"
 #include "d/actor/d_a_alink.h"
 #include "d/d_com_inf_game.h"
+#include "d/d_bright_check.h"
 #include "d/d_kantera_icon_meter.h"
 #include "d/d_item.h"
 #include "d/d_item_data.h"
 #include "d/d_meter_HIO.h"
+#include "d/d_meter_haihai.h"
 #include "d/d_meter2.h"
 #include "d/d_meter2_info.h"
 #include "d/d_menu_window.h"
@@ -21,7 +23,9 @@
 #include "JSystem/J2DGraph/J2DScreen.h"
 #include "JSystem/J2DGraph/J2DPicture.h"
 #include "JSystem/J2DGraph/J2DTextBox.h"
+#include "JSystem/JKernel/JKRExpHeap.h"
 #include "JSystem/JUtility/JUTFont.h"
+#include "JSystem/JUtility/JUTResFont.h"
 #define private public
 #include "d/d_select_cursor.h"
 #define PaneCache FileSelectPaneCache
@@ -30,6 +34,10 @@
 #include "d/d_file_sel_info.h"
 #include "d/d_menu_save.h"
 #include "d/d_menu_collect.h"
+#include "d/d_menu_fmap.h"
+#include "d/d_menu_fmap2D.h"
+#include "d/d_menu_dmap.h"
+#include "d/d_menu_option.h"
 #include "d/d_menu_ring.h"
 #include "d/d_meter_map.h"
 #include "d/d_meter_button.h"
@@ -58,6 +66,7 @@ constexpr int kSelectItemNotFound = 3;
 constexpr int kItemProcBootsEquip = 1;
 constexpr u32 kFirstNativeFaceButton = 0;
 constexpr u32 kLastNativeFaceButton = 3;
+int s_descenderCorrectionDrawDepth = 0;
 
 struct WolfIconLayout {
     f32 offsetX;
@@ -90,6 +99,17 @@ DEFINE_HOOK(&dMeter2Draw_c::setButtonIconMidonaAlpha, MeterMidnaAlphaHook);
 DEFINE_HOOK(&dMeterMap_c::draw, MeterMapDrawHook);
 DEFINE_HOOK(&dMenu_Collect2D_c::_create, CollectCreateHook);
 DEFINE_HOOK(&dMenu_Collect2D_c::_delete, CollectDeleteHook);
+DEFINE_HOOK(&dMenu_Fmap_c::_move, FmapMoveHook);
+DEFINE_HOOK(&dMenu_Fmap2DBack_c::draw, FmapBackDrawHook);
+DEFINE_HOOK(&dMenu_Fmap2DTop_c::draw, FmapTopDrawHook);
+DEFINE_HOOK(&dMenu_DmapBg_c::draw, DmapBgDrawHook);
+DEFINE_HOOK(&dMenu_Option_c::_create, OptionCreateHook);
+DEFINE_HOOK(&dMenu_Option_c::_move, OptionMoveHook);
+DEFINE_HOOK(&dMenu_Option_c::_draw, OptionDrawHook);
+DEFINE_HOOK(&dMenu_Option_c::drawHaihai, OptionDrawArrowsHook);
+DEFINE_HOOK(&dBrightCheck_c::screenSet, BrightCheckScreenSetHook);
+DEFINE_HOOK(&dBrightCheck_c::_draw, BrightCheckDrawHook);
+DEFINE_HOOK(&JUTResFont::drawChar_scale, ResFontDrawCharHook);
 DEFINE_HOOK(&dFile_select_c::_create, FileSelectCreateHook);
 DEFINE_HOOK(&dFile_select_c::_move, FileSelectMoveHook);
 DEFINE_HOOK(&dFile_select_c::_draw, FileSelectDrawHook);
@@ -226,6 +246,7 @@ bool z_item_menu_or_pause_context();
 bool midna_unlocked();
 void position_cursor_outside_frame(dSelect_cursor_c*, J2DPane*,
     f32 = 7.0f, f32 = 5.0f);
+void move_file_select_pane_center(J2DPane*, f32, f32);
 void apply_file_select_row_texture(J2DPicture*, ResTIMG const*);
 void set_copy_file_info_visible(dFile_select_c*, std::size_t, bool);
 
@@ -807,6 +828,1079 @@ void apply_collect_menu_typography(dMenu_Collect2D_c* menu) {
     remove_collect_ornaments(mainScreen);
     style_collect_menu_panel(mainScreen, MULTI_CHAR('sa_tex_n'));
     style_collect_menu_panel(mainScreen, MULTI_CHAR('op_tex_n'));
+}
+
+void configure_hd_picture(J2DPicture* picture);
+
+// Options menu --------------------------------------------------------------
+
+void hide_option_native_art(J2DPane* pane) {
+    if (pane == nullptr) {
+        return;
+    }
+
+    if (as_picture(pane) != nullptr || pane->getTypeID() == 17 ||
+        pane->getTypeID() == 19) {
+        pane->hide();
+    }
+    for (J2DPane* child = pane->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane()) {
+        hide_option_native_art(child);
+    }
+}
+
+void configure_hd_picture(J2DPicture* picture) {
+    if (picture == nullptr) {
+        return;
+    }
+    picture->setTexCoord(picture->getTexture(0), BIND15, MIRROR0, false);
+    picture->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+        JUtility::TColor(255, 255, 255, 255));
+    picture->setCornerColor(JUtility::TColor(255, 255, 255, 255));
+    picture->setAlpha(255);
+    picture->show();
+}
+
+// Dungeon map ---------------------------------------------------------------
+
+void hide_large_dmap_base_art(J2DPane* pane, J2DPane* keep) {
+    if (pane == nullptr) {
+        return;
+    }
+
+    const JGeometry::TBox2<f32> bounds = pane->getBounds();
+    const f32 area = bounds.getWidth() * bounds.getHeight();
+    // Only suppress large raster tiles. Large window/null panes are structural
+    // parents for the dungeon-item and floor controls and must remain active.
+    if (pane != keep && area >= 12000.0f && as_picture(pane) != nullptr) {
+        pane->hide();
+    }
+    for (J2DPane* child = pane->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane()) {
+        hide_large_dmap_base_art(child, keep);
+    }
+}
+
+void hide_dmap_picture_tree(J2DPane* pane) {
+    if (pane == nullptr) {
+        return;
+    }
+    if (as_picture(pane) != nullptr) {
+        pane->hide();
+    }
+    for (J2DPane* child = pane->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane()) {
+        hide_dmap_picture_tree(child);
+    }
+}
+
+void apply_dmap_hd_layout(dMenu_DmapBg_c* map) {
+    if (map == nullptr || map->mBaseScreen == nullptr ||
+        map->mButtonScreen == nullptr) {
+        return;
+    }
+
+    J2DPane* backgroundPane = map->mBaseScreen->search(MULTI_CHAR('hd_dbg0'));
+    if (backgroundPane == nullptr) {
+        ResTIMG const* background =
+            resource_texture(s_fileSelectBackgroundResource);
+        if (background != nullptr) {
+            auto* picture = JKR_NEW J2DPicture(MULTI_CHAR('hd_dbg0'),
+                JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f, 448.0f),
+                background, nullptr);
+            configure_hd_picture(picture);
+            J2DPane* first = map->mBaseScreen->getFirstChildPane();
+            if (first != nullptr) {
+                map->mBaseScreen->insertChild(first, picture);
+            } else {
+                map->mBaseScreen->appendChild(picture);
+            }
+            backgroundPane = picture;
+        }
+    }
+    hide_large_dmap_base_art(map->mBaseScreen, backgroundPane);
+
+    if (map->mDecorateScreen != nullptr) {
+        map->mDecorateScreen->hide();
+    }
+    if (J2DPane* decoration = map->mButtonScreen->search(MULTI_CHAR('kazari_n'))) {
+        decoration->hide();
+    }
+    if (J2DPane* nativePrompts = map->mButtonScreen->search(MULTI_CHAR('cont_n'))) {
+        nativePrompts->hide();
+    }
+
+    J2DPane* titleGroup = map->mBaseScreen->search(MULTI_CHAR('hd_dttl'));
+    J2DPane* promptGroup = map->mButtonScreen->search(MULTI_CHAR('hd_dbtn'));
+    auto* titleSource = static_cast<J2DTextBox*>(
+        map->mBaseScreen->search(MULTI_CHAR('f_t_00')));
+    if (titleSource == nullptr) {
+        titleSource = static_cast<J2DTextBox*>(
+            map->mBaseScreen->search(MULTI_CHAR('t_t00')));
+    }
+    if (titleSource != nullptr) {
+        // The native dungeon heading is a wide, shallow picture group. Hide
+        // its green panel and stone end caps while retaining the rest of the
+        // base screen's structural panes and dungeon-item cells.
+        for (J2DPane* ancestor = titleSource->getParentPane();
+             ancestor != nullptr; ancestor = ancestor->getParentPane()) {
+            const JGeometry::TBox2<f32> bounds = ancestor->getBounds();
+            if (bounds.getWidth() >= 260.0f && bounds.getHeight() <= 110.0f) {
+                hide_dmap_picture_tree(ancestor);
+                break;
+            }
+        }
+    }
+
+    if (titleGroup == nullptr && titleSource != nullptr) {
+        titleGroup = JKR_NEW J2DPane(MULTI_CHAR('hd_dttl'),
+            JGeometry::TBox2<f32>(0.0f, 0.0f, 270.0f, 58.0f));
+        map->mBaseScreen->appendChild(titleGroup);
+        if (ResTIMG const* frameTexture =
+                resource_texture(s_collectMenuButtonResource)) {
+            auto* frame = JKR_NEW J2DPicture(MULTI_CHAR('hd_ddfr'),
+                JGeometry::TBox2<f32>(18.0f, 14.0f, 250.0f, 50.0f),
+                frameTexture, nullptr);
+            configure_hd_picture(frame);
+            titleGroup->appendChild(frame);
+        }
+        auto* title = JKR_NEW J2DTextBox(MULTI_CHAR('hd_ddtx'),
+            JGeometry::TBox2<f32>(30.0f, 15.0f, 238.0f, 49.0f), nullptr,
+            "", 64, HBIND_CENTER, VBIND_CENTER);
+        title->setFont(mDoExt_getMesgFont());
+        title->setFontSize(17.0f, 17.0f);
+        title->setCharSpace(0.0f);
+        title->setFontColor(JUtility::TColor(242, 242, 235, 255),
+            JUtility::TColor(255, 255, 255, 255));
+        titleGroup->appendChild(title);
+    }
+
+    if (promptGroup == nullptr && titleSource != nullptr) {
+        promptGroup = JKR_NEW J2DPane(MULTI_CHAR('hd_dbtn'),
+            JGeometry::TBox2<f32>(438.0f, 4.0f, 602.0f, 42.0f));
+        map->mButtonScreen->appendChild(promptGroup);
+        constexpr const char* labels[] = {"Zoom in", "Back"};
+        constexpr u64 textTags[] = {
+            MULTI_CHAR('hd_datx'), MULTI_CHAR('hd_dbtx'),
+        };
+        constexpr u64 iconTags[] = {
+            MULTI_CHAR('hd_daic'), MULTI_CHAR('hd_dbic'),
+        };
+        constexpr f32 rowY[] = {10.0f, 28.0f};
+        ResTIMG const* icons[] = {
+            resource_texture(s_faceButtonAResource),
+            resource_texture(s_faceButtonBResource),
+        };
+        for (std::size_t index = 0; index < 2; ++index) {
+            auto* text = JKR_NEW J2DTextBox(textTags[index],
+                JGeometry::TBox2<f32>(0.0f, rowY[index] - 11.0f,
+                    132.0f, rowY[index] + 11.0f), nullptr, labels[index], 32,
+                HBIND_RIGHT, VBIND_CENTER);
+            text->setFont(mDoExt_getMesgFont());
+            text->setFontSize(11.0f, 11.0f);
+            text->setFontColor(JUtility::TColor(238, 238, 232, 255),
+                JUtility::TColor(255, 255, 255, 255));
+            promptGroup->appendChild(text);
+            if (icons[index] != nullptr) {
+                auto* icon = JKR_NEW J2DPicture(iconTags[index],
+                    JGeometry::TBox2<f32>(138.0f, rowY[index] - 9.0f,
+                        156.0f, rowY[index] + 9.0f), icons[index], nullptr);
+                configure_hd_picture(icon);
+                promptGroup->appendChild(icon);
+            }
+        }
+    }
+
+    if (titleSource != nullptr) {
+        if (auto* title = static_cast<J2DTextBox*>(
+                map->mBaseScreen->search(MULTI_CHAR('hd_ddtx')))) {
+            title->setString(64, text_box_string(titleSource));
+        }
+        titleSource->hide();
+    }
+    if (titleGroup != nullptr) {
+        titleGroup->scale(mDoGph_gInf_c::hudAspectScaleDown, 1.0f);
+    }
+    if (promptGroup != nullptr) {
+        promptGroup->move(438.0f, 4.0f);
+        promptGroup->scale(mDoGph_gInf_c::hudAspectScaleDown, 1.0f);
+    }
+}
+
+// Field map -----------------------------------------------------------------
+
+J2DTextBox* fmap_text_source(J2DScreen* screen, const u64* tags,
+    std::size_t count) {
+    if (screen == nullptr) {
+        return nullptr;
+    }
+    for (std::size_t index = 0; index < count; ++index) {
+        auto* text = static_cast<J2DTextBox*>(screen->search(tags[index]));
+        const char* value = text_box_string(text);
+        if (text != nullptr && value != nullptr && value[0] != '\0') {
+            return text;
+        }
+    }
+    return nullptr;
+}
+
+void apply_fmap_background(dMenu_Fmap2DBack_c* map) {
+    if (map == nullptr || map->mpBackScreen == nullptr || map->mpBackTex == nullptr) {
+        return;
+    }
+    ResTIMG const* background = resource_texture(s_fileSelectBackgroundResource);
+    if (background == nullptr) {
+        return;
+    }
+
+    // The field-map back screen contains only the original tiled stone wall.
+    // Keep it out of the draw and reuse the already full-viewport back picture
+    // for the circular TPHD backdrop. This naturally covers ultrawide output.
+    map->mpBackScreen->hide();
+    map->mpBackTex->changeTexture(background, 0);
+    configure_hd_picture(map->mpBackTex);
+
+    // The original field map was placed for the narrow GameCube frame. The
+    // widened frame exposes more empty space on its right, so move the map's
+    // own coordinate origin—not the frame—to restore its visual center.
+    g_fmapHIO.mMapTopLeftPosX = 170.0f;
+}
+
+void add_fmap_top_overlay(dMenu_Fmap2DTop_c* map) {
+    if (map == nullptr || map->mpTitleScreen == nullptr ||
+        map->mpTitleScreen->search(MULTI_CHAR('hd_ftop')) != nullptr) {
+        return;
+    }
+
+    constexpr u64 titleTags[] = {
+        MULTI_CHAR('ffont00'), MULTI_CHAR('ffontl0'), MULTI_CHAR('ffontl1'),
+        MULTI_CHAR('ffontl2'), MULTI_CHAR('ffontb0'), MULTI_CHAR('ffontb3'),
+        MULTI_CHAR('ffontb4'),
+    };
+    constexpr u64 aTags[] = {
+        MULTI_CHAR('font_at1'), MULTI_CHAR('font_at2'), MULTI_CHAR('font_at3'),
+        MULTI_CHAR('font_at4'), MULTI_CHAR('font_at5'),
+    };
+    J2DTextBox* titleSource = fmap_text_source(map->mpTitleScreen,
+        titleTags, std::size(titleTags));
+    J2DTextBox* promptSource = fmap_text_source(map->mpTitleScreen,
+        aTags, std::size(aTags));
+    if (titleSource == nullptr || promptSource == nullptr) {
+        return;
+    }
+
+    JKRHeap* previousHeap = map->mpHeap != nullptr ?
+        mDoExt_setCurrentHeap(map->mpHeap) : nullptr;
+    auto* group = JKR_NEW J2DPane(MULTI_CHAR('hd_ftop'),
+        JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f, 448.0f));
+    map->mpTitleScreen->appendChild(group);
+
+    if (ResTIMG const* frameTexture = resource_texture(s_collectMenuButtonResource)) {
+        auto* frame = JKR_NEW J2DPicture(MULTI_CHAR('hd_ftfr'),
+            JGeometry::TBox2<f32>(18.0f, 16.0f, 246.0f, 51.0f),
+            frameTexture, nullptr);
+        configure_hd_picture(frame);
+        group->appendChild(frame);
+    }
+    auto* title = JKR_NEW J2DTextBox(MULTI_CHAR('hd_fttx'),
+        JGeometry::TBox2<f32>(30.0f, 17.0f, 234.0f, 50.0f), nullptr,
+        "", 64, HBIND_CENTER, VBIND_CENTER);
+    title->setFont(titleSource->getFont());
+    title->setFontSize(20.0f, 20.0f);
+    title->setCharSpace(-0.5f);
+    title->setFontColor(JUtility::TColor(242, 242, 235, 255),
+        JUtility::TColor(255, 255, 255, 255));
+    group->appendChild(title);
+
+    // Use the native control pane only to locate and suppress the old prompt
+    // art. The replacement lives on the title screen so it can be anchored to
+    // the current widescreen-safe edge without inheriting native animation.
+    constexpr f32 fontSizes[] = {8.5f, 10.0f, 11.0f};
+    constexpr f32 iconSizes[] = {10.0f, 14.0f, 16.0f};
+    constexpr f32 centers[] = {12.0f, 34.0f, 60.0f};
+    constexpr u64 textTags[] = {
+        MULTI_CHAR('hd_fpt0'), MULTI_CHAR('hd_fpt1'), MULTI_CHAR('hd_fpt2'),
+    };
+    constexpr u64 iconTags[] = {
+        MULTI_CHAR('hd_fri0'), MULTI_CHAR('hd_fai1'), MULTI_CHAR('hd_fbi2'),
+    };
+    ResTIMG const* iconTextures[] = {
+        archive_texture("wiiu_r.bti"), resource_texture(s_faceButtonAResource),
+        resource_texture(s_faceButtonBResource),
+    };
+    J2DPane* controlAnchor = map->mpContPane->getPanePtr();
+    if (controlAnchor == nullptr) {
+        if (previousHeap != nullptr) {
+            mDoExt_setCurrentHeap(previousHeap);
+        }
+        return;
+    }
+    for (J2DPane* child = controlAnchor->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane()) {
+        child->hide();
+    }
+    constexpr f32 promptWidth = 150.0f;
+    constexpr f32 promptHeight = 76.0f;
+    auto* promptGroup = JKR_NEW J2DPane(MULTI_CHAR('hd_fctl'),
+        JGeometry::TBox2<f32>(0.0f, 0.0f, promptWidth, promptHeight));
+    group->appendChild(promptGroup);
+    constexpr f32 railX = promptWidth - 8.0f;
+    for (std::size_t index = 0; index < std::size(textTags); ++index) {
+        auto* text = JKR_NEW J2DTextBox(textTags[index],
+            JGeometry::TBox2<f32>(0.0f, centers[index] - 9.0f,
+                railX - 12.0f, centers[index] + 9.0f), nullptr, "", 48,
+            HBIND_RIGHT, VBIND_CENTER);
+        text->setFont(promptSource->getFont());
+        text->setFontSize(fontSizes[index], fontSizes[index]);
+        text->setCharSpace(-0.25f);
+        text->setFontColor(JUtility::TColor(238, 238, 232, 255),
+            JUtility::TColor(255, 255, 255, 255));
+        promptGroup->appendChild(text);
+
+        if (iconTextures[index] != nullptr) {
+            const f32 halfIcon = iconSizes[index] * 0.5f;
+            auto* icon = JKR_NEW J2DPicture(iconTags[index],
+                JGeometry::TBox2<f32>(railX - halfIcon,
+                    centers[index] - halfIcon, railX + halfIcon,
+                    centers[index] + halfIcon),
+                iconTextures[index], nullptr);
+            configure_hd_picture(icon);
+            promptGroup->appendChild(icon);
+        }
+    }
+    if (previousHeap != nullptr) {
+        mDoExt_setCurrentHeap(previousHeap);
+    }
+}
+
+void position_fmap_prompt_overlay(dMenu_Fmap2DTop_c* map) {
+    if (map == nullptr || map->mpTitleScreen == nullptr ||
+        map->mpContPane == nullptr) {
+        return;
+    }
+    J2DPane* promptGroup = map->mpTitleScreen->search(MULTI_CHAR('hd_fctl'));
+    J2DPane* controlAnchor = map->mpContPane->getPanePtr();
+    if (promptGroup == nullptr || controlAnchor == nullptr) {
+        return;
+    }
+
+    constexpr f32 promptWidth = 150.0f;
+    // This hook runs before fMapTopWide(), so the native pane still contains
+    // the previous frame's resize transform. Calculate the same right-safe
+    // anchor directly for the current frame to prevent the controls jumping
+    // while the window is resized.
+    constexpr f32 frameRightAnchor = 515.0f;
+    constexpr f32 frameTopAnchor = 83.0f;
+    promptGroup->move(
+        mDoGph_gInf_c::ScaleHUDXRight(frameRightAnchor) - promptWidth,
+        frameTopAnchor);
+    promptGroup->setAlpha(255);
+    promptGroup->show();
+    controlAnchor->hide();
+}
+
+void apply_fmap_top(dMenu_Fmap2DTop_c* map) {
+    if (map == nullptr || map->mpTitleScreen == nullptr) {
+        return;
+    }
+    add_fmap_top_overlay(map);
+    position_fmap_prompt_overlay(map);
+
+    constexpr u64 titleTags[] = {
+        MULTI_CHAR('ffont00'), MULTI_CHAR('ffontl0'), MULTI_CHAR('ffontl1'),
+        MULTI_CHAR('ffontl2'), MULTI_CHAR('ffontb0'), MULTI_CHAR('ffontb3'),
+        MULTI_CHAR('ffontb4'),
+    };
+    constexpr u64 zTags[] = {
+        MULTI_CHAR('font_zt1'), MULTI_CHAR('font_zt2'), MULTI_CHAR('font_zt3'),
+        MULTI_CHAR('font_zt4'), MULTI_CHAR('font_zt5'),
+    };
+    constexpr u64 aTags[] = {
+        MULTI_CHAR('font_at1'), MULTI_CHAR('font_at2'), MULTI_CHAR('font_at3'),
+        MULTI_CHAR('font_at4'), MULTI_CHAR('font_at5'),
+    };
+    constexpr u64 bTags[] = {
+        MULTI_CHAR('font_bt1'), MULTI_CHAR('font_bt2'), MULTI_CHAR('font_bt3'),
+        MULTI_CHAR('font_bt4'), MULTI_CHAR('font_bt5'),
+    };
+    const u64* sourceTags[] = {zTags, aTags, bTags};
+    const std::size_t sourceCounts[] = {
+        std::size(zTags), std::size(aTags), std::size(bTags),
+    };
+    constexpr u64 outputTags[] = {
+        MULTI_CHAR('hd_fpt0'), MULTI_CHAR('hd_fpt1'), MULTI_CHAR('hd_fpt2'),
+    };
+    constexpr u64 iconTags[] = {
+        MULTI_CHAR('hd_fri0'), MULTI_CHAR('hd_fai1'), MULTI_CHAR('hd_fbi2'),
+    };
+
+    if (auto* output = static_cast<J2DTextBox*>(
+            map->mpTitleScreen->search(MULTI_CHAR('hd_fttx')))) {
+        if (J2DTextBox* source = fmap_text_source(map->mpTitleScreen,
+                titleTags, std::size(titleTags))) {
+            output->setString(64, text_box_string(source));
+        }
+    }
+    for (std::size_t index = 0; index < std::size(outputTags); ++index) {
+        J2DTextBox* source = fmap_text_source(map->mpTitleScreen,
+            sourceTags[index], sourceCounts[index]);
+        auto* output = static_cast<J2DTextBox*>(map->mpTitleScreen->search(outputTags[index]));
+        J2DPane* icon = map->mpTitleScreen->search(iconTags[index]);
+        const char* value = text_box_string(source);
+        const bool visible = value != nullptr && value[0] != '\0';
+        if (output != nullptr) {
+            output->setString(48, visible ? value : "");
+            visible ? output->show() : output->hide();
+        }
+        if (icon != nullptr) {
+            visible ? icon->show() : icon->hide();
+        }
+    }
+
+    map->mpNamePane->hide();
+    map->mpSubPane->hide();
+    map->mpContPane->hide();
+}
+
+void hide_option_row_residue(J2DPane* pane, J2DPicture* keep) {
+    if (pane == nullptr) {
+        return;
+    }
+    if ((as_picture(pane) != nullptr || pane->getTypeID() == 17) && pane != keep) {
+        pane->hide();
+    }
+    for (J2DPane* child = pane->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane()) {
+        hide_option_row_residue(child, keep);
+    }
+}
+
+J2DPane* ensure_option_row_overlay(dMenu_Option_c* menu) {
+    if (menu == nullptr || menu->mpShadowScreen == nullptr) {
+        return nullptr;
+    }
+    J2DPane* group = menu->mpShadowScreen->search(MULTI_CHAR('hd_orws'));
+    if (group != nullptr) {
+        return group;
+    }
+
+    group = JKR_NEW J2DPane(MULTI_CHAR('hd_orws'),
+        JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f, 448.0f));
+    menu->mpShadowScreen->appendChild(group);
+    constexpr f32 rowY[] = {118.0f, 171.0f, 224.0f};
+    constexpr u64 frameTags[] = {
+        MULTI_CHAR('hd_orf0'), MULTI_CHAR('hd_orf1'), MULTI_CHAR('hd_orf2'),
+    };
+    constexpr u64 labelTags[] = {
+        MULTI_CHAR('hd_orl0'), MULTI_CHAR('hd_orl1'), MULTI_CHAR('hd_orl2'),
+    };
+    constexpr u64 valueTags[] = {
+        MULTI_CHAR('hd_orv0'), MULTI_CHAR('hd_orv1'), MULTI_CHAR('hd_orv2'),
+    };
+    ResTIMG const* frameTexture = resource_texture(s_collectMenuButtonResource);
+    for (std::size_t index = 0; index < 3; ++index) {
+        if (frameTexture != nullptr) {
+            auto* frame = JKR_NEW J2DPicture(frameTags[index],
+                JGeometry::TBox2<f32>(271.0f, rowY[index] - 16.0f,
+                    507.0f, rowY[index] + 16.0f), frameTexture, nullptr);
+            configure_hd_picture(frame);
+            group->appendChild(frame);
+        }
+
+        auto* label = JKR_NEW J2DTextBox(labelTags[index],
+            JGeometry::TBox2<f32>(112.0f, rowY[index] - 15.0f,
+                250.0f, rowY[index] + 15.0f), nullptr, "", 48,
+            HBIND_LEFT, VBIND_CENTER);
+        label->setFont(menu->mpFont);
+        label->setFontSize(16.0f, 16.0f);
+        label->setFontColor(JUtility::TColor(238, 238, 232, 255),
+            JUtility::TColor(255, 255, 255, 255));
+        group->appendChild(label);
+
+        auto* value = JKR_NEW J2DTextBox(valueTags[index],
+            JGeometry::TBox2<f32>(282.0f, rowY[index] - 15.0f,
+                496.0f, rowY[index] + 15.0f), nullptr, "", 48,
+            HBIND_CENTER, VBIND_CENTER);
+        value->setFont(menu->mpFont);
+        value->setFontSize(16.0f, 16.0f);
+        value->setFontColor(JUtility::TColor(244, 244, 238, 255),
+            JUtility::TColor(255, 255, 255, 255));
+        group->appendChild(value);
+    }
+    return group;
+}
+
+void update_option_row_overlay(dMenu_Option_c* menu, J2DPane* group) {
+    if (menu == nullptr || group == nullptr) {
+        return;
+    }
+    constexpr u64 labelTags[] = {
+        MULTI_CHAR('hd_orl0'), MULTI_CHAR('hd_orl1'), MULTI_CHAR('hd_orl2'),
+    };
+    constexpr u64 valueTags[] = {
+        MULTI_CHAR('hd_orv0'), MULTI_CHAR('hd_orv1'), MULTI_CHAR('hd_orv2'),
+    };
+    constexpr u64 frameTags[] = {
+        MULTI_CHAR('hd_orf0'), MULTI_CHAR('hd_orf1'), MULTI_CHAR('hd_orf2'),
+    };
+    constexpr const char* fallbackLabels[] = {
+        "Lock-on Type", "Rumble Feature", "Sound",
+    };
+
+    for (std::size_t index = 0; index < 3; ++index) {
+        auto* label = static_cast<J2DTextBox*>(group->search(labelTags[index]));
+        const char* nativeLabel = text_box_string(menu->field_0x21c[index][0]);
+        label->setString(48, nativeLabel != nullptr && nativeLabel[0] != '\0' ?
+            nativeLabel : fallbackLabels[index]);
+
+        const char* nativeValue = nullptr;
+        for (CPaneMgr* valuePane : menu->mpMenuText[index]) {
+            auto* text = valuePane != nullptr ?
+                static_cast<J2DTextBox*>(valuePane->getPanePtr()) : nullptr;
+            const char* candidate = text_box_string(text);
+            if (candidate != nullptr && candidate[0] != '\0') {
+                nativeValue = candidate;
+                break;
+            }
+        }
+        auto* value = static_cast<J2DTextBox*>(group->search(valueTags[index]));
+        value->setString(48, nativeValue != nullptr ? nativeValue : "");
+
+        auto* frame = as_picture(group->search(frameTags[index]));
+        if (frame != nullptr) {
+            frame->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+                index == menu->getSelectType() ? JUtility::TColor(72, 69, 57, 255) :
+                    JUtility::TColor(255, 255, 255, 255));
+        }
+    }
+}
+
+void add_option_background_and_title(dMenu_Option_c* menu) {
+    if (menu == nullptr || menu->mpBackScreen == nullptr) {
+        return;
+    }
+
+    J2DPane* root = menu->mpBackScreen;
+    if (root->search(MULTI_CHAR('hd_obg')) != nullptr) {
+        return;
+    }
+
+    // The stock layout builds the Options screen as a stone window. Clear its
+    // pictures and authored labels, then reuse the same restrained background
+    // and rules as File Selection and Save.
+    hide_option_native_art(root);
+    ResTIMG const* backgroundTexture = resource_texture(s_fileSelectBackgroundResource);
+    if (backgroundTexture != nullptr) {
+        auto* background = JKR_NEW J2DPicture(MULTI_CHAR('hd_obg'),
+            JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f, 448.0f),
+            backgroundTexture, nullptr);
+        configure_hd_picture(background);
+        root->appendChild(background);
+    }
+
+    ResTIMG const* rulesTexture = resource_texture(s_fileSelectTitleRulesResource);
+    if (rulesTexture != nullptr) {
+        auto* upperRules = JKR_NEW J2DPicture(MULTI_CHAR('hd_otr1'),
+            JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f, 56.0f), rulesTexture, nullptr);
+        configure_hd_picture(upperRules);
+        root->appendChild(upperRules);
+
+        auto* lowerRules = JKR_NEW J2DPicture(MULTI_CHAR('hd_otr2'),
+            JGeometry::TBox2<f32>(0.0f, 392.0f, 608.0f, 448.0f), rulesTexture, nullptr);
+        configure_hd_picture(lowerRules);
+        root->appendChild(lowerRules);
+    }
+
+    auto* titleGroup = JKR_NEW J2DPane(MULTI_CHAR('hd_otit'),
+        JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f, 448.0f));
+    root->appendChild(titleGroup);
+    ResTIMG const* frameTexture = resource_texture(s_collectMenuButtonResource);
+    if (frameTexture != nullptr) {
+        auto* titleFrame = JKR_NEW J2DPicture(MULTI_CHAR('hd_otfr'),
+            JGeometry::TBox2<f32>(35.0f, 17.0f, 211.0f, 50.0f), frameTexture, nullptr);
+        configure_hd_picture(titleFrame);
+        titleGroup->appendChild(titleFrame);
+    }
+
+    auto* title = JKR_NEW J2DTextBox(MULTI_CHAR('hd_ottx'),
+        JGeometry::TBox2<f32>(48.0f, 18.0f, 198.0f, 49.0f), nullptr,
+        "Options", 16, HBIND_CENTER, VBIND_CENTER);
+    title->setFont(menu->mpFont);
+    title->setFontSize(21.0f, 21.0f);
+    title->setCharSpace(-0.5f);
+    title->setFontColor(JUtility::TColor(242, 242, 235, 255),
+        JUtility::TColor(255, 255, 255, 255));
+    titleGroup->appendChild(title);
+}
+
+void update_option_widescreen_canvas(dMenu_Option_c* menu) {
+    if (menu == nullptr || menu->mpBackScreen == nullptr) {
+        return;
+    }
+
+    const f32 left = mDoGph_gInf_c::getMinXF();
+    const f32 top = mDoGph_gInf_c::getMinYF();
+    const f32 width = mDoGph_gInf_c::getWidthF();
+    const f32 height = mDoGph_gInf_c::getHeightF();
+    if (J2DPane* background = menu->mpBackScreen->search(MULTI_CHAR('hd_obg'))) {
+        // Cover the active viewport uniformly. The source painting is 4:3;
+        // cropping its top and bottom in widescreen preserves round motifs
+        // instead of stretching them into ovals.
+        f32 canvasWidth = width;
+        f32 canvasHeight = canvasWidth * (448.0f / 608.0f);
+        if (canvasHeight < height) {
+            canvasHeight = height;
+            canvasWidth = canvasHeight * (608.0f / 448.0f);
+        }
+        background->resize(canvasWidth, canvasHeight);
+        background->move(left - (canvasWidth - width) * 0.5f,
+            top - (canvasHeight - height) * 0.5f);
+    }
+    if (J2DPane* upperRules = menu->mpBackScreen->search(MULTI_CHAR('hd_otr1'))) {
+        upperRules->resize(width, 56.0f);
+        upperRules->move(left, top);
+    }
+    if (J2DPane* lowerRules = menu->mpBackScreen->search(MULTI_CHAR('hd_otr2'))) {
+        lowerRules->resize(width, 56.0f);
+        lowerRules->move(left, top + height - 56.0f);
+    }
+}
+
+void add_option_prompts(dMenu_Option_c* menu) {
+    if (menu == nullptr || menu->mpScreenIcon == nullptr ||
+        menu->mpScreenIcon->search(MULTI_CHAR('hd_oprm')) != nullptr) {
+        return;
+    }
+
+    // Replace the oversized GameCube prompt cluster with the compact pairing
+    // used elsewhere in the HD-styled menus.
+    for (J2DPane* child = menu->mpScreenIcon->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane()) {
+        child->hide();
+    }
+    auto* group = JKR_NEW J2DPane(MULTI_CHAR('hd_oprm'),
+        JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f, 448.0f));
+    menu->mpScreenIcon->appendChild(group);
+
+    auto addPicture = [group](u64 tag, const JGeometry::TBox2<f32>& bounds,
+                          ResTIMG const* texture, u8 alpha = 255) {
+        if (texture == nullptr) {
+            return;
+        }
+        auto* picture = JKR_NEW J2DPicture(tag, bounds, texture, nullptr);
+        configure_hd_picture(picture);
+        picture->setAlpha(alpha);
+        group->appendChild(picture);
+    };
+
+    auto* confirm = JKR_NEW J2DTextBox(MULTI_CHAR('hd_ocfm'),
+        JGeometry::TBox2<f32>(490.0f, 17.0f, 555.0f, 38.0f), nullptr,
+        "Confirm", 16, HBIND_RIGHT, VBIND_CENTER);
+    confirm->setFont(menu->mpFont);
+    confirm->setFontSize(13.5f, 13.5f);
+    confirm->setFontColor(JUtility::TColor(235, 235, 230, 255),
+        JUtility::TColor(255, 255, 255, 255));
+    group->appendChild(confirm);
+
+    addPicture(MULTI_CHAR('hd_oapi'),
+        JGeometry::TBox2<f32>(558.0f, 14.0f, 585.0f, 41.0f),
+        resource_texture(s_faceButtonAResource));
+    addPicture(MULTI_CHAR('hd_obck'),
+        JGeometry::TBox2<f32>(508.0f, 35.0f, 547.0f, 51.0f),
+        resource_texture(s_fileSelectBackLabelResource));
+    addPicture(MULTI_CHAR('hd_obpi'),
+        JGeometry::TBox2<f32>(546.0f, 32.0f, 573.0f, 59.0f),
+        resource_texture(s_faceButtonBResource));
+    addPicture(MULTI_CHAR('hd_oflr'),
+        JGeometry::TBox2<f32>(562.0f, 29.0f, 600.0f, 67.0f),
+        resource_texture(s_fileSelectPromptFlourishResource), 205);
+
+    auto* displayPrompt = JKR_NEW J2DTextBox(MULTI_CHAR('hd_odsp'),
+        JGeometry::TBox2<f32>(403.0f, 412.0f, 570.0f, 435.0f), nullptr,
+        "Brightness / Screen Ratio", 32, HBIND_RIGHT, VBIND_CENTER);
+    displayPrompt->setFont(menu->mpFont);
+    displayPrompt->setFontSize(11.5f, 11.5f);
+    displayPrompt->setFontColor(JUtility::TColor(205, 201, 176, 255),
+        JUtility::TColor(244, 238, 191, 255));
+    group->appendChild(displayPrompt);
+    addPicture(MULTI_CHAR('hd_orbt'),
+        JGeometry::TBox2<f32>(575.0f, 414.0f, 601.0f, 433.0f),
+        archive_texture("wiiu_r.bti"));
+}
+
+void style_option_rows(dMenu_Option_c* menu) {
+    if (menu == nullptr || menu->mpScreen == nullptr) {
+        return;
+    }
+
+    constexpr f32 rowY[] = {118.0f, 171.0f, 224.0f};
+    constexpr f32 labelX = 162.0f;
+    constexpr f32 valueX = 389.0f;
+    constexpr f32 frameWidth = 236.0f;
+    constexpr f32 frameHeight = 32.0f;
+    const u8 selected = menu->getSelectType();
+    J2DPane* overlay = ensure_option_row_overlay(menu);
+
+    for (std::size_t index = 0; index < 3; ++index) {
+        J2DPicture* frame = menu->field_0x280[index];
+        if (menu->mpMenuNull[index] != nullptr) {
+            hide_option_row_residue(menu->mpMenuNull[index]->getPanePtr(), frame);
+        }
+        if (menu->mpMenuPane[index] != nullptr) {
+            hide_option_row_residue(menu->mpMenuPane[index]->getPanePtr(), frame);
+        }
+        if (menu->mpMenuPaneC[index] != nullptr) {
+            hide_option_row_residue(menu->mpMenuPaneC[index]->getPanePtr(), nullptr);
+        }
+        ResTIMG const* frameTexture = resource_texture(s_collectMenuButtonResource);
+        if (frame != nullptr && frameTexture != nullptr) {
+            frame->hide();
+        }
+
+        for (J2DTextBox* label : menu->field_0x21c[index]) {
+            if (label == nullptr) {
+                continue;
+            }
+            label->resize(178.0f, 30.0f);
+            move_file_select_pane_center(label, labelX, rowY[index]);
+            label->setFontSize(17.0f, 17.0f);
+            label->setCharSpace(-0.25f);
+            label->setFontColor(JUtility::TColor(238, 238, 232, 255),
+                JUtility::TColor(255, 255, 255, 255));
+            label->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+                JUtility::TColor(255, 255, 255, 255));
+            label->hide();
+        }
+        if (J2DTextBox* labelShadow = menu->field_0x298[index]) {
+            labelShadow->resize(178.0f, 30.0f);
+            move_file_select_pane_center(labelShadow, labelX, rowY[index]);
+            labelShadow->setFontSize(17.0f, 17.0f);
+            labelShadow->setCharSpace(-0.25f);
+            labelShadow->setFontColor(JUtility::TColor(238, 238, 232, 255),
+                JUtility::TColor(255, 255, 255, 255));
+            labelShadow->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+                JUtility::TColor(255, 255, 255, 255));
+            labelShadow->hide();
+        }
+
+        for (CPaneMgr* valueGroup : {menu->mpMenuPane2[index], menu->mpMenuPane3[index],
+                 menu->mpMenuPane32[index]}) {
+            if (valueGroup != nullptr) {
+                hide_option_row_residue(valueGroup->getPanePtr(), nullptr);
+                move_file_select_pane_center(valueGroup->getPanePtr(), valueX, rowY[index]);
+            }
+        }
+        if (menu->mpMenuPaneC[index] != nullptr) {
+            move_file_select_pane_center(menu->mpMenuPaneC[index]->getPanePtr(),
+                valueX, rowY[index]);
+        }
+
+        for (std::size_t arrow = 0; arrow < 4; ++arrow) {
+            J2DPane* pane = menu->field_0x2d0[index][arrow];
+            if (pane != nullptr) {
+                move_file_select_pane_center(pane,
+                    arrow < 2 ? valueX + 134.0f : valueX - 134.0f, rowY[index]);
+            }
+        }
+        for (CPaneMgr* valueText : menu->mpMenuText[index]) {
+            auto* text = valueText != nullptr ?
+                static_cast<J2DTextBox*>(valueText->getPanePtr()) : nullptr;
+            if (text != nullptr) {
+                text->setFontSize(16.0f, 16.0f);
+                text->setFontColor(JUtility::TColor(244, 244, 238, 255),
+                    JUtility::TColor(255, 255, 255, 255));
+                text->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+                    JUtility::TColor(255, 255, 255, 255));
+                text->hide();
+            }
+        }
+    }
+
+    update_option_row_overlay(menu, overlay);
+    if (selected < 3 && overlay != nullptr) {
+        constexpr u64 frameTags[] = {
+            MULTI_CHAR('hd_orf0'), MULTI_CHAR('hd_orf1'), MULTI_CHAR('hd_orf2'),
+        };
+        position_cursor_outside_frame(menu->mpDrawCursor,
+            overlay->search(frameTags[selected]), -6.0f, -3.0f);
+    }
+}
+
+void replace_option_tv_brick_layer(J2DPane* pane, ResTIMG const* brickTexture,
+    ResTIMG const* replacement) {
+    if (pane == nullptr || brickTexture == nullptr || replacement == nullptr) {
+        return;
+    }
+
+    if (J2DPicture* picture = as_picture(pane);
+        picture != nullptr && picture->getTexture(0) != nullptr &&
+        picture->getTexture(0)->getTexInfo() == brickTexture) {
+        const JGeometry::TBox2<f32> bounds = picture->getBounds();
+        // The outer TV-settings surround is the only large use of this tiled
+        // brick. Keep the small sample borders and calibration artwork intact.
+        if (bounds.getWidth() * bounds.getHeight() > 50000.0f) {
+            picture->changeTexture(replacement, 0);
+            picture->resize(bounds.getWidth(), bounds.getHeight());
+            picture->move(bounds.i.x, bounds.i.y);
+            picture->setTexCoord(picture->getTexture(0), BIND15, MIRROR0, false);
+            picture->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+                JUtility::TColor(255, 255, 255, 255));
+            picture->setCornerColor(JUtility::TColor(255, 255, 255, 255));
+        }
+    }
+    for (J2DPane* child = pane->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane()) {
+        replace_option_tv_brick_layer(child, brickTexture, replacement);
+    }
+}
+
+void add_tv_settings_hd_overlay(J2DScreen* screen, JUTFont* font) {
+    if (screen == nullptr || font == nullptr ||
+        screen->search(MULTI_CHAR('hd_tvov')) != nullptr) {
+        return;
+    }
+
+    // Remove the oversized GameCube prompt groups. Their text is recreated
+    // below with the same compact TPHD treatment as Options.
+    for (u64 tag : {MULTI_CHAR('abtn_n'), MULTI_CHAR('gcabtn_n'),
+             MULTI_CHAR('g_abtn_n')}) {
+        if (J2DPane* pane = screen->search(tag)) {
+            pane->hide();
+        }
+    }
+
+    // The localized title text sits inside the old stone title plate. Hide
+    // the complete localized title container so no second box remains behind
+    // the replacement. Stop before reaching a full-screen ancestor.
+    for (u64 tag : {MULTI_CHAR('t_t00'), MULTI_CHAR('f_t00')}) {
+        J2DPane* titlePane = screen->search(tag);
+        J2DPane* titleContainer = titlePane;
+        while (titleContainer != nullptr && titleContainer->getParentPane() != nullptr) {
+            J2DPane* parent = titleContainer->getParentPane();
+            const auto& bounds = parent->getBounds();
+            if (bounds.getHeight() > 100.0f || bounds.getWidth() > 560.0f) {
+                break;
+            }
+            titleContainer = parent;
+        }
+        if (titleContainer != nullptr) {
+            titleContainer->hide();
+        }
+    }
+
+    auto* overlay = JKR_NEW J2DPane(MULTI_CHAR('hd_tvov'),
+        JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f, 448.0f));
+    screen->appendChild(overlay);
+
+    ResTIMG const* rulesTexture = resource_texture(s_fileSelectTitleRulesResource);
+    if (rulesTexture != nullptr) {
+        auto* upperRules = JKR_NEW J2DPicture(MULTI_CHAR('hd_tvr1'),
+            JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f, 56.0f), rulesTexture, nullptr);
+        configure_hd_picture(upperRules);
+        overlay->appendChild(upperRules);
+        auto* lowerRules = JKR_NEW J2DPicture(MULTI_CHAR('hd_tvr2'),
+            JGeometry::TBox2<f32>(0.0f, 392.0f, 608.0f, 448.0f), rulesTexture, nullptr);
+        configure_hd_picture(lowerRules);
+        overlay->appendChild(lowerRules);
+    }
+
+    ResTIMG const* frameTexture = resource_texture(s_collectMenuButtonResource);
+    if (frameTexture != nullptr) {
+        auto* titleFrame = JKR_NEW J2DPicture(MULTI_CHAR('hd_tvfr'),
+            JGeometry::TBox2<f32>(35.0f, 17.0f, 211.0f, 50.0f), frameTexture, nullptr);
+        configure_hd_picture(titleFrame);
+        overlay->appendChild(titleFrame);
+    }
+    auto* title = JKR_NEW J2DTextBox(MULTI_CHAR('hd_tvtx'),
+        JGeometry::TBox2<f32>(48.0f, 18.0f, 198.0f, 49.0f), nullptr,
+        "Device Settings", 24, HBIND_CENTER, VBIND_CENTER);
+    title->setFont(font);
+    title->setFontSize(19.0f, 19.0f);
+    title->setCharSpace(-0.5f);
+    title->setFontColor(JUtility::TColor(242, 242, 235, 255),
+        JUtility::TColor(255, 255, 255, 255));
+    overlay->appendChild(title);
+
+    auto* complete = JKR_NEW J2DTextBox(MULTI_CHAR('hd_tvcp'),
+        JGeometry::TBox2<f32>(475.0f, 17.0f, 555.0f, 41.0f), nullptr,
+        "Complete", 16, HBIND_RIGHT, VBIND_CENTER);
+    complete->setFont(font);
+    complete->setFontSize(14.0f, 14.0f);
+    complete->setFontColor(JUtility::TColor(235, 235, 230, 255),
+        JUtility::TColor(255, 255, 255, 255));
+    overlay->appendChild(complete);
+
+    if (ResTIMG const* greyA = resource_texture(s_faceButtonAResource)) {
+        auto* button = JKR_NEW J2DPicture(MULTI_CHAR('hd_tvap'),
+            JGeometry::TBox2<f32>(558.0f, 14.0f, 585.0f, 41.0f), greyA, nullptr);
+        configure_hd_picture(button);
+        overlay->appendChild(button);
+    }
+}
+
+void hide_large_tv_settings_frame(J2DPane* pane, ResTIMG const* source) {
+    if (pane == nullptr || source == nullptr) {
+        return;
+    }
+    if (J2DPicture* picture = as_picture(pane);
+        picture != nullptr && picture->getTexture(0) != nullptr &&
+        picture->getTexture(0)->getTexInfo() == source) {
+        const auto& bounds = picture->getBounds();
+        const f32 width = bounds.getWidth();
+        const f32 height = bounds.getHeight();
+        // The outer surround, its four tiny end-caps, and the comparison
+        // samples share this texture. Preserve only the sample-sized frames.
+        const bool isComparisonFrame =
+            width >= 30.0f && width <= 150.0f &&
+            height >= 25.0f && height <= 120.0f;
+        if (!isComparisonFrame) {
+            picture->hide();
+        }
+    }
+    for (J2DPane* child = pane->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane()) {
+        hide_large_tv_settings_frame(child, source);
+    }
+}
+
+void hide_tv_settings_edge_caps(J2DPane* pane) {
+    if (pane == nullptr) {
+        return;
+    }
+    if (J2DPicture* picture = as_picture(pane)) {
+        const auto& bounds = picture->getGlbBounds();
+        const f32 width = bounds.getWidth();
+        const f32 height = bounds.getHeight();
+        const f32 centerY = (bounds.i.y + bounds.f.y) * 0.5f;
+        // These caps are mostly transparent, so their pane bounds are much
+        // larger than the few gold pixels they display. Match their contact
+        // with the old surround's side edges instead of their visible size.
+        const bool touchesOldFrameEdge =
+            bounds.i.x <= 50.0f || bounds.f.x >= 558.0f;
+        const bool isEdgeCap = width <= 200.0f && height <= 160.0f &&
+            touchesOldFrameEdge &&
+            centerY >= 60.0f && centerY <= 388.0f;
+        if (isEdgeCap) {
+            picture->hide();
+        }
+    }
+    for (J2DPane* child = pane->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane()) {
+        hide_tv_settings_edge_caps(child);
+    }
+}
+
+void add_tv_settings_crisp_frame(J2DScreen* screen) {
+    if (screen == nullptr || screen->search(MULTI_CHAR('hd_tvbd')) != nullptr) {
+        return;
+    }
+    ResTIMG const* rule = resource_texture(s_fileSelectTitleRulesResource);
+    if (rule == nullptr) {
+        return;
+    }
+    auto* frame = JKR_NEW J2DPane(MULTI_CHAR('hd_tvbd'),
+        JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f, 448.0f));
+    screen->appendChild(frame);
+    const auto addEdge = [frame, rule](u64 tag, const JGeometry::TBox2<f32>& bounds) {
+        auto* edge = JKR_NEW J2DPicture(tag, bounds, rule, nullptr);
+        configure_hd_picture(edge);
+        frame->appendChild(edge);
+    };
+    addEdge(MULTI_CHAR('hd_tvbt'), JGeometry::TBox2<f32>(34.0f, 62.0f, 574.0f, 66.0f));
+    addEdge(MULTI_CHAR('hd_tvbb'), JGeometry::TBox2<f32>(34.0f, 382.0f, 574.0f, 386.0f));
+}
+
+void update_tv_settings_wording(J2DScreen* screen) {
+    if (screen == nullptr) {
+        return;
+    }
+    for (u64 tag : {MULTI_CHAR('menu_t81'), MULTI_CHAR('menu_t4'),
+             MULTI_CHAR('menu_t8s'), MULTI_CHAR('menu_t8')}) {
+        if (auto* text = static_cast<J2DTextBox*>(screen->search(tag))) {
+            text->setString(48, "Make the adjustments on the device.");
+        }
+    }
+}
+
+void finish_tv_settings_hd_style(J2DScreen* screen, JKRArchive* archive,
+    JUTFont* font) {
+    if (screen == nullptr || archive == nullptr) {
+        return;
+    }
+    hide_large_tv_settings_frame(screen,
+        static_cast<ResTIMG const*>(archive->getResource('TIMG', "tt_yakushima.bti")));
+    hide_tv_settings_edge_caps(screen);
+    for (const char* textureName : {"tt_gold_uzu_long2.bti",
+             "tt_horiwaku_top_rr.bti", "tt_kazari_kani_00.bti"}) {
+        hide_collect_decoration_texture(screen,
+            static_cast<ResTIMG const*>(archive->getResource('TIMG', textureName)));
+    }
+    update_tv_settings_wording(screen);
+    add_tv_settings_crisp_frame(screen);
+    add_tv_settings_hd_overlay(screen, font);
+}
+
+void style_option_tv_screen(dMenu_Option_c* menu) {
+    if (menu == nullptr || menu->mpTVScreen == nullptr || menu->mpArchive == nullptr) {
+        return;
+    }
+
+    auto* brick = static_cast<ResTIMG const*>(
+        menu->mpArchive->getResource('TIMG', "tt_block128_00.bti"));
+    replace_option_tv_brick_layer(menu->mpTVScreen, brick,
+        resource_texture(s_fileSelectBackgroundResource));
+    finish_tv_settings_hd_style(menu->mpTVScreen, menu->mpArchive, menu->mpFont);
+}
+
+void apply_option_hd_style(dMenu_Option_c* menu) {
+    // _draw is queued while optres.arc is still mounting. None of the screen
+    // pointers are valid until the native _create call assigns mpArchive.
+    if (menu == nullptr || menu->mpArchive == nullptr) {
+        return;
+    }
+    add_option_background_and_title(menu);
+    update_option_widescreen_canvas(menu);
+    add_option_prompts(menu);
+    style_option_rows(menu);
+    style_option_tv_screen(menu);
+}
+
+void replace_brightness_check_brick(J2DPane* pane, ResTIMG const* brickTexture,
+    ResTIMG const* replacement) {
+    if (pane == nullptr || brickTexture == nullptr || replacement == nullptr) {
+        return;
+    }
+
+    if (J2DPicture* picture = as_picture(pane);
+        picture != nullptr && picture->getTexture(0) != nullptr &&
+        picture->getTexture(0)->getTexInfo() == brickTexture) {
+        const JGeometry::TBox2<f32> bounds = picture->getBounds();
+        picture->changeTexture(replacement, 0);
+        picture->resize(bounds.getWidth(), bounds.getHeight());
+        picture->move(bounds.i.x, bounds.i.y);
+        picture->setTexCoord(picture->getTexture(0), BIND15, MIRROR0, false);
+        picture->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+            JUtility::TColor(255, 255, 255, 255));
+        picture->setCornerColor(JUtility::TColor(255, 255, 255, 255));
+    }
+    for (J2DPane* child = pane->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane()) {
+        replace_brightness_check_brick(child, brickTexture, replacement);
+    }
+}
+
+void style_brightness_check_screen(dBrightCheck_c* screen) {
+    if (screen == nullptr || screen->mBrightCheck.Scr == nullptr ||
+        screen->mArchive == nullptr) {
+        return;
+    }
+
+    ResTIMG const* brick = static_cast<ResTIMG const*>(
+        screen->mArchive->getResource('TIMG', "tt_block128_00.bti"));
+    replace_brightness_check_brick(screen->mBrightCheck.Scr, brick,
+        resource_texture(s_fileSelectBackgroundResource));
+    finish_tv_settings_hd_style(screen->mBrightCheck.Scr, screen->mArchive,
+        mDoExt_getMesgFont());
 }
 
 ResTIMG const* file_select_archive_texture(dFile_select_c* menu,
@@ -5207,12 +6301,134 @@ void after_collect_create(ModContext*, void* args, void*, void*) {
     apply_collect_menu_button_layout(s_activeCollectMenu);
 }
 
+HookAction before_fmap_move(ModContext*, void*, void*, void*) {
+    // The map's Portals action is still wired to GameCube Z internally.
+    // Translate the displayed R shoulder only while this map processes input.
+    interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
+    if ((pad.mButtonFlags & PAD_TRIGGER_R) != 0) {
+        pad.mButtonFlags |= PAD_TRIGGER_Z;
+    }
+    if ((pad.mPressedButtonFlags & PAD_TRIGGER_R) != 0) {
+        pad.mPressedButtonFlags |= PAD_TRIGGER_Z;
+    }
+    return HOOK_CONTINUE;
+}
+
+HookAction before_fmap_back_draw(ModContext*, void* args, void*, void*) {
+    auto* map = mods::arg<dMenu_Fmap2DBack_c*>(args, 0);
+    apply_fmap_background(map);
+    return HOOK_CONTINUE;
+}
+
+HookAction before_fmap_top_draw(ModContext*, void* args, void*, void*) {
+    // Prompt strings are rewritten as map zoom state changes, so mirror the
+    // current values immediately before every field-map draw.
+    apply_fmap_top(mods::arg<dMenu_Fmap2DTop_c*>(args, 0));
+    return HOOK_CONTINUE;
+}
+
+HookAction before_dmap_bg_draw(ModContext*, void* args, void*, void*) {
+    apply_dmap_hd_layout(mods::arg<dMenu_DmapBg_c*>(args, 0));
+    return HOOK_CONTINUE;
+}
+
 HookAction before_collect_delete(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Collect2D_c*>(args, 0);
     if (s_activeCollectMenu == menu) {
         s_activeCollectMenu = nullptr;
     }
     return HOOK_CONTINUE;
+}
+
+void after_option_create(ModContext*, void* args, void*, void*) {
+    apply_option_hd_style(mods::arg<dMenu_Option_c*>(args, 0));
+}
+
+void after_brightness_check_screen_set(ModContext*, void* args, void*, void*) {
+    style_brightness_check_screen(mods::arg<dBrightCheck_c*>(args, 0));
+}
+
+HookAction before_option_move(ModContext*, void*, void*, void*) {
+    // The original display submenu is bound to GameCube Z. The HD layout uses
+    // the physical R shoulder, so translate R only while the Options menu is
+    // processing input; gameplay's separate R-item mapping remains untouched.
+    interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
+    if ((pad.mButtonFlags & PAD_TRIGGER_R) != 0) {
+        pad.mButtonFlags |= PAD_TRIGGER_Z;
+    }
+    if ((pad.mPressedButtonFlags & PAD_TRIGGER_R) != 0) {
+        pad.mPressedButtonFlags |= PAD_TRIGGER_Z;
+    }
+    return HOOK_CONTINUE;
+}
+
+HookAction before_option_draw(ModContext*, void* args, void*, void*) {
+    // The native option animation recalculates row, arrow, and cursor
+    // positions during movement. Reassert the HD presentation immediately
+    // before drawing without touching its values or state machine.
+    apply_option_hd_style(mods::arg<dMenu_Option_c*>(args, 0));
+    ++s_descenderCorrectionDrawDepth;
+    return HOOK_CONTINUE;
+}
+
+void after_option_draw(ModContext*, void*, void*, void*) {
+    if (s_descenderCorrectionDrawDepth > 0) {
+        --s_descenderCorrectionDrawDepth;
+    }
+}
+
+HookAction before_brightness_check_draw(ModContext*, void*, void*, void*) {
+    ++s_descenderCorrectionDrawDepth;
+    return HOOK_CONTINUE;
+}
+
+void after_brightness_check_draw(ModContext*, void*, void*, void*) {
+    if (s_descenderCorrectionDrawDepth > 0) {
+        --s_descenderCorrectionDrawDepth;
+    }
+}
+
+HookAction before_res_font_draw_char(ModContext*, void* args, void*, void*) {
+    if (s_descenderCorrectionDrawDepth > 0) {
+        const int glyph = mods::arg<int>(args, 5);
+        if (glyph == 'g') {
+            mods::arg_ref<f32>(args, 2) += 2.0f;
+        } else if (glyph == 'p') {
+            mods::arg_ref<f32>(args, 2) += 1.0f;
+        }
+    }
+    return HOOK_CONTINUE;
+}
+
+HookAction before_option_draw_arrows(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Option_c*>(args, 0);
+    if (menu == nullptr || menu->mpMeterHaihai == nullptr ||
+        menu->mpShadowScreen == nullptr) {
+        return HOOK_SKIP_ORIGINAL;
+    }
+
+    const u8 selected = menu->getSelectType();
+    constexpr u64 frameTags[] = {
+        MULTI_CHAR('hd_orf0'), MULTI_CHAR('hd_orf1'), MULTI_CHAR('hd_orf2'),
+    };
+    J2DPane* frame = selected < 3 ?
+        menu->mpShadowScreen->search(frameTags[selected]) : nullptr;
+    if (frame != nullptr && menu->field_0x3f3 == 5 &&
+        menu->field_0x3ef != dMenu_Option_c::PROC_CONFIRM_OPEN_MOVE_e &&
+        menu->field_0x3ef != dMenu_Option_c::PROC_CONFIRM_MOVE_MOVE_e &&
+        menu->field_0x3ef != dMenu_Option_c::PROC_CONFIRM_SELECT_MOVE_e &&
+        menu->field_0x3ef != dMenu_Option_c::PROC_CONFIRM_CLOSE_MOVE_e) {
+        const auto& bounds = frame->getGlbBounds();
+        constexpr f32 arrowGap = 16.0f;
+        const f32 left = bounds.i.x - arrowGap;
+        const f32 right = bounds.f.x + arrowGap;
+        const f32 centerY = (bounds.i.y + bounds.f.y) * 0.5f;
+        menu->mpMeterHaihai->_execute(0);
+        menu->mpMeterHaihai->drawHaihai(
+            dMeterHaihai_c::DIR_LEFT_e | dMeterHaihai_c::DIR_RIGHT_e,
+            (left + right) * 0.5f, centerY, right - left, 0.0f);
+    }
+    return HOOK_SKIP_ORIGINAL;
 }
 
 void after_file_select_create(ModContext*, void* args, void*, void*) {
@@ -6069,6 +7285,25 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_POST(MeterMapDrawHook, after_meter_map_draw, "minimap draw (after)");
     ADD_POST(CollectCreateHook, after_collect_create, "collection menu buttons");
     ADD_PRE(CollectDeleteHook, before_collect_delete, "collection menu cleanup");
+    ADD_PRE(FmapMoveHook, before_fmap_move, "field map portals R button mapping");
+    ADD_PRE(FmapBackDrawHook, before_fmap_back_draw, "field map HD background");
+    ADD_PRE(FmapTopDrawHook, before_fmap_top_draw, "field map HD title and prompts");
+    ADD_PRE(DmapBgDrawHook, before_dmap_bg_draw,
+        "dungeon map HD background, title, and prompts");
+    ADD_POST(OptionCreateHook, after_option_create, "options menu HD style");
+    ADD_POST(BrightCheckScreenSetHook, after_brightness_check_screen_set,
+        "brightness check HD style");
+    ADD_PRE(OptionMoveHook, before_option_move, "options display button mapping");
+    ADD_PRE(OptionDrawHook, before_option_draw, "options menu HD draw");
+    ADD_POST(OptionDrawHook, after_option_draw, "options descender scope");
+    ADD_PRE(BrightCheckDrawHook, before_brightness_check_draw,
+        "brightness check descender scope");
+    ADD_POST(BrightCheckDrawHook, after_brightness_check_draw,
+        "brightness check descender cleanup");
+    ADD_PRE(ResFontDrawCharHook, before_res_font_draw_char,
+        "menu font descender correction");
+    ADD_PRE(OptionDrawArrowsHook, before_option_draw_arrows,
+        "options menu selection arrows");
     ADD_POST(FileSelectCreateHook, after_file_select_create, "file selection HD style");
     ADD_POST(FileSelectMoveHook, after_file_select_move, "file selection HD prompt position");
     ADD_PRE(FileSelectDrawHook, before_file_select_draw, "file selection HD text");
