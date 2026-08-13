@@ -1,4 +1,4 @@
-Twilight HD HUD v0.5
+Twilight HD HUD v0.7.5
 
 Requires official Dusklight v1.4.1-129 or newer.
 
@@ -17,6 +17,11 @@ Apple TV installation:
 2. On a phone or computer on the same network, enter the complete address shown on the television.
 3. Under Mods, upload the included .dusk file.
 4. Rescan or reload mods on Apple TV, then enable Twilight HD HUD.
+
+Controller compatibility:
+- Follow Dusklight Bindings is recommended and respects the active controller profile.
+- TPHD Fixed Layout also accepts logical R for the third item and related menu actions.
+- D-Pad Up calls Midna in both modes. A separate Dusklight Call Midna binding is also honored.
 
 This package contains no game files. A compatible, legally obtained disc image is required by Dusklight.
 

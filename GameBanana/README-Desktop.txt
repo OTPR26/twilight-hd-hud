@@ -1,4 +1,4 @@
-Twilight HD HUD v0.5
+Twilight HD HUD v0.7.5
 
 Requires official Dusklight v1.4.1-129 or newer.
 
@@ -11,7 +11,12 @@ Supported platforms:
 Installation:
 1. Place the included .dusk file in the mods folder inside the active Dusklight data folder.
 2. Restart Dusklight or reload mods from the mod manager.
-3. Enable Twilight HD HUD and open its settings to choose a button-label layout and HUD size.
+3. Enable Twilight HD HUD and open its settings to choose a button-label layout, controller compatibility mode, and HUD size.
+
+Controller compatibility:
+- Follow Dusklight Bindings is recommended and respects the active controller profile.
+- TPHD Fixed Layout also accepts logical R for the third item and related menu actions.
+- D-Pad Up calls Midna in both modes. A separate Dusklight Call Midna binding is also honored.
 
 On macOS, the active data folder is normally under ~/Library/Application Support/Dusklight.
 On Android, use the mods folder inside the Dusklight data folder selected by the app.

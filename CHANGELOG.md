@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.7.5 - 2026-08-13
+
+- Add **Follow Dusklight Bindings** and **TPHD Fixed Layout** controller
+  compatibility modes without rewriting the user's controller profile.
+- Restore reliable D-Pad Up navigation in File Selection and naming screens
+  while keeping D-Pad Up assigned to Midna during gameplay.
+- Honor Dusklight's separate **Call Midna** action and prevent a shared input
+  from activating the third item at the same time.
+- Apply Nintendo, Xbox, and Universal face-button artwork consistently across
+  Options, save, File Selection, field-map, and dungeon-map prompts.
+- Stabilize the Copy and Erase confirmation buttons so their positions no
+  longer jump during selection changes.
+- Correct the Quest Log title baseline and retain the v0.6 menu and map
+  presentation across supported aspect ratios.
+
 ## v0.6.0 - 2026-08-12
 
 - Restyle the Options and Device Settings screens with the cleaner

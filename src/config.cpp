@@ -8,6 +8,7 @@ namespace twilight_hd_hud {
 namespace {
 
 ConfigVarHandle s_buttonLayout = 0;
+ConfigVarHandle s_controllerCompatibility = 0;
 ConfigVarHandle s_hudScale = 0;
 
 ModResult register_int(const char* name, int64_t defaultValue, ConfigVarHandle& handle) {
@@ -31,12 +32,26 @@ int64_t get_int(ConfigVarHandle handle, int64_t fallback) {
 ModResult register_config(ModError* error) {
     if (register_int("button-layout", static_cast<int64_t>(ButtonLayout::Nintendo),
             s_buttonLayout) != MOD_OK ||
+        register_int("controller-compatibility",
+            static_cast<int64_t>(ControllerCompatibility::FollowDusklight),
+            s_controllerCompatibility) != MOD_OK ||
         register_int("hud-size", 1, s_hudScale) != MOD_OK)
     {
         return mods::set_error(
             error, MOD_ERROR, "failed to register Twilight HD HUD settings");
     }
     return MOD_OK;
+}
+
+ControllerCompatibility controller_compatibility() {
+    const int64_t value = get_int(s_controllerCompatibility,
+        static_cast<int64_t>(ControllerCompatibility::FollowDusklight));
+    if (value < static_cast<int64_t>(ControllerCompatibility::FollowDusklight) ||
+        value > static_cast<int64_t>(ControllerCompatibility::FixedTphd))
+    {
+        return ControllerCompatibility::FollowDusklight;
+    }
+    return static_cast<ControllerCompatibility>(value);
 }
 
 ButtonLayout button_layout() {
@@ -62,6 +77,10 @@ float hud_scale() {
 
 ConfigVarHandle button_layout_config_var() {
     return s_buttonLayout;
+}
+
+ConfigVarHandle controller_compatibility_config_var() {
+    return s_controllerCompatibility;
 }
 
 ConfigVarHandle hud_scale_config_var() {

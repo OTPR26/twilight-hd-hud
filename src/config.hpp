@@ -11,11 +11,18 @@ enum class ButtonLayout : int {
     Universal = 2,
 };
 
+enum class ControllerCompatibility : int {
+    FollowDusklight = 0,
+    FixedTphd = 1,
+};
+
 ModResult register_config(ModError* error);
 ButtonLayout button_layout();
+ControllerCompatibility controller_compatibility();
 float hud_scale();
 
 ConfigVarHandle button_layout_config_var();
+ConfigVarHandle controller_compatibility_config_var();
 ConfigVarHandle hud_scale_config_var();
 
 }  // namespace twilight_hd_hud
