@@ -19,9 +19,9 @@ Apple TV installation:
 4. Rescan or reload mods on Apple TV, then enable Twilight HD HUD.
 
 Controller compatibility:
-- Follow Dusklight Bindings is recommended and respects the active controller profile.
-- TPHD Fixed Layout also accepts logical R for the third item and related menu actions.
-- D-Pad Up calls Midna in both modes. A separate Dusklight Call Midna binding is also honored.
+- Follow Dusklight Bindings respects the active controller profile and honors its Call Midna action without also triggering the control's normal game action.
+- TPHD Fixed Bindings ignores the separate Dusklight Call Midna binding and keeps Midna on D-Pad Up.
+- In both modes, the control mapped to logical R operates the third item and related menu actions.
 
 This package contains no game files. A compatible, legally obtained disc image is required by Dusklight.
 

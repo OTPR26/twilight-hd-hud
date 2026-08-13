@@ -190,8 +190,8 @@ bool s_zHeavyBootsWaitRelease = false;
 u8 s_zHeavyBootsGuardFrames = 0;
 bool s_dpadMidnaHeld = false;
 bool s_dpadMidnaTrig = false;
-bool s_menuWindowUpHeld = false;
-bool s_menuWindowUpTrig = false;
+u32 s_menuWindowSuppressedHeld = 0;
+u32 s_menuWindowSuppressedTrig = 0;
 
 enum class DusklightActionBind {
     FirstPersonCamera,
@@ -200,10 +200,37 @@ enum class DusklightActionBind {
 
 using GetActionBindTrigFn = bool (*)(DusklightActionBind, u32);
 GetActionBindTrigFn s_getActionBindTrig = nullptr;
+using GetActionBindButtonFn = int (*)(DusklightActionBind, u32);
+GetActionBindButtonFn s_getActionBindButton = nullptr;
 
 bool midna_action_triggered() {
-    return s_getActionBindTrig != nullptr &&
+    return controller_compatibility() == ControllerCompatibility::FollowDusklight &&
+        s_getActionBindTrig != nullptr &&
         s_getActionBindTrig(DusklightActionBind::CallMidna, PAD_1);
+}
+
+u32 midna_game_button_mask() {
+    if (controller_compatibility() != ControllerCompatibility::FollowDusklight ||
+        s_getActionBindButton == nullptr)
+    {
+        return 0;
+    }
+
+    const int nativeButton =
+        s_getActionBindButton(DusklightActionBind::CallMidna, PAD_1);
+    if (nativeButton == PAD_NATIVE_BUTTON_INVALID) {
+        return 0;
+    }
+
+    u32 mappingCount = 0;
+    PADButtonMapping* mappings = PADGetButtonMappings(PAD_1, &mappingCount);
+    u32 gameButtonMask = 0;
+    for (u32 index = 0; mappings != nullptr && index < mappingCount; ++index) {
+        if (mappings[index].nativeButton == nativeButton) {
+            gameButtonMask |= mappings[index].padButton;
+        }
+    }
+    return gameButtonMask;
 }
 
 void resolve_action_binding_functions() {
@@ -213,12 +240,22 @@ void resolve_action_binding_functions() {
         mod_ctx, "dusk::getActionBindTrig", &address, &flags);
     if (result == MOD_OK && address != nullptr) {
         s_getActionBindTrig = reinterpret_cast<GetActionBindTrigFn>(address);
-        return;
+    } else {
+        s_getActionBindTrig = nullptr;
+        svc_log->warn(mod_ctx,
+            "Unable to read Dusklight's Call Midna trigger; D-pad Up remains available");
     }
 
-    s_getActionBindTrig = nullptr;
-    svc_log->warn(mod_ctx,
-        "Unable to read Dusklight's Call Midna binding; D-pad Up remains available");
+    address = nullptr;
+    const ModResult buttonResult = svc_hook->resolve(
+        mod_ctx, "dusk::getActionBindButton", &address, &flags);
+    if (buttonResult == MOD_OK && address != nullptr) {
+        s_getActionBindButton = reinterpret_cast<GetActionBindButtonFn>(address);
+    } else {
+        s_getActionBindButton = nullptr;
+        svc_log->warn(mod_ctx,
+            "Unable to isolate Dusklight's Call Midna button from its normal game action");
+    }
 }
 
 struct HudPaneTransformState {
@@ -6310,7 +6347,9 @@ void after_set_select_item(ModContext*, void* args, void*, void*) {
 
 void after_pad_read(ModContext*, void*, void*, void*) {
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
-    if (z_item_menu_or_pause_context()) {
+    if (z_item_menu_or_pause_context() ||
+        controller_compatibility() != ControllerCompatibility::FixedTphd)
+    {
         s_dpadMidnaHeld = false;
         s_dpadMidnaTrig = false;
         return;
@@ -6333,14 +6372,10 @@ void after_set_stick_data(ModContext*, void* args, void*, void*) {
         return;
     }
 
-    if (controller_compatibility() != ControllerCompatibility::FixedTphd) {
-        return;
-    }
-
-    // The fixed layout treats logical R as an additional third-item input,
-    // but does so only after the game's input snapshot is built. The shared
-    // controller profile and the pad state seen by Dusklight and other mods
-    // remain untouched.
+    // TPHD's third slot uses logical R in either compatibility mode. Dusklight
+    // remains responsible for deciding which physical control produces R.
+    // Apply the translation only after the game's input snapshot is built so
+    // the shared controller profile and pad state remain untouched.
     if (mDoCPd_c::getTrigR(PAD_1)) {
         link->mItemTrigger |= daAlink_c::BTN_Z;
     }
@@ -6356,10 +6391,7 @@ void after_collect_create(ModContext*, void* args, void*, void*) {
 
 HookAction before_fmap_move(ModContext*, void*, void*, void*) {
     // The map's Portals action is still wired to GameCube Z internally.
-    // Translate the displayed R shoulder only while this map processes input.
-    if (controller_compatibility() != ControllerCompatibility::FixedTphd) {
-        return HOOK_CONTINUE;
-    }
+    // Translate the displayed logical R only while this map processes input.
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
     if ((pad.mButtonFlags & PAD_TRIGGER_R) != 0) {
         pad.mButtonFlags |= PAD_TRIGGER_Z;
@@ -6407,11 +6439,8 @@ void after_brightness_check_screen_set(ModContext*, void* args, void*, void*) {
 
 HookAction before_option_move(ModContext*, void*, void*, void*) {
     // The original display submenu is bound to GameCube Z. The HD layout uses
-    // the physical R shoulder, so translate R only while the Options menu is
+    // logical R, so translate R only while the Options menu is
     // processing input; gameplay's separate R-item mapping remains untouched.
-    if (controller_compatibility() != ControllerCompatibility::FixedTphd) {
-        return HOOK_CONTINUE;
-    }
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
     if ((pad.mButtonFlags & PAD_TRIGGER_R) != 0) {
         pad.mButtonFlags |= PAD_TRIGGER_Z;
@@ -6884,9 +6913,7 @@ HookAction before_ring_set_active_cursor(ModContext*, void* args, void*, void*) 
         return HOOK_SKIP_ORIGINAL;
     }
 
-    if (controller_compatibility() == ControllerCompatibility::FixedTphd &&
-        mDoCPd_c::getTrigR(PAD_1))
-    {
+    if (mDoCPd_c::getTrigR(PAD_1)) {
         s_pendingAssign = {};
         if (item_assign_allowed(ring)) {
             assign_current_item(ring, kZItemSlot);
@@ -6956,24 +6983,31 @@ HookAction before_midna_talk_trigger(ModContext*, void* args, void* retval, void
 }
 
 HookAction before_menu_window_execute(ModContext*, void*, void*, void*) {
-    // Up belongs to Midna during gameplay. Hide it only while the gameplay
-    // menu dispatcher checks whether it should open the item wheel.
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
-    s_menuWindowUpHeld = (pad.mButtonFlags & PAD_BUTTON_UP) != 0;
-    s_menuWindowUpTrig = (pad.mPressedButtonFlags & PAD_BUTTON_UP) != 0;
-    pad.mButtonFlags &= ~PAD_BUTTON_UP;
-    pad.mPressedButtonFlags &= ~PAD_BUTTON_UP;
+    u32 suppressMask = 0;
+    if (controller_compatibility() == ControllerCompatibility::FixedTphd) {
+        // Fixed Bindings reserves Up for Midna.
+        suppressMask = PAD_BUTTON_UP;
+    } else if (midna_action_triggered()) {
+        // Follow mode leaves the controller profile untouched. When its Call
+        // Midna action fires, suppress the normal game button fed by that same
+        // physical control only while the item-menu dispatcher processes it.
+        suppressMask = midna_game_button_mask();
+    }
+
+    s_menuWindowSuppressedHeld = pad.mButtonFlags & suppressMask;
+    s_menuWindowSuppressedTrig = pad.mPressedButtonFlags & suppressMask;
+    pad.mButtonFlags &= ~suppressMask;
+    pad.mPressedButtonFlags &= ~suppressMask;
     return HOOK_CONTINUE;
 }
 
 void after_menu_window_execute(ModContext*, void*, void*, void*) {
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
-    if (s_menuWindowUpHeld) {
-        pad.mButtonFlags |= PAD_BUTTON_UP;
-    }
-    if (s_menuWindowUpTrig) {
-        pad.mPressedButtonFlags |= PAD_BUTTON_UP;
-    }
+    pad.mButtonFlags |= s_menuWindowSuppressedHeld;
+    pad.mPressedButtonFlags |= s_menuWindowSuppressedTrig;
+    s_menuWindowSuppressedHeld = 0;
+    s_menuWindowSuppressedTrig = 0;
 }
 
 HookAction before_check_item_button_change(ModContext*, void* args, void*, void*) {
@@ -7352,9 +7386,10 @@ void shutdown_item_slot_resources() {
     s_fileSelectYesNoLayoutReady = false;
     s_dpadMidnaHeld = false;
     s_dpadMidnaTrig = false;
-    s_menuWindowUpHeld = false;
-    s_menuWindowUpTrig = false;
+    s_menuWindowSuppressedHeld = 0;
+    s_menuWindowSuppressedTrig = 0;
     s_getActionBindTrig = nullptr;
+    s_getActionBindButton = nullptr;
     clear_z_heavy_boots_input_lock();
 }
 

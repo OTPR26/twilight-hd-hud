@@ -74,10 +74,11 @@ The package does not contain game files. A compatible, legally obtained disc ima
 
 Physical controller bindings still depend on the active Dusklight controller profile.
 
-The default **Follow Dusklight Bindings** controller mode leaves that profile unchanged. D-Pad Up
-calls Midna, and any separate **Call Midna** action configured in Dusklight is honored as well. The
-optional **TPHD Fixed Layout** mode also accepts logical R for the third item and related menu
-actions without rewriting the saved controller profile.
+The default **Follow Dusklight Bindings** controller mode leaves that profile unchanged and honors
+the configured **Call Midna** action without also triggering the control's normal game action. The
+optional **TPHD Fixed Bindings** mode ignores the separate Call Midna binding and keeps Midna
+exclusively on D-Pad Up. In both modes, the control mapped to logical R operates the third item and
+related menu actions without rewriting the saved controller profile.
 
 ## Building
 

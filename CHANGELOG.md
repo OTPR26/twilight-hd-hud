@@ -2,8 +2,12 @@
 
 ## v0.7.5 - 2026-08-13
 
-- Add **Follow Dusklight Bindings** and **TPHD Fixed Layout** controller
+- Add **Follow Dusklight Bindings** and **TPHD Fixed Bindings** controller
   compatibility modes without rewriting the user's controller profile.
+- Prevent a configured **Call Midna** control from also performing its normal
+  game action in Follow mode.
+- Restore logical R for the third item and related menu actions in both
+  controller compatibility modes.
 - Restore reliable D-Pad Up navigation in File Selection and naming screens
   while keeping D-Pad Up assigned to Midna during gameplay.
 - Honor Dusklight's separate **Call Midna** action and prevent a shared input

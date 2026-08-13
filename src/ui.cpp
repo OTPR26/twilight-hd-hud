@@ -67,14 +67,14 @@ ModResult build_hud_tab(
     }
     static constexpr const char* kControllerCompatibility[] = {
         "Follow Dusklight Bindings",
-        "TPHD Fixed Layout",
+        "TPHD Fixed Bindings",
     };
     if (add_select(ctx, left, "Controller Compatibility",
             controller_compatibility_config_var(), kControllerCompatibility,
             std::size(kControllerCompatibility),
-            "Follow Dusklight Bindings respects the active controller profile and is recommended. "
-            "TPHD Fixed Layout also accepts logical R for the third item and related menu actions. "
-            "D-Pad Up calls Midna in both modes; a separate Dusklight Call Midna binding is also honored.")
+            "Follow Dusklight Bindings respects the active controller profile and its Call Midna "
+            "action. TPHD Fixed Bindings instead reserves D-Pad Up for Midna. In both modes, the "
+            "control mapped to logical R operates the third item and related menu actions.")
         != MOD_OK)
     {
         return MOD_ERROR;
