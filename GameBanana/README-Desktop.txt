@@ -14,9 +14,9 @@ Installation:
 3. Enable Twilight HD HUD and open its settings to choose a button-label layout, controller compatibility mode, and HUD size.
 
 Controller compatibility:
-- Follow Dusklight Bindings is recommended and respects the active controller profile.
-- TPHD Fixed Layout also accepts logical R for the third item and related menu actions.
-- D-Pad Up calls Midna in both modes. A separate Dusklight Call Midna binding is also honored.
+- Follow Dusklight Bindings respects the active controller profile and honors its Call Midna action without also triggering the control's normal game action.
+- TPHD Fixed Bindings ignores the separate Dusklight Call Midna binding and keeps Midna on D-Pad Up.
+- In both modes, the control mapped to logical R operates the third item and related menu actions.
 
 On macOS, the active data folder is normally under ~/Library/Application Support/Dusklight.
 On Android, use the mods folder inside the Dusklight data folder selected by the app.
