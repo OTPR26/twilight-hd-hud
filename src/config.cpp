@@ -8,6 +8,7 @@ namespace twilight_hd_hud {
 namespace {
 
 ConfigVarHandle s_buttonLayout = 0;
+ConfigVarHandle s_buttonStyle = 0;
 ConfigVarHandle s_controllerCompatibility = 0;
 ConfigVarHandle s_hudScale = 0;
 
@@ -32,6 +33,8 @@ int64_t get_int(ConfigVarHandle handle, int64_t fallback) {
 ModResult register_config(ModError* error) {
     if (register_int("button-layout", static_cast<int64_t>(ButtonLayout::Nintendo),
             s_buttonLayout) != MOD_OK ||
+        register_int("button-style", static_cast<int64_t>(ButtonStyle::Silver),
+            s_buttonStyle) != MOD_OK ||
         register_int("controller-compatibility",
             static_cast<int64_t>(ControllerCompatibility::FollowDusklight),
             s_controllerCompatibility) != MOD_OK ||
@@ -64,6 +67,16 @@ ButtonLayout button_layout() {
     return static_cast<ButtonLayout>(value);
 }
 
+ButtonStyle button_style() {
+    const int64_t value = get_int(s_buttonStyle, static_cast<int64_t>(ButtonStyle::Silver));
+    if (value < static_cast<int64_t>(ButtonStyle::Silver) ||
+        value > static_cast<int64_t>(ButtonStyle::BlackPro))
+    {
+        return ButtonStyle::Silver;
+    }
+    return static_cast<ButtonStyle>(value);
+}
+
 float hud_scale() {
     switch (get_int(s_hudScale, 1)) {
     case 0:
@@ -77,6 +90,10 @@ float hud_scale() {
 
 ConfigVarHandle button_layout_config_var() {
     return s_buttonLayout;
+}
+
+ConfigVarHandle button_style_config_var() {
+    return s_buttonStyle;
 }
 
 ConfigVarHandle controller_compatibility_config_var() {

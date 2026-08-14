@@ -16,7 +16,6 @@
 #include "d/d_meter2.h"
 #include "d/d_meter2_info.h"
 #include "d/d_menu_window.h"
-#include "d/d_menu_item_explain.h"
 #include "d/d_pane_class.h"
 #include "d/d_msg_object.h"
 #include "JSystem/J2DGraph/J2DPane.h"
@@ -27,6 +26,9 @@
 #include "JSystem/JUtility/JUTFont.h"
 #include "JSystem/JUtility/JUTResFont.h"
 #define private public
+#include "d/d_menu_item_explain.h"
+#include "d/d_msg_out_font.h"
+#include "d/d_msg_string.h"
 #include "d/d_select_cursor.h"
 #define PaneCache FileSelectPaneCache
 #include "d/d_file_select.h"
@@ -60,6 +62,8 @@
 namespace twilight_hd_hud {
 namespace {
 
+constexpr int kSdlLeftTriggerAxis = 4;
+
 constexpr u8 kZItemSlot = SELECT_ITEM_DOWN;
 constexpr int kExtendedSelectItemCount = 3;
 constexpr int kSelectItemNotFound = 3;
@@ -84,12 +88,13 @@ constexpr WolfIconLayout kAttackIconLayout = {3.0f, -37.0f, 22.0f, 220.0f};
 DEFINE_HOOK(&dComIfGp_getSelectItem, GetSelectItemHook);
 DEFINE_HOOK(&dComIfGp_setSelectItem, SetSelectItemHook);
 DEFINE_HOOK(&dMenu_Ring_c::_create, RingCreateHook);
-DEFINE_HOOK(&dMenu_Ring_c::_delete, RingDeleteHook);
+DEFINE_HOOK(&dMw_c::dMw_ring_delete, MenuRingDeleteHook);
 DEFINE_HOOK(&dMenu_Ring_c::_draw, RingDrawHook);
 DEFINE_HOOK(&dMenu_Ring_c::setActiveCursor, RingSetActiveCursorHook);
 DEFINE_HOOK(&dMenu_Ring_c::setMixMessage, RingSetMixMessageHook);
 DEFINE_HOOK(&dMenu_Ring_c::isMixItemOn, RingIsMixItemOnHook);
 DEFINE_HOOK(&dMenu_Ring_c::isMixItemOff, RingIsMixItemOffHook);
+DEFINE_HOOK(&dMenu_ItemExplain_c::draw, ItemExplainDrawHook);
 DEFINE_HOOK(&dMeterButton_c::_execute, MeterButtonExecuteHook);
 DEFINE_HOOK(&dMeterButton_c::draw, MeterButtonDrawHook);
 DEFINE_HOOK(&dMeter2Draw_c::draw, MeterDrawHook);
@@ -168,6 +173,14 @@ ResourceBuffer s_attackIconResource = RESOURCE_BUFFER_INIT;
 J2DPicture* s_attackIconPicture = nullptr;
 ResourceBuffer s_faceButtonAResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_faceButtonBResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_blackProFaceButtonResources[4] = {
+    RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
+    RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
+};
+ResourceBuffer s_blackProBlankFaceButtonResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_blackProShoulderButtonResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_zlShoulderButtonResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_blackProZlShoulderButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_collectBackgroundResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_collectMenuButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectBackgroundResource = RESOURCE_BUFFER_INIT;
@@ -190,6 +203,8 @@ bool s_zHeavyBootsWaitRelease = false;
 u8 s_zHeavyBootsGuardFrames = 0;
 bool s_dpadMidnaHeld = false;
 bool s_dpadMidnaTrig = false;
+bool s_fixedZlHeld = false;
+bool s_fixedZlTrig = false;
 u32 s_menuWindowSuppressedHeld = 0;
 u32 s_menuWindowSuppressedTrig = 0;
 
@@ -231,6 +246,11 @@ u32 midna_game_button_mask() {
         }
     }
     return gameButtonMask;
+}
+
+bool midna_uses_dpad_down() {
+    return controller_compatibility() == ControllerCompatibility::FollowDusklight &&
+        (midna_game_button_mask() & PAD_BUTTON_DOWN) != 0;
 }
 
 void resolve_action_binding_functions() {
@@ -621,15 +641,60 @@ ResTIMG const* resource_texture(const ResourceBuffer& resource) {
         static_cast<ResTIMG const*>(resource.data) : nullptr;
 }
 
+ResTIMG const* styled_face_button_texture(const char letter) {
+    if (button_style() == ButtonStyle::BlackPro) {
+        const int index = letter == 'A' ? 0 : letter == 'B' ? 1 :
+            letter == 'X' ? 2 : letter == 'Y' ? 3 : -1;
+        if (index >= 0) {
+            if (ResTIMG const* texture = resource_texture(s_blackProFaceButtonResources[index])) {
+                return texture;
+            }
+        }
+    }
+
+    switch (letter) {
+    case 'A':
+        if (ResTIMG const* texture = resource_texture(s_faceButtonAResource)) return texture;
+        return archive_texture("wiiu_a.bti");
+    case 'B':
+        if (ResTIMG const* texture = resource_texture(s_faceButtonBResource)) return texture;
+        return archive_texture("wiiu_b.bti");
+    case 'X': return archive_texture("wiiu_x.bti");
+    case 'Y': return archive_texture("wiiu_y.bti");
+    default: return nullptr;
+    }
+}
+
+ResTIMG const* styled_r_button_texture() {
+    if (button_style() == ButtonStyle::BlackPro) {
+        if (ResTIMG const* texture = resource_texture(s_blackProShoulderButtonResource)) {
+            return texture;
+        }
+    }
+    return archive_texture("wiiu_r.bti");
+}
+
+ResTIMG const* styled_zl_button_texture() {
+    if (button_style() == ButtonStyle::BlackPro) {
+        if (ResTIMG const* texture = resource_texture(s_blackProZlShoulderButtonResource)) {
+            return texture;
+        }
+    }
+    return resource_texture(s_zlShoulderButtonResource);
+}
+
+ResTIMG const* styled_blank_face_button_texture() {
+    if (button_style() == ButtonStyle::BlackPro) {
+        if (ResTIMG const* texture = resource_texture(s_blackProBlankFaceButtonResource)) {
+            return texture;
+        }
+    }
+    return archive_texture("tt_zelda_button_ab_maru.bti");
+}
+
 ResTIMG const* menu_face_button_texture(const bool nativeAAction) {
-    ResTIMG const* buttonA = resource_texture(s_faceButtonAResource);
-    ResTIMG const* buttonB = resource_texture(s_faceButtonBResource);
-    if (buttonA == nullptr) {
-        buttonA = archive_texture("wiiu_a.bti");
-    }
-    if (buttonB == nullptr) {
-        buttonB = archive_texture("wiiu_b.bti");
-    }
+    ResTIMG const* buttonA = styled_face_button_texture('A');
+    ResTIMG const* buttonB = styled_face_button_texture('B');
 
     switch (button_layout()) {
     case ButtonLayout::Nintendo:
@@ -639,9 +704,113 @@ ResTIMG const* menu_face_button_texture(const bool nativeAAction) {
         // letters change to match the Xbox south/east face-button layout.
         return nativeAAction ? buttonB : buttonA;
     case ButtonLayout::Universal:
-        return archive_texture("tt_zelda_button_ab_maru.bti");
+        return styled_blank_face_button_texture();
     }
     return nativeAAction ? buttonA : buttonB;
+}
+
+ResTIMG const* item_assignment_button_texture(const bool nativeXButton) {
+    switch (button_layout()) {
+    case ButtonLayout::Nintendo:
+        return styled_face_button_texture(nativeXButton ? 'X' : 'Y');
+    case ButtonLayout::Xbox:
+        return styled_face_button_texture(nativeXButton ? 'Y' : 'X');
+    case ButtonLayout::Universal:
+        return styled_blank_face_button_texture();
+    }
+    return styled_face_button_texture(nativeXButton ? 'X' : 'Y');
+}
+
+void set_neutral_picture_colors(J2DPicture* picture) {
+    if (picture == nullptr) {
+        return;
+    }
+    picture->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+        JUtility::TColor(255, 255, 255, 255));
+    picture->setCornerColor(JUtility::TColor(255, 255, 255, 255));
+}
+
+void replace_item_assignment_buttons(J2DPane* pane) {
+    if (pane == nullptr) {
+        return;
+    }
+
+    ResTIMG const* xBase = archive_texture("tt_zelda_button_x_base.bti");
+    ResTIMG const* yBase = archive_texture("tt_zelda_button_y_base.bti");
+    ResTIMG const* xText = archive_texture("tt_zelda_button_x_text.bti");
+    ResTIMG const* yText = archive_texture("tt_zelda_button_y_text.bti");
+    ResTIMG const* xFull = archive_texture("WiiU_zelda_button_x.bti");
+    ResTIMG const* yFull = archive_texture("WiiU_zelda_button_y.bti");
+
+    if (J2DPicture* picture = as_picture(pane);
+        picture != nullptr && picture->getTexture(0) != nullptr) {
+        ResTIMG const* texture = picture->getTexture(0)->getTexInfo();
+        if (texture == xBase || texture == yBase) {
+            picture->hide();
+        } else if (texture == xText || texture == xFull) {
+            if (ResTIMG const* replacement = item_assignment_button_texture(true)) {
+                picture->changeTexture(replacement, 0);
+                set_neutral_picture_colors(picture);
+                picture->show();
+            }
+        } else if (texture == yText || texture == yFull) {
+            if (ResTIMG const* replacement = item_assignment_button_texture(false)) {
+                picture->changeTexture(replacement, 0);
+                set_neutral_picture_colors(picture);
+                picture->show();
+            }
+        }
+    }
+
+    for (J2DPane* child = pane->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane()) {
+        replace_item_assignment_buttons(child);
+    }
+}
+
+void apply_item_explain_button_layout(dMenu_ItemExplain_c* menu) {
+    if (menu == nullptr) {
+        return;
+    }
+
+    replace_item_assignment_buttons(menu->mpInfoScreen);
+
+    if (menu->mpInfoString == nullptr || menu->mpInfoString->mpOutFont == nullptr) {
+        return;
+    }
+
+    // Item descriptions render inline X/Y controls through their own out-font
+    // instance. Types 5 and 6 are the native X and Y glyphs respectively.
+    COutFont_c* outFont = menu->mpInfoString->mpOutFont;
+    const struct {
+        int type;
+        bool nativeXButton;
+    } inlineButtons[] = {
+        {5, true},
+        {6, false},
+    };
+    for (const auto& button : inlineButtons) {
+        J2DPicture* picture = outFont->mpPane[button.type];
+        ResTIMG const* replacement = item_assignment_button_texture(button.nativeXButton);
+        if (picture != nullptr && replacement != nullptr) {
+            picture->changeTexture(replacement, 0);
+            set_neutral_picture_colors(picture);
+        }
+    }
+
+    // Hawkeye's stock description labels the bow-combination control as R.
+    // In this HUD, R is the third item slot and ZL is the combination control,
+    // so replace only this description's inline R glyph. Other item-help R
+    // glyphs must remain R because they can legitimately refer to that slot.
+    if (menu->field_0xe1 == dItemNo_HAWK_EYE_e) {
+        constexpr int kInlineRType = 4;
+        J2DPicture* picture = outFont->mpPane[kInlineRType];
+        if (ResTIMG const* replacement = styled_zl_button_texture();
+            picture != nullptr && replacement != nullptr) {
+            picture->changeTexture(replacement, 0);
+            set_neutral_picture_colors(picture);
+        }
+    }
 }
 
 void update_menu_face_button(J2DScreen* screen, const u64 tag,
@@ -1228,7 +1397,7 @@ void add_fmap_top_overlay(dMenu_Fmap2DTop_c* map) {
         MULTI_CHAR('hd_fri0'), MULTI_CHAR('hd_fai1'), MULTI_CHAR('hd_fbi2'),
     };
     ResTIMG const* iconTextures[] = {
-        archive_texture("wiiu_r.bti"), menu_face_button_texture(true),
+        styled_r_button_texture(), menu_face_button_texture(true),
         menu_face_button_texture(false),
     };
     J2DPane* controlAnchor = map->mpContPane->getPanePtr();
@@ -1618,7 +1787,7 @@ void add_option_prompts(dMenu_Option_c* menu) {
         JGeometry::TBox2<f32>(508.0f, 35.0f, 547.0f, 51.0f),
         resource_texture(s_fileSelectBackLabelResource));
     addPicture(MULTI_CHAR('hd_obpi'),
-        JGeometry::TBox2<f32>(546.0f, 32.0f, 573.0f, 59.0f),
+        JGeometry::TBox2<f32>(548.5f, 35.5f, 570.5f, 57.5f),
         menu_face_button_texture(false));
     addPicture(MULTI_CHAR('hd_oflr'),
         JGeometry::TBox2<f32>(562.0f, 29.0f, 600.0f, 67.0f),
@@ -1634,7 +1803,7 @@ void add_option_prompts(dMenu_Option_c* menu) {
     group->appendChild(displayPrompt);
     addPicture(MULTI_CHAR('hd_orbt'),
         JGeometry::TBox2<f32>(575.0f, 414.0f, 601.0f, 433.0f),
-        archive_texture("wiiu_r.bti"));
+        styled_r_button_texture());
 }
 
 void style_option_rows(dMenu_Option_c* menu) {
@@ -4396,8 +4565,8 @@ void apply_collect_menu_button_layout(dMenu_Collect2D_c* menu) {
     ResTIMG const* aGlyphTexture = collect_archive_texture("tt_zelda_button_a_text.bti");
     ResTIMG const* bGlyphTexture = collect_archive_texture("tt_zelda_button_b_text.bti");
     ResTIMG const* decorationTexture = collect_archive_texture("tt_gold_uzu_long2.bti");
-    ResTIMG const* buttonA = archive_texture("wiiu_a.bti");
-    ResTIMG const* buttonB = archive_texture("wiiu_b.bti");
+    ResTIMG const* buttonA = styled_face_button_texture('A');
+    ResTIMG const* buttonB = styled_face_button_texture('B');
 
     switch (button_layout()) {
     case ButtonLayout::Nintendo:
@@ -4406,7 +4575,7 @@ void apply_collect_menu_button_layout(dMenu_Collect2D_c* menu) {
         std::swap(buttonA, buttonB);
         break;
     case ButtonLayout::Universal: {
-        ResTIMG const* blank = archive_texture("tt_zelda_button_ab_maru.bti");
+        ResTIMG const* blank = styled_blank_face_button_texture();
         buttonA = blank;
         buttonB = blank;
         break;
@@ -4428,25 +4597,19 @@ void apply_button_layout_preference(dMeter2Draw_c* meter) {
     }
 
     const ButtonLayout layout = button_layout();
-    ResTIMG const* buttonA = resource_texture(s_faceButtonAResource);
-    ResTIMG const* buttonB = resource_texture(s_faceButtonBResource);
-    if (buttonA == nullptr) {
-        buttonA = archive_texture("wiiu_a.bti");
-    }
-    if (buttonB == nullptr) {
-        buttonB = archive_texture("wiiu_b.bti");
-    }
+    ResTIMG const* buttonA = styled_face_button_texture('A');
+    ResTIMG const* buttonB = styled_face_button_texture('B');
 
     if (layout == ButtonLayout::Nintendo) {
         set_face_button_texture(meter, MULTI_CHAR('a_btn'), buttonA);
         set_face_button_texture(meter, MULTI_CHAR('b_btn'), buttonB);
-        set_face_button_texture(meter, MULTI_CHAR('x_btn'), archive_texture("wiiu_x.bti"));
-        set_face_button_texture(meter, MULTI_CHAR('y_btn'), archive_texture("wiiu_y.bti"));
+        set_face_button_texture(meter, MULTI_CHAR('x_btn'), styled_face_button_texture('X'));
+        set_face_button_texture(meter, MULTI_CHAR('y_btn'), styled_face_button_texture('Y'));
         return;
     }
 
     if (layout == ButtonLayout::Universal) {
-        ResTIMG const* blank = archive_texture("tt_zelda_button_ab_maru.bti");
+        ResTIMG const* blank = styled_blank_face_button_texture();
         set_face_button_texture(meter, MULTI_CHAR('a_btn'), blank);
         set_face_button_texture(meter, MULTI_CHAR('b_btn'), blank);
         set_face_button_texture(meter, MULTI_CHAR('x_btn'), blank);
@@ -4457,8 +4620,8 @@ void apply_button_layout_preference(dMeter2Draw_c* meter) {
         // north becomes Y, and west becomes X.
         set_face_button_texture(meter, MULTI_CHAR('a_btn'), buttonB);
         set_face_button_texture(meter, MULTI_CHAR('b_btn'), buttonA);
-        set_face_button_texture(meter, MULTI_CHAR('x_btn'), archive_texture("wiiu_y.bti"));
-        set_face_button_texture(meter, MULTI_CHAR('y_btn'), archive_texture("wiiu_x.bti"));
+        set_face_button_texture(meter, MULTI_CHAR('x_btn'), styled_face_button_texture('Y'));
+        set_face_button_texture(meter, MULTI_CHAR('y_btn'), styled_face_button_texture('X'));
     }
 }
 
@@ -4511,7 +4674,22 @@ void restore_archive_face_button_diamond(dMeter2Draw_c* meter) {
             ROTATE_Z, 360.0f);
     }
     if (meter->mpLightB != nullptr) {
-        meter->mpLightB->paneTrans(50.0f, 19.0f);
+        // This stock item-light picture retains its original top-right HUD
+        // anchor at 100% scale and exposes a clipped sword-shaped remnant at
+        // the screen edge. The replacement B disc already supplies its own
+        // shading, so the extra item light is both redundant and unsafe to
+        // relocate independently of its parent group.
+        meter->mpLightB->hide();
+        meter->mpLightB->setAlphaRate(0.0f);
+    }
+
+    // The B action uses only the primary item picture. The stock meter also
+    // owns a dynamically-created secondary picture for layered item artwork;
+    // its animation can re-show it at the original GameCube top-right anchor,
+    // leaving the lower end of the sword visible through the screen edge.
+    if (meter->mpItemBPane != nullptr) {
+        meter->mpItemBPane->hide();
+        meter->mpItemBPane->setAlpha(0);
     }
 
     for (int i = 0; i < 2; ++i) {
@@ -4602,9 +4780,8 @@ void apply_wii_u_r_button_art(dMeter2Draw_c* meter) {
         s_wiiURButtonPicture = nullptr;
     }
 
+    ResTIMG const* texture = styled_r_button_texture();
     if (s_wiiURButtonPicture == nullptr) {
-        auto* texture = static_cast<ResTIMG const*>(
-            dComIfGp_getMain2DArchive()->getResource('TIMG', "wiiu_r.bti"));
         s_wiiURButtonPicture = as_picture(meter->mpScreen->search(MULTI_CHAR('zbtn')));
         if (texture != nullptr && s_wiiURButtonPicture != nullptr) {
             s_wiiURButtonPicture->changeTexture(texture, 0);
@@ -4614,6 +4791,8 @@ void apply_wii_u_r_button_art(dMeter2Draw_c* meter) {
             }
             resize_pane_around_center(s_wiiURButtonPicture, 64.0f, 64.0f);
         }
+    } else if (texture != nullptr) {
+        s_wiiURButtonPicture->changeTexture(texture, 0);
     }
 
     const u8 itemNo = dComIfGp_getSelectItem(kZItemSlot);
@@ -4923,6 +5102,25 @@ void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
         return;
     }
 
+    // Recolor the stock D-Pad without changing its artwork or geometry. Its
+    // texture uses black as the transparent endpoint, so that endpoint must
+    // retain zero alpha or the full rectangular texture becomes visible.
+    constexpr u64 dpadTags[] = {
+        MULTI_CHAR('juji_001'), MULTI_CHAR('juji_002'),
+        MULTI_CHAR('juji_003'), MULTI_CHAR('juji_004'),
+    };
+    const bool blackPro = button_style() == ButtonStyle::BlackPro;
+    for (const u64 tag : dpadTags) {
+        if (J2DPane* piece = meter->mpScreen->search(tag)) {
+            piece->show();
+            if (J2DPicture* picture = as_picture(piece)) {
+                picture->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+                    blackPro ? JUtility::TColor(112, 117, 124, 255)
+                             : JUtility::TColor(255, 255, 255, 255));
+            }
+        }
+    }
+
     // These four panes are the GameCube orange direction markers. The Wii U
     // presentation uses the clean white cross without those surrounding arrows.
     constexpr u64 arrowTags[] = {
@@ -4952,8 +5150,13 @@ void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
     // presentation without creating separated black shadows.
     if (meter->mpTextI != nullptr) {
         meter->mpTextI->scale(0.42f, 0.42f);
-        // Swap Items with Midna: Items now occupies the lower D-Pad row.
-        meter->mpTextI->paneTrans(0.0f, 46.0f);
+        // In Follow mode, mirror the user's Call Midna assignment. The stock
+        // Items row is above the cross; move it below only while Midna is not
+        // assigned to D-Pad Down.
+        constexpr f32 upperRowOffsetY = 15.0f;
+        constexpr f32 lowerRowOffsetY = 46.0f;
+        meter->mpTextI->paneTrans(0.0f,
+            midna_uses_dpad_down() ? upperRowOffsetY : lowerRowOffsetY);
     }
     if (meter->mpTextM != nullptr) {
         meter->mpTextM->scale(0.42f, 0.42f);
@@ -5002,7 +5205,12 @@ void apply_hud_backing_visibility(dMeter2Draw_c* meter) {
         return;
     }
 
+    // `uzu_n` is not a standalone flourish in this archive: it contains a
+    // complete, static copy of the old face-button cluster. At reduced HUD
+    // scales that copy becomes visible at the stock top-right anchor. Keep the
+    // authored replacement diamond and suppress this legacy composite.
     meter->mpUzu->hide();
+    meter->mpUzu->setAlphaRate(0.0f);
 }
 
 void apply_wii_u_minimap_layout(dMeterMap_c* map) {
@@ -5055,12 +5263,12 @@ void apply_item_wheel_z_offset(Vec& pos) {
 ResTIMG const* ring_assignment_face_texture(const bool xButton) {
     const ButtonLayout layout = button_layout();
     if (layout == ButtonLayout::Universal) {
-        return archive_texture("tt_zelda_button_ab_maru.bti");
+        return styled_blank_face_button_texture();
     }
     if (layout == ButtonLayout::Xbox) {
-        return archive_texture(xButton ? "wiiu_y.bti" : "wiiu_x.bti");
+        return styled_face_button_texture(xButton ? 'Y' : 'X');
     }
-    return archive_texture(xButton ? "wiiu_x.bti" : "wiiu_y.bti");
+    return styled_face_button_texture(xButton ? 'X' : 'Y');
 }
 
 void style_ring_assignment_face_buttons(dMenu_Ring_c* ring) {
@@ -5143,7 +5351,8 @@ void create_ring_z_prompt(dMenu_Ring_c* ring) {
     if (screen == nullptr) {
         return;
     }
-    if (!screen->setPriority("zelda_game_image.blo", 0x20000, dComIfGp_getMain2DArchive())) {
+    if (!screen->setPriority("zelda_game_image.blo", 0x20000,
+            dComIfGp_getMain2DArchive())) {
         JKR_DELETE(screen);
         return;
     }
@@ -5156,7 +5365,6 @@ void create_ring_z_prompt(dMenu_Ring_c* ring) {
         JKR_DELETE(screen);
         return;
     }
-
     show_pane_parents(zButtonPane);
     show_pane_tree(zButtonPane);
 
@@ -5165,9 +5373,9 @@ void create_ring_z_prompt(dMenu_Ring_c* ring) {
         JKR_DELETE(screen);
         return;
     }
-
     button->setAlphaRate(1.0f);
     button->show();
+
     J2DPicture* buttonX = nullptr;
     J2DPicture* buttonY = nullptr;
     J2DPicture* buttonR = nullptr;
@@ -5177,7 +5385,7 @@ void create_ring_z_prompt(dMenu_Ring_c* ring) {
     if (ResTIMG const* texture = ring_assignment_face_texture(false)) {
         buttonY = JKR_NEW J2DPicture(texture);
     }
-    if (ResTIMG const* texture = archive_texture("wiiu_r.bti")) {
+    if (ResTIMG const* texture = styled_r_button_texture()) {
         buttonR = JKR_NEW J2DPicture(texture);
     }
 
@@ -5192,6 +5400,7 @@ void create_ring_z_prompt(dMenu_Ring_c* ring) {
         screen->appendChild(comboZL);
         comboZL->hide();
     }
+
     style_ring_combo_prompt(ring);
     s_ringZPrompt = {
         .ring = ring,
@@ -5205,8 +5414,7 @@ void create_ring_z_prompt(dMenu_Ring_c* ring) {
 }
 
 void draw_ring_z_prompt(dMenu_Ring_c* ring) {
-    if (s_ringZPrompt.ring != ring ||
-        s_ringZPrompt.screen == nullptr ||
+    if (s_ringZPrompt.ring != ring || s_ringZPrompt.screen == nullptr ||
         ring == nullptr || ring->mpScreen == nullptr || ring->mPlayerIsWolf)
     {
         return;
@@ -5223,11 +5431,14 @@ void draw_ring_z_prompt(dMenu_Ring_c* ring) {
     pos.y += ring->mCenterPosY;
     apply_item_wheel_z_offset(pos);
 
+    // The native combo group still owns the localized message and controls
+    // its visibility.  Draw the ZL badge independently so the original
+    // GameCube wedge can remain hidden without loading another layout screen.
     const bool comboVisible = ring->mpTextParent[4] != nullptr &&
         ring->mpTextParent[4]->isVisible();
     if (s_ringZPrompt.comboZL != nullptr) {
-        s_ringZPrompt.comboZL->setAlpha(
-            static_cast<u8>(std::clamp(ring->mAlphaRate, 0.0f, 1.0f) * 255.0f));
+        s_ringZPrompt.comboZL->setAlpha(static_cast<u8>(
+            std::clamp(ring->mAlphaRate, 0.0f, 1.0f) * 255.0f));
         if (comboVisible) {
             s_ringZPrompt.comboZL->show();
         } else {
@@ -5235,11 +5446,6 @@ void draw_ring_z_prompt(dMenu_Ring_c* ring) {
         }
     }
 
-    // This helper screen originally supplied a GameCube Z button.  The ring
-    // now has its authored Y/X/R assignment row, so drawing that pane creates
-    // the detached white orb + "Z" at the upper right.  Keep the screen only
-    // for the custom ZL combo label and make the legacy button deterministically
-    // invisible at the final draw boundary.
     if (s_ringZPrompt.button != nullptr) {
         s_ringZPrompt.button->hide();
         s_ringZPrompt.button->setAlphaRate(0.0f);
@@ -5397,59 +5603,58 @@ bool is_hud_bow_combo(const u8 itemNo) {
     return itemNo == dItemNo_BOMB_ARROW_e || itemNo == dItemNo_HAWK_ARROW_e;
 }
 
-struct PictureColors {
-    JUtility::TColor black;
-    JUtility::TColor white;
-    std::array<JUtility::TColor, 4> corners;
-};
-
-PictureColors picture_colors(const J2DPicture* picture) {
-    return {
-        .black = picture->getBlack(),
-        .white = picture->getWhite(),
-        .corners = {
-            picture->corner(0), picture->corner(1),
-            picture->corner(2), picture->corner(3),
-        },
-    };
-}
-
-void apply_picture_colors(J2DPicture* picture, const PictureColors& colors) {
-    picture->setBlackWhite(colors.black, colors.white);
-    picture->setCornerColor(
-        colors.corners[0], colors.corners[1], colors.corners[2], colors.corners[3]);
-}
-
-void put_hud_bow_behind_attachment(const u8 itemNo, ResTIMG* attachmentTexture,
-    ResTIMG* bowTexture, J2DPicture* parentPicture, J2DPicture* childPicture) {
-    if (parentPicture == nullptr || childPicture == nullptr) {
+void arrange_hud_bow_combo_layers(const u8 itemNo, J2DPicture* primaryPicture,
+    J2DPicture* secondaryPicture) {
+    if (primaryPicture == nullptr || secondaryPicture == nullptr) {
         return;
     }
 
-    if (!is_hud_bow_combo(itemNo)) {
-        childPicture->scale(1.0f, 1.0f);
+    J2DPane* primaryParent = primaryPicture->getParentPane();
+    if (primaryParent == nullptr) {
         return;
     }
 
-    // Keep the attachment centered but 40% smaller so the full-size bow
-    // remains legible beneath it in every assigned item slot.
-    childPicture->scale(0.6f, 0.6f);
+    // The stock loader makes the second picture a child of the first, which
+    // forces the bow layer to draw over the attachment. Make both pictures
+    // siblings and insert the bow immediately before the attachment instead.
+    // This changes only pane order; the live texture buffers remain untouched.
+    if (secondaryPicture->getParentPane() == primaryPicture) {
+        J2DPane* commonParent = primaryPicture->getParentPane();
+        auto* primaryTree =
+            const_cast<JSUTree<J2DPane>*>(primaryPicture->getPaneTree());
+        auto* secondaryTree =
+            const_cast<JSUTree<J2DPane>*>(secondaryPicture->getPaneTree());
+        if (primaryTree->removeChild(secondaryTree)) {
+            commonParent->insertChild(primaryPicture, secondaryPicture);
+        }
+    }
 
-    if (attachmentTexture == nullptr || bowTexture == nullptr ||
-        parentPicture->getTexture(0) == nullptr ||
-        parentPicture->getTexture(0)->getTexInfo() != attachmentTexture) {
+    if (secondaryPicture->getParentPane() != primaryPicture->getParentPane()) {
         return;
     }
 
-    // readItemTexture returns the attachment first and the bow second. J2D
-    // draws a child after its parent, so leave the attachment in the child and
-    // move the bow into the parent to make the visual stacking unambiguous.
-    const PictureColors attachmentColors = picture_colors(parentPicture);
-    const PictureColors bowColors = picture_colors(childPicture);
-    parentPicture->changeTexture(bowTexture, 0);
-    childPicture->changeTexture(attachmentTexture, 0);
-    apply_picture_colors(parentPicture, bowColors);
-    apply_picture_colors(childPicture, attachmentColors);
+    // As siblings, the two pictures no longer inherit one another's geometry.
+    // Keep their centers and authored HUD scale identical, then reduce only
+    // the attachment by 40 percent for a combo.
+    const f32 centerX = primaryPicture->getTranslateX();
+    const f32 centerY = primaryPicture->getTranslateY();
+    secondaryPicture->resize(primaryPicture->getWidth(), primaryPicture->getHeight());
+    // Both pictures now share the same parent and base position. Adjusting by
+    // their translation delta avoids J2DPane::move re-applying the parent's
+    // non-zero layout origin, which displaced the bow to the left at 75% HUD
+    // scale.
+    secondaryPicture->add(centerX - secondaryPicture->getTranslateX(),
+        centerY - secondaryPicture->getTranslateY());
+    secondaryPicture->rotate(primaryPicture->getWidth() * 0.5f,
+        primaryPicture->getHeight() * 0.5f, ROTATE_Z,
+        primaryPicture->getRotateZ());
+
+    const f32 authoredScaleX = primaryPicture->getScaleX();
+    const f32 authoredScaleY = primaryPicture->getScaleY();
+    secondaryPicture->scale(authoredScaleX, authoredScaleY);
+    if (is_hud_bow_combo(itemNo)) {
+        primaryPicture->scale(authoredScaleX * 0.6f, authoredScaleY * 0.6f);
+    }
 }
 
 void fix_xy_hud_bow_combo_layering(dMeter2Draw_c* meter) {
@@ -5462,11 +5667,19 @@ void fix_xy_hud_bow_combo_layering(dMeter2Draw_c* meter) {
             continue;
         }
         const u8 itemNo = dComIfGp_getSelectItem(i);
-        const u8 page = meter->field_0x76c[i];
-        put_hud_bow_behind_attachment(itemNo,
-            meter->mpItemXYTex[i][page][0], meter->mpItemXYTex[i][page][1],
+        arrange_hud_bow_combo_layers(itemNo,
             static_cast<J2DPicture*>(meter->mpItemXY[i]->getPanePtr()),
             meter->mpItemXYPane[i]);
+    }
+
+    // The R-slot layout is rebuilt every frame, so its two combo pictures
+    // need the same final alignment after layout_z_hud_item() has run. Doing
+    // this here also keeps the result stable when the HUD scale changes.
+    if (meter->mpItemR != nullptr && meter->mpItemXYPane[2] != nullptr) {
+        const u8 itemNo = dComIfGp_getSelectItem(kZItemSlot);
+        arrange_hud_bow_combo_layers(itemNo,
+            static_cast<J2DPicture*>(meter->mpItemR->getPanePtr()),
+            meter->mpItemXYPane[2]);
     }
 }
 
@@ -5493,9 +5706,6 @@ void change_z_hud_item_texture(dMeter2Draw_c* meter, const u8 itemNo) {
     } else {
         meter->mpItemXYPane[2]->show();
     }
-    put_hud_bow_behind_attachment(itemNo, primary, secondary,
-        static_cast<J2DPicture*>(meter->mpItemR->getPanePtr()), meter->mpItemXYPane[2]);
-
     const f32 textureScale = g_drawHIO.mItemScaleAdjustON ?
         g_drawHIO.mItemScalePercent / 100.0f :
         dItem_data::getTexScale(textureItem) / 100.0f;
@@ -5507,6 +5717,8 @@ void change_z_hud_item_texture(dMeter2Draw_c* meter, const u8 itemNo) {
     meter->field_0x6b8[2] = (meter->mpItemR->getInitSizeY() - meter->field_0x6d0[2]) * 0.5f;
     meter->mpItemR->resize(meter->field_0x6c4[2], meter->field_0x6d0[2]);
     meter->mpItemXYPane[2]->resize(meter->field_0x6c4[2], meter->field_0x6d0[2]);
+    arrange_hud_bow_combo_layers(itemNo,
+        static_cast<J2DPicture*>(meter->mpItemR->getPanePtr()), meter->mpItemXYPane[2]);
     s_zHudLastItem = textureItem;
 }
 
@@ -5832,12 +6044,11 @@ void position_midna_hud(dMeter2Draw_c* meter) {
     }
 
     // The standalone L badge does not participate reliably in the stock HUD's
-    // visibility path. Attach Midna to the D-Pad group and display her above
-    // the Up direction, which is also her gameplay input.
+    // visibility path. Attach Midna to the D-Pad group and mirror the user's
+    // Call Midna direction when Follow Dusklight Bindings is active.
     J2DPane* anchorPane = meter->mpScreen->search(MULTI_CHAR('juji_n'));
     constexpr f32 positionX = 8.0f;
-    // Midna occupies the former Items row above the D-Pad.
-    constexpr f32 positionY = -21.0f;
+    const f32 positionY = midna_uses_dpad_down() ? 25.0f : -21.0f;
 
     if (anchorPane == nullptr) {
         return;
@@ -6347,6 +6558,20 @@ void after_set_select_item(ModContext*, void* args, void*, void*) {
 
 void after_pad_read(ModContext*, void*, void*, void*) {
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
+
+    // Fixed TPHD bindings refer to the controller's physical ZL trigger, not
+    // the emulated GameCube L input selected in Dusklight's profile. Reading
+    // the SDL trigger directly keeps L and ZL distinct even when both feed
+    // GameCube-style trigger state elsewhere in the game.
+    bool physicalZlHeld = false;
+    if (controller_compatibility() == ControllerCompatibility::FixedTphd) {
+        const PADSignedNativeAxis nativeAxis = PADGetNativeAxisPulled(PAD_1);
+        physicalZlHeld = nativeAxis.nativeAxis == kSdlLeftTriggerAxis &&
+            nativeAxis.sign == AXIS_SIGN_POSITIVE;
+    }
+    s_fixedZlTrig = physicalZlHeld && !s_fixedZlHeld;
+    s_fixedZlHeld = physicalZlHeld;
+
     if (z_item_menu_or_pause_context() ||
         controller_compatibility() != ControllerCompatibility::FixedTphd)
     {
@@ -6686,14 +6911,19 @@ void after_ring_create(ModContext*, void* args, void*, void*) {
     create_ring_z_prompt(mods::arg<dMenu_Ring_c*>(args, 0));
 }
 
-HookAction before_ring_delete(ModContext*, void* args, void*, void*) {
-    destroy_ring_z_prompt(mods::arg<dMenu_Ring_c*>(args, 0));
+HookAction before_menu_ring_delete(ModContext*, void*, void*, void*) {
+    destroy_ring_z_prompt(s_ringZPrompt.ring);
     return HOOK_CONTINUE;
 }
 
 void after_ring_draw(ModContext*, void* args, void*, void*) {
     auto* ring = mods::arg<dMenu_Ring_c*>(args, 0);
     draw_ring_z_prompt(ring);
+}
+
+HookAction before_item_explain_draw(ModContext*, void* args, void*, void*) {
+    apply_item_explain_button_layout(mods::arg<dMenu_ItemExplain_c*>(args, 0));
+    return HOOK_CONTINUE;
 }
 
 void after_ring_set_mix_message(ModContext*, void* args, void*, void*) {
@@ -6738,6 +6968,50 @@ void hide_legacy_overlay_z(dMeterButton_c* buttons) {
     }
 }
 
+void apply_context_button_layout(dMeterButton_c* buttons) {
+    if (buttons == nullptr || buttons->mpButtonScreen == nullptr) {
+        return;
+    }
+
+    // Context actions (Open, Let go, Pick up, Speak, and so on) are drawn by
+    // a separate emphasis-button layout instead of the regular meter HUD.
+    // Keep its A picture on the same layout/style path as every other confirm
+    // prompt: Nintendo shows A, Xbox shows B, and Universal is blank.
+    ResTIMG const* actionTexture = menu_face_button_texture(true);
+    set_menu_face_button_texture(
+        buttons->mpButtonScreen, MULTI_CHAR('a_btn1'), actionTexture);
+
+    constexpr u64 actionPictures[] = {
+        MULTI_CHAR('a_btn1'),
+    };
+    for (const u64 tag : actionPictures) {
+        if (J2DPicture* picture =
+                as_picture(buttons->mpButtonScreen->search(tag)))
+        {
+            picture->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+                JUtility::TColor(255, 255, 255, 255));
+            picture->setCornerColor(
+                JUtility::TColor(255, 255, 255, 255));
+        }
+    }
+
+    // The emphasis layout builds its stock green A from three stacked panes.
+    // Our replacement is already a complete button, so the old glow and
+    // separate letter would otherwise cover it and make the swap appear to
+    // have failed.  Keep the animation on the parent group and remove only
+    // those redundant visual layers at the final draw boundary.
+    constexpr u64 stockActionLayers[] = {
+        MULTI_CHAR('a_btn_l1'),
+        MULTI_CHAR('a_btn_t'),
+    };
+    for (const u64 tag : stockActionLayers) {
+        if (J2DPane* pane = buttons->mpButtonScreen->search(tag)) {
+            pane->hide();
+            pane->setAlpha(0);
+        }
+    }
+}
+
 void hide_ring_stock_z_prompt(dMeter2Draw_c* meter) {
     if (meter == nullptr || s_ringZPrompt.ring == nullptr) {
         return;
@@ -6760,7 +7034,9 @@ void hide_ring_stock_z_prompt(dMeter2Draw_c* meter) {
 }
 
 HookAction before_meter_button_draw(ModContext*, void* args, void*, void*) {
-    hide_legacy_overlay_z(mods::arg<dMeterButton_c*>(args, 0));
+    auto* buttons = mods::arg<dMeterButton_c*>(args, 0);
+    apply_context_button_layout(buttons);
+    hide_legacy_overlay_z(buttons);
     if (s_ringZPrompt.ring != nullptr) {
         // The item ring already draws its complete X/Y/R assignment row.  The
         // separate emphasis-button screen is a second, self-contained draw
@@ -6781,14 +7057,19 @@ HookAction before_meter_button_execute(ModContext*, void* args, void*, void*) {
 }
 
 void after_meter_button_execute(ModContext*, void* args, void*, void*) {
-    hide_legacy_overlay_z(mods::arg<dMeterButton_c*>(args, 0));
+    auto* buttons = mods::arg<dMeterButton_c*>(args, 0);
+    apply_context_button_layout(buttons);
+    hide_legacy_overlay_z(buttons);
 }
 
 HookAction before_meter_draw(ModContext*, void* args, void*, void*) {
     auto* meter = mods::arg<dMeter2Draw_c*>(args, 0);
     update_z_hud_item(meter);
-    fix_xy_hud_bow_combo_layering(meter);
     restore_archive_face_button_diamond(meter);
+    // Archive restoration resets the primary item-picture scale. Apply combo
+    // geometry immediately afterward so the attachment remains 40% smaller
+    // and the nested bow retains its full authored size for this draw.
+    fix_xy_hud_bow_combo_layering(meter);
     align_action_text_shadow_layers(meter);
     apply_wii_u_r_button_art(meter);
     apply_wii_u_item_num_layout(meter);
@@ -6893,11 +7174,13 @@ HookAction before_ring_set_active_cursor(ModContext*, void* args, void*, void*) 
         return HOOK_CONTINUE;
     }
 
-    // TPHD uses the physical ZL trigger for Bow & Arrow Combo. getTrigL()
-    // tests the logical/digital L bit and therefore also fired from L in the
-    // current controller mapping. getTrigLockL() is the analog left-trigger
-    // threshold edge and distinguishes ZL from the L shoulder.
-    if (mDoCPd_c::getTrigLockL(PAD_1)) {
+    // Fixed mode uses the physical ZL edge captured after PADRead. Follow
+    // mode honors whichever physical control the user's Dusklight profile
+    // maps to the logical GameCube L input.
+    const bool comboTriggered =
+        controller_compatibility() == ControllerCompatibility::FixedTphd ?
+            s_fixedZlTrig : mDoCPd_c::getTrigL(PAD_1);
+    if (comboTriggered) {
         s_pendingAssign = {};
         if (item_assign_allowed(ring)) {
             if (!set_z_mix_item(ring)) {
@@ -7310,6 +7593,34 @@ void initialize_face_button_textures() {
     if (svc_resource->load(mod_ctx, "hud/face-button-b.bti", &s_faceButtonBResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the smooth B button texture");
     }
+    constexpr const char* blackProPaths[] = {
+        "hud/face-button-a-black-pro.bti",
+        "hud/face-button-b-black-pro.bti",
+        "hud/face-button-x-black-pro.bti",
+        "hud/face-button-y-black-pro.bti",
+    };
+    for (std::size_t index = 0; index < std::size(blackProPaths); ++index) {
+        if (svc_resource->load(mod_ctx, blackProPaths[index],
+                &s_blackProFaceButtonResources[index]) != MOD_OK) {
+            svc_log->warn(mod_ctx, "Unable to load a Black Pro button texture");
+        }
+    }
+    if (svc_resource->load(mod_ctx, "hud/face-button-blank-black-pro.bti",
+            &s_blackProBlankFaceButtonResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the blank Black Pro button texture");
+    }
+    if (svc_resource->load(mod_ctx, "hud/shoulder-button-r-black-pro.bti",
+            &s_blackProShoulderButtonResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Black Pro R button texture");
+    }
+    if (svc_resource->load(mod_ctx, "hud/shoulder-button-zl.bti",
+            &s_zlShoulderButtonResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the ZL button texture");
+    }
+    if (svc_resource->load(mod_ctx, "hud/shoulder-button-zl-black-pro.bti",
+            &s_blackProZlShoulderButtonResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Black Pro ZL button texture");
+    }
     if (svc_resource->load(mod_ctx, "menu/collection-background.bti",
             &s_collectBackgroundResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the Collection menu background");
@@ -7362,6 +7673,13 @@ void initialize_face_button_textures() {
 void shutdown_face_button_textures() {
     free_resource(s_faceButtonAResource);
     free_resource(s_faceButtonBResource);
+    for (ResourceBuffer& resource : s_blackProFaceButtonResources) {
+        free_resource(resource);
+    }
+    free_resource(s_blackProBlankFaceButtonResource);
+    free_resource(s_blackProShoulderButtonResource);
+    free_resource(s_zlShoulderButtonResource);
+    free_resource(s_blackProZlShoulderButtonResource);
     free_resource(s_collectBackgroundResource);
     free_resource(s_collectMenuButtonResource);
     free_resource(s_fileSelectBackgroundResource);
@@ -7416,10 +7734,10 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_POST(PadReadHook, after_pad_read, "controller read");
     ADD_POST(SetStickDataHook, after_set_stick_data, "scoped third-item input");
     ADD_POST(RingCreateHook, after_ring_create, "item ring create");
-#if !defined(_WIN32)
-    ADD_PRE(RingDeleteHook, before_ring_delete, "item ring delete");
-#endif
+    ADD_PRE(MenuRingDeleteHook, before_menu_ring_delete, "item ring prompt cleanup");
     ADD_POST(RingDrawHook, after_ring_draw, "item ring draw");
+    ADD_PRE(ItemExplainDrawHook, before_item_explain_draw,
+        "item description button styling");
     ADD_PRE(MeterButtonExecuteHook, before_meter_button_execute,
         "disable legacy item-ring Z overlay");
     ADD_POST(MeterButtonExecuteHook, after_meter_button_execute,

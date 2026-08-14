@@ -74,11 +74,16 @@ The package does not contain game files. A compatible, legally obtained disc ima
 
 Physical controller bindings still depend on the active Dusklight controller profile.
 
+The **Button Style** setting switches between the standard silver TPHD prompts and dark graphite
+**Black Pro** prompts. Button Style is independent of the ABXY, BAYX, and Universal lettering
+layouts.
+
 The default **Follow Dusklight Bindings** controller mode leaves that profile unchanged and honors
 the configured **Call Midna** action without also triggering the control's normal game action. The
 optional **TPHD Fixed Bindings** mode ignores the separate Call Midna binding and keeps Midna
 exclusively on D-Pad Up. In both modes, the control mapped to logical R operates the third item and
-related menu actions without rewriting the saved controller profile.
+related menu actions without rewriting the saved controller profile. In Follow mode, a D-Pad Down
+Midna assignment is also reflected visually: Midna appears below the D-Pad and Items above it.
 
 ## Building
 

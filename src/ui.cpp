@@ -65,6 +65,18 @@ ModResult build_hud_tab(
     {
         return MOD_ERROR;
     }
+    static constexpr const char* kButtonStyles[] = {
+        "Silver",
+        "Black Pro",
+    };
+    if (add_select(ctx, left, "Button Style", button_style_config_var(),
+            kButtonStyles, std::size(kButtonStyles),
+            "Silver uses the Twilight Princess HD-style prompts. Black Pro uses dark graphite "
+            "buttons with light lettering.")
+        != MOD_OK)
+    {
+        return MOD_ERROR;
+    }
     static constexpr const char* kControllerCompatibility[] = {
         "Follow Dusklight Bindings",
         "TPHD Fixed Bindings",
