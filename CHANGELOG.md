@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.8.5 - 2026-08-14
+
+- Move boomerang lock-on to ZL when using **TPHD Fixed Bindings**.
+- Restore D-Pad Up navigation across dungeon maps and menu screens.
+- Keep L shield and ZL lock actions separate with fixed bindings.
+- Apply the selected controller style to Collection menu prompts.
+- Prevent save-confirmation titles from overlapping during transitions.
+
 ## v0.7.5 - 2026-08-13
 
 - Add **Follow Dusklight Bindings** and **TPHD Fixed Bindings** controller
