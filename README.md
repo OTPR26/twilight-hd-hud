@@ -4,7 +4,7 @@ Twilight HD HUD brings a *Twilight Princess HD*-inspired HUD and controller layo
 
 ## Compatibility
 
-Dusklight **v1.4.1-129 or newer** is required. The newest releases require 14.1-140 or newer. The mod is built and tested against the official Dusklight repository.
+Dusklight **v1.4.1-129 or newer** is required. The newest releases require 1.4.1-140 or newer. The mod is built and tested against the official Dusklight repository.
 
 ## Features
 
