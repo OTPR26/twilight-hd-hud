@@ -36,6 +36,10 @@
 #include "d/d_file_sel_info.h"
 #include "d/d_menu_save.h"
 #include "d/d_menu_collect.h"
+#include "d/d_menu_letter.h"
+#include "d/d_menu_fishing.h"
+#include "d/d_menu_skill.h"
+#include "d/d_menu_insect.h"
 #include "d/d_menu_fmap.h"
 #include "d/d_menu_fmap2D.h"
 #include "d/d_menu_dmap.h"
@@ -47,6 +51,7 @@
 #undef private
 #include "m_Do/m_Do_controller_pad.h"
 #include "m_Do/m_Do_ext.h"
+#include "m_Do/m_Do_graphic.h"
 #include "mods/service.hpp"
 #include "mods/svc/hook.h"
 #include "mods/svc/hook.hpp"
@@ -105,7 +110,19 @@ DEFINE_HOOK(&dMeter2Draw_c::drawOxygen, MeterDrawOxygenHook);
 DEFINE_HOOK(&dMeter2Draw_c::setButtonIconMidonaAlpha, MeterMidnaAlphaHook);
 DEFINE_HOOK(&dMeterMap_c::draw, MeterMapDrawHook);
 DEFINE_HOOK(&dMenu_Collect2D_c::_create, CollectCreateHook);
+DEFINE_HOOK(&dMenu_Collect2D_c::_move, CollectMoveHook);
+DEFINE_HOOK(&dMenu_Collect2D_c::_draw, CollectDrawHook);
 DEFINE_HOOK(&dMenu_Collect2D_c::_delete, CollectDeleteHook);
+DEFINE_HOOK(&dMenu_Letter_c::_create, LetterCreateHook);
+DEFINE_HOOK(&dMenu_Letter_c::_draw, LetterDrawHook);
+DEFINE_HOOK(&dMenu_Fishing_c::_create, FishingCreateHook);
+DEFINE_HOOK(&dMenu_Fishing_c::_draw, FishingDrawHook);
+DEFINE_HOOK(&dMenu_Skill_c::_create, SkillCreateHook);
+DEFINE_HOOK(&dMenu_Skill_c::_draw, SkillDrawHook);
+DEFINE_HOOK(&dMenu_Insect_c::_create, InsectCreateHook);
+DEFINE_HOOK(&dMenu_Insect_c::_draw, InsectDrawHook);
+DEFINE_HOOK(&dSelect_cursor_c::draw, SelectCursorDrawHook);
+DEFINE_HOOK(&dSelect_cursor_c::update, SelectCursorUpdateHook);
 DEFINE_HOOK(&dMenu_Fmap_c::_move, FmapMoveHook);
 DEFINE_HOOK(&dMenu_Fmap_c::_draw, FmapDrawHook);
 DEFINE_HOOK(&dMenu_Dmap_c::_draw, DmapDrawHook);
@@ -205,6 +222,22 @@ ResourceBuffer s_fileSelectNumberResources[3] = {
 };
 dMenu_save_c* s_activeSaveMenu = nullptr;
 dMenu_Collect2D_c* s_activeCollectMenu = nullptr;
+J2DPicture* s_collectTitleFrame = nullptr;
+J2DPicture* s_collectSaveFrame = nullptr;
+J2DPicture* s_collectOptionsFrame = nullptr;
+J2DPicture* s_collectTopRule = nullptr;
+J2DPicture* s_collectBottomRule = nullptr;
+J2DPicture* s_collectTopRuleInner = nullptr;
+J2DPicture* s_collectBottomRuleInner = nullptr;
+J2DTextBox* s_collectTitleLabel = nullptr;
+struct CollectPromptWidthState {
+    J2DScreen* screen = nullptr;
+    f32 rightOffset = 0.0f;
+};
+std::array<CollectPromptWidthState, 8> s_collectPromptWidthStates = {};
+std::size_t s_nextCollectPromptWidthState = 0;
+bool s_collectRailDiagnosticsLogged = false;
+bool s_collectCursorDiagnosticsLogged = false;
 dMeter2Draw_c* s_wiiURButtonMeter = nullptr;
 dKantera_icon_c* s_zOilMeter = nullptr;
 daAlink_c* s_zHeavyBootsGuardLink = nullptr;
@@ -890,6 +923,61 @@ ResTIMG const* collect_archive_texture(const char* textureName) {
         archive->getResource('TIMG', textureName)) : nullptr;
 }
 
+f32 collection_right_edge_offset() {
+#if TARGET_PC
+    return mDoGph_gInf_c::getSafeMaxXF() - 608.0f;
+#else
+    return mDoGph_gInf_c::getMaxXF() - 608.0f;
+#endif
+}
+
+f32 collection_left_edge() {
+#if TARGET_PC
+    return mDoGph_gInf_c::getSafeMinXF();
+#else
+    return mDoGph_gInf_c::getMinXF();
+#endif
+}
+
+void remember_collect_prompt_width(J2DScreen* screen, const f32 rightOffset) {
+    if (screen == nullptr) {
+        return;
+    }
+    for (CollectPromptWidthState& state : s_collectPromptWidthStates) {
+        if (state.screen == screen) {
+            state.rightOffset = rightOffset;
+            return;
+        }
+    }
+    CollectPromptWidthState& state = s_collectPromptWidthStates[
+        s_nextCollectPromptWidthState++ % s_collectPromptWidthStates.size()];
+    state.screen = screen;
+    state.rightOffset = rightOffset;
+}
+
+void refresh_collect_prompt_width(J2DScreen* screen) {
+    if (screen == nullptr) {
+        return;
+    }
+    for (CollectPromptWidthState& state : s_collectPromptWidthStates) {
+        if (state.screen != screen) {
+            continue;
+        }
+        const f32 nextOffset = collection_right_edge_offset();
+        const f32 delta = nextOffset - state.rightOffset;
+        if (std::fabs(delta) > 0.01f) {
+            for (const u64 tag : {MULTI_CHAR('abtn_n'), MULTI_CHAR('a_text_n'),
+                     MULTI_CHAR('bbtn_n'), MULTI_CHAR('b_text_n')}) {
+                if (J2DPane* pane = screen->search(tag)) {
+                    pane->add(delta, 0.0f);
+                }
+            }
+            state.rightOffset = nextOffset;
+        }
+        return;
+    }
+}
+
 void simplify_collect_button_decoration(J2DScreen* screen) {
     if (screen == nullptr) {
         return;
@@ -908,25 +996,35 @@ void simplify_collect_button_decoration(J2DScreen* screen) {
         flourish->hide();
     }
 
-    // Keep both neutral discs compact so their proportions match the
-    // restrained TPHD prompts in the reference.
+    // Anchor to Dusklight's current safe right edge. Unlike a fixed 4:3/16:9
+    // branch, this follows arbitrary desktop window sizes and platform safe
+    // areas continuously.
+    const f32 widescreenOffset = collection_right_edge_offset();
+
+    // Keep both neutral discs compact and place the two rows in the upper-right
+    // margin, matching TPHD's right-aligned prompt cluster.
     if (J2DPane* buttonA = screen->search(MULTI_CHAR('abtn_n'))) {
-        // Keep the disc linked to Confirm without letting the wider label run
-        // beneath it at the Collection screen's final aspect transform.
-        buttonA->add(10.0f, 0.0f);
+        buttonA->add(widescreenOffset, -6.0f);
         buttonA->scale(0.88f, 0.88f);
     }
 
+    if (J2DPane* actionText = screen->search(MULTI_CHAR('a_text_n'))) {
+        // Lift the A action caption slightly so Confirm shares the A disc's
+        // visual baseline rather than sitting below it. Move the containing
+        // pane so all five native outline/shadow text layers stay registered.
+        actionText->add(widescreenOffset - 10.0f, -12.0f);
+    }
+
     // The original B prompt is authored considerably smaller than A. Match
-    // their apparent disc sizes and move B just far enough right to clear the
-    // end of the Back label.
+    // their apparent disc sizes while retaining TPHD's tighter second row.
     if (J2DPane* buttonB = screen->search(MULTI_CHAR('bbtn_n'))) {
-        buttonB->add(6.0f, 0.0f);
+        buttonB->add(widescreenOffset + 2.0f, -12.0f);
         buttonB->scale(1.25f, 1.25f);
     }
     if (J2DPane* backText = screen->search(MULTI_CHAR('b_text_n'))) {
-        backText->add(-10.0f, 0.0f);
+        backText->add(widescreenOffset - 16.0f, -12.0f);
     }
+    remember_collect_prompt_width(screen, widescreenOffset);
 }
 
 void replace_collect_background(J2DScreen* screen) {
@@ -1026,23 +1124,153 @@ void hide_other_pictures(J2DPane* pane, J2DPicture* keep) {
     }
 }
 
-void style_collect_menu_panel(J2DScreen* screen, const u64 groupTag) {
+void hide_other_pictures(J2DPane* pane, J2DPicture* keepA,
+    J2DPicture* keepB) {
+    if (pane == nullptr) {
+        return;
+    }
+
+    if (J2DPicture* picture = as_picture(pane);
+        picture != nullptr && picture != keepA && picture != keepB) {
+        picture->hide();
+    }
+    for (J2DPane* child = pane->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane()) {
+        hide_other_pictures(child, keepA, keepB);
+    }
+}
+
+void hide_collect_stone_rails(J2DPane* pane) {
+    if (pane == nullptr) {
+        return;
+    }
+
+    if (J2DPicture* picture = as_picture(pane);
+        picture != nullptr && picture != s_collectTopRule &&
+        picture != s_collectBottomRule) {
+        const auto bounds = picture->getBounds();
+        if (bounds.getWidth() > 500.0f && bounds.getHeight() < 24.0f &&
+            (bounds.i.y < 80.0f || bounds.i.y > 350.0f)) {
+            picture->hide();
+        }
+    }
+    for (J2DPane* child = pane->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane()) {
+        hide_collect_stone_rails(child);
+    }
+}
+
+// The remaining GameCube rails are nested below the Collection screen's
+// transformed panes, so their local bounds do not identify them reliably.
+// Log only wide, shallow panes near the screen edges once, using global bounds
+// and tags, so we can remove the exact legacy art without affecting the HD
+// background.
+void log_collect_rail_candidates(J2DPane* pane) {
+    if (pane == nullptr || s_collectRailDiagnosticsLogged) {
+        return;
+    }
+
+    const auto global = pane->getGlbBounds();
+    const f32 width = global.getWidth();
+    const f32 height = global.getHeight();
+    if (width > 300.0f && height > 1.0f && height < 120.0f &&
+        (global.i.y < 100.0f || global.i.y > 330.0f)) {
+        char message[192];
+        std::snprintf(message, sizeof(message),
+            "collect rail candidate tag=%08llx local=(%.1f,%.1f %.1fx%.1f) global=(%.1f,%.1f %.1fx%.1f) type=%u",
+            static_cast<unsigned long long>(pane->mInfoTag), pane->getBounds().i.x,
+            pane->getBounds().i.y, pane->getBounds().getWidth(),
+            pane->getBounds().getHeight(), global.i.x, global.i.y, width, height,
+            pane->getTypeID());
+        svc_log->info(mod_ctx, message);
+    }
+    for (J2DPane* child = pane->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane()) {
+        log_collect_rail_candidates(child);
+    }
+}
+
+void style_collect_edge_rules(J2DScreen* screen) {
+    ResTIMG const* texture = resource_texture(s_collectMenuButtonResource);
+    if (screen == nullptr || texture == nullptr) {
+        return;
+    }
+
+    const f32 width = screen->getWidth();
+    auto ensureRule = [&](J2DPicture*& rule, const u64 tag, const f32 y) {
+        if (rule == nullptr) {
+            rule = JKR_NEW J2DPicture(tag,
+                JGeometry::TBox2<f32>(0.0f, y, width, y + 1.0f),
+                texture, nullptr);
+            rule->setTexCoord(rule->getTexture(0), BIND15, MIRROR0, false);
+            // Rules belong behind the footer panels, as in TPHD. Appending
+            // would draw the lower rule through Save Game and Options.
+            screen->insertChild(screen->getFirstChildPane(), rule);
+        }
+        rule->resize(width, 1.0f);
+        rule->move(0.0f, y);
+        rule->setBlackWhite(JUtility::TColor(190, 186, 150, 255),
+            JUtility::TColor(190, 186, 150, 255));
+        rule->setAlpha(210);
+        rule->show();
+    };
+
+    // TPHD uses a narrow paired rule at each screen edge, not a single
+    // GameCube stone band. Keep the pair behind all interactive panels.
+    ensureRule(s_collectTopRule, MULTI_CHAR('hd_ctr1'), 20.0f);
+    ensureRule(s_collectTopRuleInner, MULTI_CHAR('hd_ctr3'), 23.0f);
+    ensureRule(s_collectBottomRule, MULTI_CHAR('hd_ctr2'), 420.0f);
+    ensureRule(s_collectBottomRuleInner, MULTI_CHAR('hd_ctr4'), 423.0f);
+
+    // These are the three full-width brick/stone bands in the original
+    // Collection screen. Hide them by their stable tags rather than hiding
+    // their parent, which also carries part of the HD replacement background.
+    for (const u64 tag : {MULTI_CHAR('w_bas02'), MULTI_CHAR('w_sen01'), MULTI_CHAR('w_sen02'),
+             MULTI_CHAR('w_sen03'), MULTI_CHAR('w_btn_bg'),
+             MULTI_CHAR('w_btn_b1'), MULTI_CHAR('w_btn_kg')}) {
+        if (J2DPane* rail = screen->search(tag)) {
+            // Visibility is animated back on after Collection queues its
+            // screen. Collapse the authored bounds as well, which the
+            // animation does not reconstruct.
+            rail->hide();
+            rail->resize(1.0f, 1.0f);
+            rail->move(-1000.0f, -1000.0f);
+        }
+    }
+    hide_collect_stone_rails(screen);
+}
+
+void style_collect_menu_panel(J2DScreen* screen, const u64 groupTag,
+    const u64 frameTag, J2DPicture*& cachedFrame) {
     ResTIMG const* frameTexture = resource_texture(s_collectMenuButtonResource);
     J2DPane* group = screen != nullptr ? screen->search(groupTag) : nullptr;
     if (group == nullptr || frameTexture == nullptr) {
         return;
     }
 
-    J2DPicture* frame = nullptr;
-    f32 largestArea = 0.0f;
-    find_largest_picture(group, frame, largestArea);
+    J2DPicture* frame = cachedFrame;
+    if (frame == nullptr) {
+        J2DPicture* originalFrame = nullptr;
+        f32 largestArea = 0.0f;
+        find_largest_picture(group, originalFrame, largestArea);
+        const auto originalBounds = originalFrame != nullptr ?
+            originalFrame->getBounds() : group->getBounds();
+        const f32 centerX = (originalBounds.i.x + originalBounds.f.x) * 0.5f;
+        const f32 centerY = (originalBounds.i.y + originalBounds.f.y) * 0.5f;
+        frame = JKR_NEW J2DPicture(frameTag,
+            JGeometry::TBox2<f32>(centerX, centerY, centerX + 1.0f,
+                centerY + 1.0f), frameTexture, nullptr);
+        frame->setTexCoord(frame->getTexture(0), BIND15, MIRROR0, false);
+        group->insertChild(group->getFirstChildPane(), frame);
+        cachedFrame = frame;
+    }
     if (frame == nullptr) {
         return;
     }
 
     const JGeometry::TBox2<f32> bounds = frame->getBounds();
-    constexpr f32 targetWidth = 132.0f;
-    constexpr f32 targetHeight = 26.0f;
+    constexpr f32 targetWidth = 156.0f;
+    constexpr f32 targetHeight = 28.0f;
     const f32 centerX = (bounds.i.x + bounds.f.x) * 0.5f;
     const f32 centerY = (bounds.i.y + bounds.f.y) * 0.5f;
     hide_other_pictures(group, frame);
@@ -1055,6 +1283,181 @@ void style_collect_menu_panel(J2DScreen* screen, const u64 groupTag) {
     frame->setCornerColor(JUtility::TColor(255, 255, 255, 255));
     frame->setAlpha(255);
     frame->show();
+}
+
+void configure_hd_picture(J2DPicture* picture);
+
+J2DPane* collect_title_container(J2DScreen* screen) {
+    J2DPane* title = screen != nullptr ? screen->search(MULTI_CHAR('t_t00')) : nullptr;
+    J2DPane* container = title;
+    while (container != nullptr && container->getParentPane() != nullptr) {
+        J2DPane* parent = container->getParentPane();
+        container = parent;
+        if (parent == screen || parent->getWidth() > 220.0f ||
+            parent->getHeight() > 40.0f) {
+            break;
+        }
+    }
+    return container;
+}
+
+void anchor_collect_title_panel() {
+    if (s_collectTitleFrame == nullptr) {
+        return;
+    }
+    const auto local = s_collectTitleFrame->getBounds();
+    const auto global = s_collectTitleFrame->getGlbBounds();
+    const f32 localWidth = local.getWidth();
+    const f32 globalWidth = global.getWidth();
+    const f32 scaleX = localWidth > 0.0f && globalWidth > 0.0f ?
+        globalWidth / localWidth : 1.0f;
+    const f32 targetLeft = collection_left_edge() + 12.0f;
+    const f32 delta = targetLeft - global.i.x;
+    if (std::fabs(delta) > 0.25f) {
+        s_collectTitleFrame->add(delta / scaleX, 0.0f);
+    }
+    if (s_collectTitleLabel != nullptr) {
+        const auto frameBounds = s_collectTitleFrame->getBounds();
+        s_collectTitleLabel->resize(frameBounds.getWidth(), frameBounds.getHeight());
+        s_collectTitleLabel->move(frameBounds.i.x, frameBounds.i.y);
+    }
+}
+
+void style_collect_title_panel(J2DScreen* screen, const bool position) {
+    J2DPane* container = collect_title_container(screen);
+    ResTIMG const* frameTexture = resource_texture(s_collectMenuButtonResource);
+    if (container == nullptr || frameTexture == nullptr) {
+        return;
+    }
+
+    J2DPicture* frame = s_collectTitleFrame;
+    if (frame == nullptr) {
+        J2DPicture* originalFrame = nullptr;
+        f32 largestArea = 0.0f;
+        find_largest_picture(container, originalFrame, largestArea);
+        if (originalFrame == nullptr) {
+            return;
+        }
+        const auto originalBounds = originalFrame->getBounds();
+        const f32 centerX = (originalBounds.i.x + originalBounds.f.x) * 0.5f;
+        const f32 centerY = (originalBounds.i.y + originalBounds.f.y) * 0.5f;
+        frame = JKR_NEW J2DPicture(MULTI_CHAR('hd_ctfr'),
+            JGeometry::TBox2<f32>(centerX, centerY, centerX + 1.0f,
+                centerY + 1.0f), frameTexture, nullptr);
+        frame->setTexCoord(frame->getTexture(0), BIND15, MIRROR0, false);
+        container->insertChild(container->getFirstChildPane(), frame);
+        s_collectTitleFrame = frame;
+    }
+    if (frame == nullptr) {
+        return;
+    }
+
+    constexpr f32 targetWidth = 235.0f;
+    constexpr f32 targetHeight = 36.0f;
+    const auto bounds = frame->getBounds();
+    const f32 centerX = (bounds.i.x + bounds.f.x) * 0.5f;
+    const f32 centerY = (bounds.i.y + bounds.f.y) * 0.5f;
+    hide_other_pictures(container, frame);
+    frame->changeTexture(frameTexture, 0);
+    frame->resize(targetWidth, targetHeight);
+    frame->move(centerX - targetWidth * 0.5f, centerY - targetHeight * 0.5f);
+    configure_hd_picture(frame);
+    frame->setBlackWhite(JUtility::TColor(38, 40, 20, 255),
+        JUtility::TColor(224, 224, 178, 255));
+
+    if (!position) {
+        if (s_collectTitleLabel != nullptr) {
+            const auto frameBounds = frame->getBounds();
+            s_collectTitleLabel->resize(frameBounds.getWidth(),
+                frameBounds.getHeight());
+            s_collectTitleLabel->move(frameBounds.i.x, frameBounds.i.y);
+            s_collectTitleLabel->setFontSize(20.0f, 20.0f);
+            s_collectTitleLabel->show();
+        }
+        for (const u64 tag : {MULTI_CHAR('t_t00'), MULTI_CHAR('f_t00')}) {
+            if (J2DPane* nativeTitle = screen->search(tag)) {
+                nativeTitle->hide();
+            }
+        }
+        anchor_collect_title_panel();
+        return;
+    }
+
+    container->add(-175.0f, -2.0f);
+    frame->add(-138.0f, -5.0f);
+    JUTFont* titleFont = nullptr;
+    for (const u64 tag : {MULTI_CHAR('t_t00'), MULTI_CHAR('f_t00')}) {
+        auto* text = static_cast<J2DTextBox*>(screen->search(tag));
+        if (text == nullptr) {
+            continue;
+        }
+        if (titleFont == nullptr && text->getFont() != nullptr) {
+            titleFont = text->getFont();
+        }
+        text->hide();
+    }
+
+    const auto frameBounds = frame->getBounds();
+    if (s_collectTitleLabel == nullptr) {
+        s_collectTitleLabel = JKR_NEW J2DTextBox(MULTI_CHAR('hd_ctxt'),
+            frameBounds, nullptr, "Collection", 32, HBIND_CENTER,
+            VBIND_CENTER);
+        s_collectTitleLabel->setFont(titleFont);
+        container->appendChild(s_collectTitleLabel);
+    }
+    s_collectTitleLabel->resize(frameBounds.getWidth(), frameBounds.getHeight());
+    s_collectTitleLabel->move(frameBounds.i.x, frameBounds.i.y);
+    s_collectTitleLabel->setFontSize(20.0f, 20.0f);
+    s_collectTitleLabel->setCharSpace(0.0f);
+    s_collectTitleLabel->setFontColor(JUtility::TColor(245, 245, 238, 255),
+        JUtility::TColor(255, 255, 255, 255));
+    s_collectTitleLabel->show();
+    anchor_collect_title_panel();
+}
+
+void refresh_collect_menu_frames(dMenu_Collect2D_c* menu) {
+    if (menu == nullptr || menu->mpScreen == nullptr) {
+        return;
+    }
+    style_collect_title_panel(menu->mpScreen, false);
+    style_collect_menu_panel(menu->mpScreen, MULTI_CHAR('sa_tex_n'),
+        MULTI_CHAR('hd_csav'), s_collectSaveFrame);
+    style_collect_menu_panel(menu->mpScreen, MULTI_CHAR('op_tex_n'),
+        MULTI_CHAR('hd_copt'), s_collectOptionsFrame);
+    if (J2DPane* footer = menu->mpScreen->search(MULTI_CHAR('sa_op_n'))) {
+        hide_other_pictures(footer, s_collectSaveFrame, s_collectOptionsFrame);
+    }
+    style_collect_edge_rules(menu->mpScreen);
+}
+
+void position_collect_footer_cursor(dMenu_Collect2D_c* menu) {
+    if (menu == nullptr || menu->mpDrawCursor == nullptr ||
+        menu->mpDrawCursor->mpScreen == nullptr ||
+        s_collectSaveFrame == nullptr || s_collectOptionsFrame == nullptr) {
+        return;
+    }
+
+    // Collection exposes an exact footer row. Using it avoids stale global
+    // bounds from the transformed GameCube layout, which made the prior
+    // proximity test reject both buttons even while visibly selected.
+    if (menu->getCursorY() != 5) {
+        return;
+    }
+    J2DPicture* target = menu->getCursorX() == 0 ? s_collectSaveFrame :
+        menu->getCursorX() == 1 ? s_collectOptionsFrame : nullptr;
+    if (target == nullptr) {
+        return;
+    }
+    if (!s_collectCursorDiagnosticsLogged) {
+        char message[96];
+        std::snprintf(message, sizeof(message),
+            "collect footer cursor selected x=%u target=%s",
+            static_cast<unsigned>(menu->getCursorX()),
+            target == s_collectOptionsFrame ? "options" : "save");
+        svc_log->info(mod_ctx, message);
+        s_collectCursorDiagnosticsLogged = true;
+    }
+    position_cursor_outside_frame(menu->mpDrawCursor, target, 2.0f, 3.0f);
 }
 
 void apply_collect_menu_typography(dMenu_Collect2D_c* menu) {
@@ -1092,22 +1495,66 @@ void apply_collect_menu_typography(dMenu_Collect2D_c* menu) {
     for (const u64 tag : saveTextTags) {
         auto* text = static_cast<J2DTextBox*>(mainScreen->search(tag));
         if (text != nullptr) {
-            text->setFont(prompt->getFont());
-            text->setFontSize(promptSize);
-            text->setString(0x20, "Save Game");
+            text->hide();
         }
     }
     for (const u64 tag : optionTextTags) {
         auto* text = static_cast<J2DTextBox*>(mainScreen->search(tag));
         if (text != nullptr) {
-            text->setFont(prompt->getFont());
-            text->setFontSize(promptSize);
+            text->hide();
         }
     }
 
+    // The GameCube layout stacks three copies of each footer label to create
+    // its broad glow. TPHD uses one clean, compact label inside each framed
+    // button, so retain only the primary localized text pane.
+    auto* saveLabel = static_cast<J2DTextBox*>(
+        mainScreen->search(MULTI_CHAR('f_sav_0')));
+    auto* optionsLabel = static_cast<J2DTextBox*>(
+        mainScreen->search(MULTI_CHAR('f_opt_0')));
+    if (saveLabel != nullptr) {
+        saveLabel->setFont(prompt->getFont());
+        saveLabel->setFontSize(15.0f, 15.0f);
+        saveLabel->setFontColor(JUtility::TColor(242, 242, 237, 255),
+            JUtility::TColor(255, 255, 255, 255));
+        saveLabel->setString(0x20, "Save Game");
+        // Keep the label centred in the visible HD frame.
+        saveLabel->add(0.5f, 5.5f);
+        saveLabel->show();
+    }
+    if (optionsLabel != nullptr) {
+        optionsLabel->setFont(prompt->getFont());
+        optionsLabel->setFontSize(15.0f, 15.0f);
+        optionsLabel->setFontColor(JUtility::TColor(242, 242, 237, 255),
+            JUtility::TColor(255, 255, 255, 255));
+        // Keep the label centred in the visible HD frame.
+        optionsLabel->add(2.5f, 5.5f);
+        optionsLabel->show();
+    }
+
     remove_collect_ornaments(mainScreen);
-    style_collect_menu_panel(mainScreen, MULTI_CHAR('sa_tex_n'));
-    style_collect_menu_panel(mainScreen, MULTI_CHAR('op_tex_n'));
+    style_collect_title_panel(mainScreen, true);
+
+    if (J2DPane* save = mainScreen->search(MULTI_CHAR('sa_tex_n'))) {
+        save->add(-133.0f, 12.0f);
+    }
+    if (J2DPane* options = mainScreen->search(MULTI_CHAR('op_tex_n'))) {
+        options->add(102.0f, 11.0f);
+    }
+    style_collect_menu_panel(mainScreen, MULTI_CHAR('sa_tex_n'),
+        MULTI_CHAR('hd_csav'), s_collectSaveFrame);
+    style_collect_menu_panel(mainScreen, MULTI_CHAR('op_tex_n'),
+        MULTI_CHAR('hd_copt'), s_collectOptionsFrame);
+    if (s_collectSaveFrame != nullptr) {
+        s_collectSaveFrame->add(112.0f, -5.0f);
+    }
+    if (s_collectOptionsFrame != nullptr) {
+        s_collectOptionsFrame->add(-115.0f, -5.0f);
+    }
+    if (J2DPane* footer = mainScreen->search(MULTI_CHAR('sa_op_n'))) {
+        hide_other_pictures(footer, s_collectSaveFrame, s_collectOptionsFrame);
+    }
+    style_collect_edge_rules(mainScreen);
 }
 
 void configure_hd_picture(J2DPicture* picture);
@@ -4648,6 +5095,40 @@ void apply_collect_menu_button_layout(dMenu_Collect2D_c* menu) {
     apply_collect_menu_typography(menu);
 }
 
+ResTIMG const* collection_submenu_texture(JKRArchive* archive,
+    const char* textureName) {
+    return archive != nullptr && textureName != nullptr ?
+        static_cast<ResTIMG const*>(archive->getResource('TIMG', textureName)) : nullptr;
+}
+
+void apply_collection_submenu_button_layout(J2DScreen* screen,
+    JKRArchive* archive, dMsgString_c* strings) {
+    if (screen == nullptr || archive == nullptr) {
+        return;
+    }
+
+    // Letters, Fish Journal, Hidden Skills, and Golden Bugs all instantiate
+    // this same prompt layout from their own mounted archive. Match the native
+    // A/B glyphs by those archive-local pointers, then install the configured
+    // Nintendo, Xbox-swapped, universal, or alternate-style face buttons.
+    ResTIMG const* baseTexture = collection_submenu_texture(
+        archive, "tt_zelda_button_ab_maru.bti");
+    ResTIMG const* aGlyphTexture = collection_submenu_texture(
+        archive, "tt_zelda_button_a_text.bti");
+    ResTIMG const* bGlyphTexture = collection_submenu_texture(
+        archive, "tt_zelda_button_b_text.bti");
+    ResTIMG const* decorationTexture = collection_submenu_texture(
+        archive, "tt_gold_uzu_long2.bti");
+
+    replace_collect_buttons_in_tree(screen, baseTexture, aGlyphTexture,
+        bGlyphTexture, decorationTexture, menu_face_button_texture(true),
+        menu_face_button_texture(false));
+    simplify_collect_button_decoration(screen);
+    if (strings != nullptr) {
+        apply_out_font_face_button_layout(strings->mpOutFont);
+    }
+}
+
 // In-game HUD ---------------------------------------------------------------
 
 void apply_button_layout_preference(dMeter2Draw_c* meter) {
@@ -4919,7 +5400,11 @@ void apply_wii_u_r_button_art(dMeter2Draw_c* meter) {
         textLayer->getPanePtr()->setAlpha(0);
         textLayer->scale(0.0f, 0.0f);
         if (auto* textBox = dynamic_cast<J2DTextBox*>(textLayer->getPanePtr())) {
-            textBox->setString(1, "");
+            // These panes remain owned and reused by the stock HUD. Do not
+            // shrink their backing buffers to a one-byte empty string: later
+            // scene/event updates write native labels back into them, which
+            // trips Dusklight's bounded-string check ("Need 6, have 1").
+            textBox->setString(64, "");
         }
     }
 }
@@ -5749,7 +6234,18 @@ void change_z_hud_item_texture(dMeter2Draw_c* meter, const u8 itemNo) {
     }
 
     const u8 textureItem = hud_texture_item(itemNo);
-    if (s_zHudLastItem == textureItem) {
+    // Scene changes destroy and recreate the meter's J2D pictures. The meter
+    // object itself can be allocated at the same address, so pointer identity
+    // plus an unchanged item number is not sufficient to prove that the new
+    // R picture is still attached to our persistent texture buffer.
+    auto* primaryPicture =
+        static_cast<J2DPicture*>(meter->mpItemR->getPanePtr());
+    JUTTexture* primaryTexture =
+        primaryPicture != nullptr ? primaryPicture->getTexture(0) : nullptr;
+    const bool textureStillAttached =
+        primaryTexture != nullptr &&
+        primaryTexture->getTexInfo() == z_hud_item_tex(s_zHudItemTexPage, 0);
+    if (s_zHudLastItem == textureItem && textureStillAttached) {
         return;
     }
 
@@ -5758,7 +6254,7 @@ void change_z_hud_item_texture(dMeter2Draw_c* meter, const u8 itemNo) {
     ResTIMG* secondary = z_hud_item_tex(s_zHudItemTexPage, 1);
     const s32 textureCount =
         dMeter2Info_readItemTexture(textureItem, primary,
-            static_cast<J2DPicture*>(meter->mpItemR->getPanePtr()), secondary,
+            primaryPicture, secondary,
             meter->mpItemXYPane[2], nullptr, nullptr, nullptr, nullptr, -1);
     if (textureCount <= 1) {
         meter->mpItemXYPane[2]->hide();
@@ -5980,7 +6476,16 @@ void draw_z_ammo(dMeter2Draw_c* meter, const u8 itemNo, const f32 itemAlphaRate)
     const JGeometry::TBox2<f32>& itemBounds = meter->mpItemR->getPanePtr()->getGlbBounds();
     const int digitCount = itemNum >= 100 ? 3 : 2;
     const f32 countX = itemBounds.f.x - digitSize * digitCount;
-    const f32 countY = itemBounds.f.y - digitSize * 0.65f;
+    // Android's high-density HUD transform leaves the custom digits visibly
+    // farther below the R-item artwork than the desktop renderer does. Keep
+    // the desktop placement intact and compensate in the same logical J2D
+    // coordinate space so the correction scales with Android resolutions.
+#if defined(__ANDROID__)
+    constexpr f32 platformAmmoOffsetY = -8.0f;
+#else
+    constexpr f32 platformAmmoOffsetY = 0.0f;
+#endif
+    const f32 countY = itemBounds.f.y - digitSize * 0.65f + platformAmmoOffsetY;
     const u8 alpha = clamp_hud_alpha(itemAlphaRate * 255.0f);
 
     for (int i = 0; i < 3; ++i) {
@@ -6684,7 +7189,117 @@ void after_set_stick_data(ModContext*, void* args, void*, void*) {
 
 void after_collect_create(ModContext*, void* args, void*, void*) {
     s_activeCollectMenu = mods::arg<dMenu_Collect2D_c*>(args, 0);
+    s_collectTitleFrame = nullptr;
+    s_collectSaveFrame = nullptr;
+    s_collectOptionsFrame = nullptr;
+    s_collectTopRule = nullptr;
+    s_collectBottomRule = nullptr;
+    s_collectTopRuleInner = nullptr;
+    s_collectBottomRuleInner = nullptr;
+    s_collectTitleLabel = nullptr;
+    s_collectRailDiagnosticsLogged = false;
+    s_collectCursorDiagnosticsLogged = false;
     apply_collect_menu_button_layout(s_activeCollectMenu);
+}
+
+void after_letter_create(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Letter_c*>(args, 0);
+    if (menu != nullptr) {
+        apply_collection_submenu_button_layout(menu->mpIconScreen,
+            menu->mpArchive, menu->mpString);
+    }
+}
+
+void after_fishing_create(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Fishing_c*>(args, 0);
+    if (menu != nullptr) {
+        apply_collection_submenu_button_layout(menu->mpIconScreen,
+            menu->mpArchive, menu->mpString);
+    }
+}
+
+void after_skill_create(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Skill_c*>(args, 0);
+    if (menu != nullptr) {
+        apply_collection_submenu_button_layout(menu->mpIconScreen,
+            menu->mpArchive, menu->mpString);
+    }
+}
+
+void after_insect_create(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Insect_c*>(args, 0);
+    if (menu != nullptr) {
+        apply_collection_submenu_button_layout(menu->mpIconScreen,
+            menu->mpArchive, menu->mpString);
+    }
+}
+
+void after_collect_move(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Collect2D_c*>(args, 0);
+    refresh_collect_menu_frames(menu);
+    if (menu != nullptr && menu->mpScreen != nullptr &&
+        !s_collectRailDiagnosticsLogged) {
+        log_collect_rail_candidates(menu->mpScreen);
+        s_collectRailDiagnosticsLogged = true;
+    }
+}
+
+HookAction before_collect_draw(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Collect2D_c*>(args, 0);
+    if (menu != nullptr && menu->mpScreen != nullptr) {
+        // Native Collection animation restores the stone rails after _move.
+        // Reassert the exact replacement immediately before it is rendered.
+        style_collect_edge_rules(menu->mpScreen);
+        refresh_collect_prompt_width(menu->getIconScreen());
+        anchor_collect_title_panel();
+    }
+    return HOOK_CONTINUE;
+}
+
+HookAction before_letter_draw(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Letter_c*>(args, 0);
+    refresh_collect_prompt_width(menu != nullptr ? menu->mpIconScreen : nullptr);
+    return HOOK_CONTINUE;
+}
+
+HookAction before_fishing_draw(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Fishing_c*>(args, 0);
+    refresh_collect_prompt_width(menu != nullptr ? menu->mpIconScreen : nullptr);
+    return HOOK_CONTINUE;
+}
+
+HookAction before_skill_draw(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Skill_c*>(args, 0);
+    refresh_collect_prompt_width(menu != nullptr ? menu->mpIconScreen : nullptr);
+    return HOOK_CONTINUE;
+}
+
+HookAction before_insect_draw(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Insect_c*>(args, 0);
+    refresh_collect_prompt_width(menu != nullptr ? menu->mpIconScreen : nullptr);
+    return HOOK_CONTINUE;
+}
+
+HookAction before_select_cursor_draw(ModContext*, void* args, void*, void*) {
+    auto* cursor = mods::arg<dSelect_cursor_c*>(args, 0);
+    if (s_activeCollectMenu != nullptr &&
+        cursor == s_activeCollectMenu->mpDrawCursor) {
+        // This is the final point before the cursor's four panes render;
+        // Collection's animation has already finished moving them here.
+        position_collect_footer_cursor(s_activeCollectMenu);
+    }
+    return HOOK_CONTINUE;
+}
+
+void after_select_cursor_update(ModContext*, void* args, void*, void*) {
+    auto* cursor = mods::arg<dSelect_cursor_c*>(args, 0);
+    if (s_activeCollectMenu != nullptr &&
+        cursor == s_activeCollectMenu->mpDrawCursor) {
+        // update() is the last operation that applies the cursor animation
+        // and rewrites its corner transforms. Correct the footer geometry
+        // only after that work is complete.
+        position_collect_footer_cursor(s_activeCollectMenu);
+    }
 }
 
 HookAction before_fmap_move(ModContext*, void*, void*, void*) {
@@ -6723,6 +7338,14 @@ HookAction before_collect_delete(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Collect2D_c*>(args, 0);
     if (s_activeCollectMenu == menu) {
         s_activeCollectMenu = nullptr;
+        s_collectTitleFrame = nullptr;
+        s_collectSaveFrame = nullptr;
+        s_collectOptionsFrame = nullptr;
+        s_collectTopRule = nullptr;
+        s_collectBottomRule = nullptr;
+        s_collectTopRuleInner = nullptr;
+        s_collectBottomRuleInner = nullptr;
+        s_collectTitleLabel = nullptr;
     }
     return HOOK_CONTINUE;
 }
@@ -7871,6 +8494,14 @@ void shutdown_item_slot_resources() {
     s_activeFileSelect = nullptr;
     s_activeSaveMenu = nullptr;
     s_activeCollectMenu = nullptr;
+    s_collectTitleFrame = nullptr;
+    s_collectSaveFrame = nullptr;
+    s_collectOptionsFrame = nullptr;
+    s_collectTopRule = nullptr;
+    s_collectBottomRule = nullptr;
+    s_collectTopRuleInner = nullptr;
+    s_collectBottomRuleInner = nullptr;
+    s_collectTitleLabel = nullptr;
     s_descenderCorrectionDrawDepth = 0;
     s_fileSelectYesNoLayoutReady = false;
     s_dpadMidnaHeld = false;
@@ -7930,7 +8561,19 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_PRE(MeterMapDrawHook, before_meter_map_draw, "minimap draw (before)");
     ADD_POST(MeterMapDrawHook, after_meter_map_draw, "minimap draw (after)");
     ADD_POST(CollectCreateHook, after_collect_create, "collection menu buttons");
+    ADD_POST(LetterCreateHook, after_letter_create, "letter menu buttons");
+    ADD_PRE(LetterDrawHook, before_letter_draw, "letter menu responsive buttons");
+    ADD_POST(FishingCreateHook, after_fishing_create, "fish journal buttons");
+    ADD_PRE(FishingDrawHook, before_fishing_draw, "fish journal responsive buttons");
+    ADD_POST(SkillCreateHook, after_skill_create, "hidden skills menu buttons");
+    ADD_PRE(SkillDrawHook, before_skill_draw, "hidden skills responsive buttons");
+    ADD_POST(InsectCreateHook, after_insect_create, "golden bugs menu buttons");
+    ADD_PRE(InsectDrawHook, before_insect_draw, "golden bugs responsive buttons");
+    ADD_POST(CollectMoveHook, after_collect_move, "collection menu frame styling");
+    ADD_PRE(CollectDrawHook, before_collect_draw, "collection menu HD draw");
     ADD_PRE(CollectDeleteHook, before_collect_delete, "collection menu cleanup");
+    ADD_POST(SelectCursorUpdateHook, after_select_cursor_update,
+        "collection footer cursor final alignment");
     ADD_PRE(FmapMoveHook, before_fmap_move, "field map portals R button mapping");
     ADD_PRE(FmapDrawHook, before_fmap_draw,
         "field map HD background, title, and prompts");
