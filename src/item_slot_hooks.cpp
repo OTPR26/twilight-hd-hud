@@ -113,6 +113,9 @@ DEFINE_HOOK(&dMenu_Collect2D_c::_create, CollectCreateHook);
 DEFINE_HOOK(&dMenu_Collect2D_c::_move, CollectMoveHook);
 DEFINE_HOOK(&dMenu_Collect2D_c::_draw, CollectDrawHook);
 DEFINE_HOOK(&dMenu_Collect2D_c::_delete, CollectDeleteHook);
+#if defined(_WIN32)
+DEFINE_HOOK(&dMenu_Collect2D_c::menuCollectWide, CollectWideHook);
+#endif
 DEFINE_HOOK(&dMenu_Letter_c::_create, LetterCreateHook);
 DEFINE_HOOK(&dMenu_Letter_c::_draw, LetterDrawHook);
 DEFINE_HOOK(&dMenu_Fishing_c::_create, FishingCreateHook);
@@ -1311,6 +1314,24 @@ void anchor_collect_title_panel() {
         return;
     }
     const auto local = s_collectTitleFrame->getBounds();
+#if defined(_WIN32)
+    // Windows rewrites the Collection parent transforms immediately before
+    // drawing. Compute the current left edge through the complete pane chain;
+    // getGlbBounds() can still contain the preceding frame's cached origin at
+    // this point, which is what caused the title to flash on entry/return.
+    CPaneMgr paneMgr;
+    Mtx matrix;
+    const Vec globalLeft = paneMgr.getGlobalVtx(
+        s_collectTitleFrame, &matrix, 0, false, 0);
+    const Vec globalRight = paneMgr.getGlobalVtx(
+        s_collectTitleFrame, &matrix, 1, false, 0);
+    const f32 localWidth = local.getWidth();
+    const f32 globalWidth = std::fabs(globalRight.x - globalLeft.x);
+    const f32 scaleX = localWidth > 0.0f && globalWidth > 0.0f ?
+        globalWidth / localWidth : 1.0f;
+    const f32 targetLeft = collection_left_edge() + 12.0f;
+    const f32 delta = targetLeft - globalLeft.x;
+#else
     const auto global = s_collectTitleFrame->getGlbBounds();
     const f32 localWidth = local.getWidth();
     const f32 globalWidth = global.getWidth();
@@ -1318,6 +1339,7 @@ void anchor_collect_title_panel() {
         globalWidth / localWidth : 1.0f;
     const f32 targetLeft = collection_left_edge() + 12.0f;
     const f32 delta = targetLeft - global.i.x;
+#endif
     if (std::fabs(delta) > 0.25f) {
         s_collectTitleFrame->add(delta / scaleX, 0.0f);
     }
@@ -1476,8 +1498,8 @@ void position_collect_footer_cursor(dMenu_Collect2D_c* menu) {
     // complete transform chain.
     CPaneMgr paneMgr;
     const Vec center = paneMgr.getGlobalVtxCenter(target, false, 0);
-    const f32 halfWidth = bounds.getWidth() * 0.5f + 2.0f;
-    const f32 halfHeight = bounds.getHeight() * 0.5f + 3.0f;
+    const f32 halfWidth = bounds.getWidth() * 0.5f + 5.0f;
+    const f32 halfHeight = bounds.getHeight() * 0.5f;
     menu->mpDrawCursor->setPos(center.x, center.y, nullptr, false);
     constexpr u64 cornerTags[] = {
         MULTI_CHAR('l_u_null'), MULTI_CHAR('l_d_null'),
@@ -7291,6 +7313,28 @@ void after_collect_move(ModContext*, void* args, void*, void*) {
     }
 }
 
+#if defined(_WIN32)
+void after_collect_wide(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Collect2D_c*>(args, 0);
+    if (menu == nullptr || menu != s_activeCollectMenu ||
+        menu->mpScreen == nullptr) {
+        return;
+    }
+
+    // menuCollectWide() is Windows' final layout reset before mpScreen draws.
+    // Anchor and reveal the replacement here so neither initial entry nor a
+    // return from Letters/Fish Journal can render its pre-widescreen position.
+    anchor_collect_title_panel();
+    if (s_collectTitleFrame != nullptr) {
+        s_collectTitleFrame->show();
+    }
+    if (s_collectTitleLabel != nullptr) {
+        s_collectTitleLabel->show();
+    }
+    s_collectLayoutReady = true;
+}
+#endif
+
 HookAction before_collect_draw(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Collect2D_c*>(args, 0);
     if (menu != nullptr && menu->mpScreen != nullptr) {
@@ -7298,6 +7342,16 @@ HookAction before_collect_draw(ModContext*, void* args, void*, void*) {
         // Reassert the exact replacement immediately before it is rendered.
         style_collect_edge_rules(menu->mpScreen);
         refresh_collect_prompt_width(menu->getIconScreen());
+#if defined(_WIN32)
+        // The post-menuCollectWide hook below will reveal these only after the
+        // final Windows transform has been applied for this exact frame.
+        if (s_collectTitleFrame != nullptr) {
+            s_collectTitleFrame->hide();
+        }
+        if (s_collectTitleLabel != nullptr) {
+            s_collectTitleLabel->hide();
+        }
+#else
         anchor_collect_title_panel();
         if (!s_collectLayoutReady) {
             if (s_collectTitleFrame != nullptr) {
@@ -7308,6 +7362,7 @@ HookAction before_collect_draw(ModContext*, void* args, void*, void*) {
             }
             s_collectLayoutReady = true;
         }
+#endif
     }
     return HOOK_CONTINUE;
 }
@@ -8628,6 +8683,10 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_POST(CollectMoveHook, after_collect_move, "collection menu frame styling");
     ADD_PRE(CollectDrawHook, before_collect_draw, "collection menu HD draw");
     ADD_PRE(CollectDeleteHook, before_collect_delete, "collection menu cleanup");
+#if defined(_WIN32)
+    ADD_POST(CollectWideHook, after_collect_wide,
+        "collection Windows final title anchor");
+#endif
     ADD_POST(SelectCursorUpdateHook, after_select_cursor_update,
         "collection footer cursor final alignment");
     ADD_PRE(FmapMoveHook, before_fmap_move, "field map portals R button mapping");
