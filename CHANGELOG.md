@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.9.0 - 2026-08-20
+
+- Require Dusklight **v1.4.1-141 or newer** and build every native module
+  against the compatible upstream revision.
+- Redesign the Collection screen and its Save Game, Options, title, prompt,
+  border, and selection treatments to more closely match *Twilight Princess
+  HD* across arbitrary desktop aspect ratios and Android displays.
+- Apply the selected Nintendo, Xbox, or Universal button artwork throughout
+  Collection, Letters, Fish Journal, Hidden Skills, Golden Bugs, maps, save
+  prompts, and gameplay HUD contexts.
+- Keep the R-slot item and ammunition counter intact across room transitions,
+  pit recoveries, transformations, and cutscenes.
+- Prevent reusable R-slot text layers from retaining undersized buffers, which
+  could crash Windows during room transitions such as Arbiter's Grounds.
+- Correct Windows-only Collection prompt placement, selection-bracket sizing,
+  and the transient title jump when opening the menu or returning from a
+  Collection submenu.
+- Keep the Android bow ammunition counter aligned with the desktop HUD.
+
 ## v0.8.5 - 2026-08-14
 
 - Move boomerang lock-on to ZL when using **TPHD Fixed Bindings**.
