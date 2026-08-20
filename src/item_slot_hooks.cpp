@@ -1469,11 +1469,16 @@ void position_collect_footer_cursor(dMenu_Collect2D_c* menu) {
     // unscaled bounds. Drive the final corner centers from rendered global
     // bounds instead; this is the last pass before the cursor is drawn.
     const auto& bounds = target->getGlbBounds();
-    const f32 centerX = (bounds.i.x + bounds.f.x) * 0.5f;
-    const f32 centerY = (bounds.i.y + bounds.f.y) * 0.5f;
+    // J2DPane::getGlbBounds() supplies the correct rendered dimensions here,
+    // but its cached origin does not include the footer's final PC parent
+    // transforms. Use the same recursive center calculation as Collection's
+    // native cursorPosSet() so Save Game and Options each inherit their own
+    // complete transform chain.
+    CPaneMgr paneMgr;
+    const Vec center = paneMgr.getGlobalVtxCenter(target, false, 0);
     const f32 halfWidth = bounds.getWidth() * 0.5f + 2.0f;
     const f32 halfHeight = bounds.getHeight() * 0.5f + 3.0f;
-    menu->mpDrawCursor->setPos(centerX, centerY, nullptr, false);
+    menu->mpDrawCursor->setPos(center.x, center.y, nullptr, false);
     constexpr u64 cornerTags[] = {
         MULTI_CHAR('l_u_null'), MULTI_CHAR('l_d_null'),
         MULTI_CHAR('r_u_null'), MULTI_CHAR('r_d_null'),
