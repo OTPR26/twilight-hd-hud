@@ -238,6 +238,7 @@ std::array<CollectPromptWidthState, 8> s_collectPromptWidthStates = {};
 std::size_t s_nextCollectPromptWidthState = 0;
 bool s_collectRailDiagnosticsLogged = false;
 bool s_collectCursorDiagnosticsLogged = false;
+bool s_collectLayoutReady = false;
 dMeter2Draw_c* s_wiiURButtonMeter = nullptr;
 dKantera_icon_c* s_zOilMeter = nullptr;
 daAlink_c* s_zHeavyBootsGuardLink = nullptr;
@@ -925,7 +926,11 @@ ResTIMG const* collect_archive_texture(const char* textureName) {
 
 f32 collection_right_edge_offset() {
 #if TARGET_PC
-    return mDoGph_gInf_c::getSafeMaxXF() - 608.0f;
+    // Dusklight's desktop Collection implementation already translates the
+    // icon screen by -safeMinX on every widescreen refresh. Adding the same
+    // safe-edge delta here a second time pushes the A/B discs beyond the
+    // viewport (most visibly on Windows).
+    return 0.0f;
 #else
     return mDoGph_gInf_c::getMaxXF() - 608.0f;
 #endif
@@ -1457,7 +1462,33 @@ void position_collect_footer_cursor(dMenu_Collect2D_c* menu) {
         svc_log->info(mod_ctx, message);
         s_collectCursorDiagnosticsLogged = true;
     }
+#if defined(_WIN32)
+    // The Windows desktop layout scales the footer's parent rather than the
+    // frame itself. dSelect_cursor_c::setPos(..., target, true) only sees the
+    // frame's local scale, so it places the four corners using the much wider
+    // unscaled bounds. Drive the final corner centers from rendered global
+    // bounds instead; this is the last pass before the cursor is drawn.
+    const auto& bounds = target->getGlbBounds();
+    const f32 centerX = (bounds.i.x + bounds.f.x) * 0.5f;
+    const f32 centerY = (bounds.i.y + bounds.f.y) * 0.5f;
+    const f32 halfWidth = bounds.getWidth() * 0.5f + 2.0f;
+    const f32 halfHeight = bounds.getHeight() * 0.5f + 3.0f;
+    menu->mpDrawCursor->setPos(centerX, centerY, nullptr, false);
+    constexpr u64 cornerTags[] = {
+        MULTI_CHAR('l_u_null'), MULTI_CHAR('l_d_null'),
+        MULTI_CHAR('r_u_null'), MULTI_CHAR('r_d_null'),
+    };
+    for (int corner = 0; corner < 4; ++corner) {
+        if (J2DPane* pane = menu->mpDrawCursor->mpScreen->search(
+                cornerTags[corner])) {
+            menu->mpDrawCursor->moveCenter(pane,
+                corner < 2 ? -halfWidth : halfWidth,
+                corner % 2 == 0 ? -halfHeight : halfHeight);
+        }
+    }
+#else
     position_cursor_outside_frame(menu->mpDrawCursor, target, 2.0f, 3.0f);
+#endif
 }
 
 void apply_collect_menu_typography(dMenu_Collect2D_c* menu) {
@@ -7199,7 +7230,18 @@ void after_collect_create(ModContext*, void* args, void*, void*) {
     s_collectTitleLabel = nullptr;
     s_collectRailDiagnosticsLogged = false;
     s_collectCursorDiagnosticsLogged = false;
+    s_collectLayoutReady = false;
     apply_collect_menu_button_layout(s_activeCollectMenu);
+    // The native desktop widescreen pass can still rewrite the title
+    // container once immediately after creation. Keep the replacement hidden
+    // until before_collect_draw has anchored its final rendered bounds, so the
+    // title never flashes at the authored GameCube position for one frame.
+    if (s_collectTitleFrame != nullptr) {
+        s_collectTitleFrame->hide();
+    }
+    if (s_collectTitleLabel != nullptr) {
+        s_collectTitleLabel->hide();
+    }
 }
 
 void after_letter_create(ModContext*, void* args, void*, void*) {
@@ -7252,6 +7294,15 @@ HookAction before_collect_draw(ModContext*, void* args, void*, void*) {
         style_collect_edge_rules(menu->mpScreen);
         refresh_collect_prompt_width(menu->getIconScreen());
         anchor_collect_title_panel();
+        if (!s_collectLayoutReady) {
+            if (s_collectTitleFrame != nullptr) {
+                s_collectTitleFrame->show();
+            }
+            if (s_collectTitleLabel != nullptr) {
+                s_collectTitleLabel->show();
+            }
+            s_collectLayoutReady = true;
+        }
     }
     return HOOK_CONTINUE;
 }
