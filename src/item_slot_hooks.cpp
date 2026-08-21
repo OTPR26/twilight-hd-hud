@@ -68,6 +68,7 @@ namespace twilight_hd_hud {
 namespace {
 
 constexpr int kSdlLeftTriggerAxis = 4;
+constexpr int kSdlRightTriggerAxis = 5;
 
 constexpr u8 kZItemSlot = SELECT_ITEM_DOWN;
 constexpr int kExtendedSelectItemCount = 3;
@@ -202,9 +203,11 @@ ResourceBuffer s_blackProBlankFaceButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_blackProShoulderButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_zlShoulderButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_blackProZlShoulderButtonResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_zrShoulderButtonResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_blackProZrShoulderButtonResource = RESOURCE_BUFFER_INIT;
 J2DScreen* s_contextRButtonScreen = nullptr;
 ResTIMG const* s_contextRButtonTexture = nullptr;
-bool s_contextRButtonUsesZl = false;
+bool s_contextRButtonUsesZr = false;
 struct ContextRPictureState {
     J2DPane* pane = nullptr;
     bool visible = false;
@@ -252,6 +255,8 @@ bool s_dpadMidnaHeld = false;
 bool s_dpadMidnaTrig = false;
 bool s_fixedZlHeld = false;
 bool s_fixedZlTrig = false;
+bool s_fixedZrHeld = false;
+bool s_fixedZrTrig = false;
 u32 s_menuWindowSuppressedHeld = 0;
 u32 s_menuWindowSuppressedTrig = 0;
 
@@ -728,6 +733,15 @@ ResTIMG const* styled_zl_button_texture() {
         }
     }
     return resource_texture(s_zlShoulderButtonResource);
+}
+
+ResTIMG const* styled_zr_button_texture() {
+    if (button_style() == ButtonStyle::BlackPro) {
+        if (ResTIMG const* texture = resource_texture(s_blackProZrShoulderButtonResource)) {
+            return texture;
+        }
+    }
+    return resource_texture(s_zrShoulderButtonResource);
 }
 
 ResTIMG const* styled_blank_face_button_texture() {
@@ -7181,31 +7195,35 @@ void after_set_select_item(ModContext*, void* args, void*, void*) {
 void after_pad_read(ModContext*, void*, void*, void*) {
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
 
-    // Fixed TPHD bindings refer to the controller's physical ZL trigger, not
-    // the emulated GameCube L input selected in Dusklight's profile. Reading
-    // the SDL trigger directly keeps L and ZL distinct even when both feed
-    // GameCube-style trigger state elsewhere in the game.
+    // Fixed TPHD bindings read both physical triggers independently of the
+    // emulated GameCube shoulder mappings selected in Dusklight's profile.
+    // ZL remains available for normal lock-on and paused item combinations;
+    // ZR adds Gale Boomerang targets.
     const bool fixedTphdBindings =
         controller_compatibility() == ControllerCompatibility::FixedTphd;
     bool physicalZlHeld = false;
+    bool physicalZrHeld = false;
     if (fixedTphdBindings) {
         const PADSignedNativeAxis nativeAxis = PADGetNativeAxisPulled(PAD_1);
         physicalZlHeld = nativeAxis.nativeAxis == kSdlLeftTriggerAxis &&
             nativeAxis.sign == AXIS_SIGN_POSITIVE;
+        physicalZrHeld = nativeAxis.nativeAxis == kSdlRightTriggerAxis &&
+            nativeAxis.sign == AXIS_SIGN_POSITIVE;
     }
     s_fixedZlTrig = physicalZlHeld && !s_fixedZlHeld;
     s_fixedZlHeld = physicalZlHeld;
+    s_fixedZrTrig = physicalZrHeld && !s_fixedZrHeld;
+    s_fixedZrHeld = physicalZrHeld;
 
-    // Dusklight exposes both physical shoulder controls through GameCube L.
-    // In the fixed layout, reserve physical ZL for TPHD lock/combo actions and
-    // remove only that press from the base game's L/shield state. Physical L
-    // remains untouched and continues to control the shield normally.
-    if (fixedTphdBindings && physicalZlHeld) {
-        pad.mButtonFlags &= ~PAD_TRIGGER_L;
-        pad.mPressedButtonFlags &= ~PAD_TRIGGER_L;
-        pad.mTriggerLeft = 0.0f;
-        pad.mHoldLockL = false;
-        pad.mTrigLockL = false;
+    // Dusklight can also expose physical ZR through GameCube R. In the fixed
+    // layout, reserve ZR for boomerang targeting so it cannot activate the
+    // third item at the same time. Physical R remains the third-item control.
+    if (fixedTphdBindings && physicalZrHeld) {
+        pad.mButtonFlags &= ~PAD_TRIGGER_R;
+        pad.mPressedButtonFlags &= ~PAD_TRIGGER_R;
+        pad.mTriggerRight = 0.0f;
+        pad.mHoldLockR = false;
+        pad.mTrigLockR = false;
     }
 
     if (z_item_menu_or_pause_context() ||
@@ -7838,7 +7856,7 @@ void apply_context_button_layout(dMeterButton_c* buttons) {
         }
     }
 
-    // The boomerang's lock action now uses ZL, while the same context layout
+    // TPHD uses ZR to add Gale Boomerang targets, while the same context layout
     // still serves legitimate R prompts elsewhere. Preserve the archive's R
     // artwork and replace it only while Link is holding the boomerang ready.
     J2DPicture* rButton = as_picture(
@@ -7848,7 +7866,7 @@ void apply_context_button_layout(dMeterButton_c* buttons) {
         s_contextRButtonTexture =
             rButton != nullptr && rButton->getTexture(0) != nullptr ?
                 rButton->getTexture(0)->getTexInfo() : nullptr;
-        s_contextRButtonUsesZl = false;
+        s_contextRButtonUsesZr = false;
         s_contextRPictureStateCount = 0;
     }
 
@@ -7856,16 +7874,16 @@ void apply_context_button_layout(dMeterButton_c* buttons) {
     const bool boomerangLock =
         link != nullptr && link->checkBoomerangReadyAnime();
     if (rButton != nullptr && boomerangLock) {
-        if (!s_contextRButtonUsesZl && buttons->mpButtonR != nullptr) {
+        if (!s_contextRButtonUsesZr && buttons->mpButtonR != nullptr) {
             s_contextRPictureStateCount = 0;
             capture_context_r_pictures(
                 buttons->mpButtonR->getPanePtr(), rButton);
         }
-        if (ResTIMG const* zlTexture = styled_zl_button_texture()) {
+        if (ResTIMG const* zrTexture = styled_zr_button_texture()) {
             set_menu_face_button_texture(
-                buttons->mpButtonScreen, MULTI_CHAR('r_btn_b'), zlTexture);
+                buttons->mpButtonScreen, MULTI_CHAR('r_btn_b'), zrTexture);
             set_neutral_picture_colors(rButton);
-            s_contextRButtonUsesZl = true;
+            s_contextRButtonUsesZr = true;
         }
         for (std::size_t index = 0;
              index < s_contextRPictureStateCount; ++index)
@@ -7874,7 +7892,7 @@ void apply_context_button_layout(dMeterButton_c* buttons) {
                 s_contextRPictureStates[index].pane->hide();
             }
         }
-    } else if (s_contextRButtonUsesZl) {
+    } else if (s_contextRButtonUsesZr) {
         set_menu_face_button_texture(buttons->mpButtonScreen,
             MULTI_CHAR('r_btn_b'), s_contextRButtonTexture);
         for (std::size_t index = 0;
@@ -7886,7 +7904,7 @@ void apply_context_button_layout(dMeterButton_c* buttons) {
             }
         }
         s_contextRPictureStateCount = 0;
-        s_contextRButtonUsesZl = false;
+        s_contextRButtonUsesZr = false;
     }
 }
 
@@ -8150,13 +8168,13 @@ HookAction before_item_action_trigger(ModContext*, void* args, void* retval, voi
     }
 
     // The original boomerang lock action shares GameCube R with the generic
-    // item-action path.  R belongs to the third item slot in this layout, so
-    // redirect only the boomerang's ready/aiming state to TPHD's ZL action.
-    // Follow mode uses the logical L action supplied by Dusklight's profile;
-    // Fixed mode reads the physical ZL edge captured after the pad update.
+    // item-action path. R belongs to the third item slot in this layout, so
+    // redirect only the boomerang's ready/aiming state to TPHD's ZR action.
+    // Follow mode retains Dusklight's logical R mapping; Fixed mode reads the
+    // physical ZR edge and keeps it distinct from the R bumper item slot.
     *static_cast<BOOL*>(retval) =
         controller_compatibility() == ControllerCompatibility::FixedTphd ?
-            s_fixedZlTrig : mDoCPd_c::getTrigL(PAD_1);
+            s_fixedZrTrig : mDoCPd_c::getTrigR(PAD_1);
     return HOOK_SKIP_ORIGINAL;
 }
 
@@ -8526,6 +8544,14 @@ void initialize_face_button_textures() {
             &s_blackProZlShoulderButtonResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the Black Pro ZL button texture");
     }
+    if (svc_resource->load(mod_ctx, "hud/shoulder-button-zr.bti",
+            &s_zrShoulderButtonResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the ZR button texture");
+    }
+    if (svc_resource->load(mod_ctx, "hud/shoulder-button-zr-black-pro.bti",
+            &s_blackProZrShoulderButtonResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Black Pro ZR button texture");
+    }
     if (svc_resource->load(mod_ctx, "menu/collection-background.bti",
             &s_collectBackgroundResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the Collection menu background");
@@ -8585,6 +8611,8 @@ void shutdown_face_button_textures() {
     free_resource(s_blackProShoulderButtonResource);
     free_resource(s_zlShoulderButtonResource);
     free_resource(s_blackProZlShoulderButtonResource);
+    free_resource(s_zrShoulderButtonResource);
+    free_resource(s_blackProZrShoulderButtonResource);
     free_resource(s_collectBackgroundResource);
     free_resource(s_collectMenuButtonResource);
     free_resource(s_fileSelectBackgroundResource);
@@ -8617,6 +8645,10 @@ void shutdown_item_slot_resources() {
     s_fileSelectYesNoLayoutReady = false;
     s_dpadMidnaHeld = false;
     s_dpadMidnaTrig = false;
+    s_fixedZlHeld = false;
+    s_fixedZlTrig = false;
+    s_fixedZrHeld = false;
+    s_fixedZrTrig = false;
     s_menuWindowSuppressedHeld = 0;
     s_menuWindowSuppressedTrig = 0;
     s_getActionBindTrig = nullptr;
@@ -8646,7 +8678,7 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_POST(SetSelectItemHook, after_set_select_item, "set selected item");
     ADD_POST(PadReadHook, after_pad_read, "controller read");
     ADD_PRE(ItemActionTriggerHook, before_item_action_trigger,
-        "boomerang ZL lock input");
+        "boomerang ZR multi-target input");
     ADD_POST(SetStickDataHook, after_set_stick_data, "scoped third-item input");
     ADD_POST(RingCreateHook, after_ring_create, "item ring create");
     ADD_PRE(MenuRingDeleteHook, before_menu_ring_delete, "item ring prompt cleanup");

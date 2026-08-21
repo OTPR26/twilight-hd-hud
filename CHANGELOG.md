@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.1 - 2026-08-20
+
+- Correct Gale Boomerang multi-target selection to use **ZR**, matching
+  *Twilight Princess HD*, while leaving **ZL** available for ordinary enemy
+  lock-on.
+- Replace the boomerang targeting prompt with matching silver and Black Pro
+  **ZR** artwork.
+
 ## v0.9.0 - 2026-08-20
 
 - Require Dusklight **v1.4.1-141 or newer** and build every native module

@@ -22,13 +22,14 @@ Twilight Princess HD uses this physical layout:
 - D-Pad Up: Midna
 - D-Pad Down: Items
 - ZL: targeting and defending
+- ZR: Gale Boomerang multi-target lock
 - A: context action
 - B: attack
 - D-Pad Left/Right: minimap toggle
 - Right stick: free camera
 
-L and ZL must be assigned separately in Dusklight's controller settings. Automatic installation
-of a complete physical controller profile is not yet exposed by the current mod interface.
+Physical shoulder and trigger bindings depend on the active Dusklight controller profile.
+**TPHD Fixed Bindings** distinguishes R from ZR for the third item and Gale Boomerang actions.
 
 ## Installation
 
