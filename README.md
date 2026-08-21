@@ -67,8 +67,8 @@ The package does not contain game files. A compatible, legally obtained disc ima
 - D-Pad Up: Midna
 - D-Pad Down: Items
 - D-Pad Left/Right: minimap toggle
-- L: defend
-- ZL: boomerang lock and item combinations
+- ZL: enemy lock-on/defend and paused item combinations
+- ZR: Gale Boomerang multi-target lock
 - A: context action
 - B: attack
 - Right stick: free camera
