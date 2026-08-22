@@ -28,6 +28,7 @@
 #define private public
 #include "d/d_menu_item_explain.h"
 #include "d/d_msg_out_font.h"
+#include "d/d_msg_scrn_3select.h"
 #include "d/d_msg_string.h"
 #include "d/d_select_cursor.h"
 #define PaneCache FileSelectPaneCache
@@ -67,10 +68,12 @@
 namespace twilight_hd_hud {
 namespace {
 
-constexpr int kSdlLeftTriggerAxis = 4;
-constexpr int kSdlRightTriggerAxis = 5;
-
 constexpr u8 kZItemSlot = SELECT_ITEM_DOWN;
+// SDL_GamepadButton values are ABI-stable; the right shoulder is R/R1.
+constexpr s32 kSdlRightShoulderButton = 10;
+constexpr s32 kSdlLeftTriggerAxis = 4;
+constexpr s32 kSdlRightTriggerAxis = 5;
+constexpr s16 kSdlTriggerThreshold = 16384;
 constexpr int kExtendedSelectItemCount = 3;
 constexpr int kSelectItemNotFound = 3;
 constexpr int kItemProcBootsEquip = 1;
@@ -127,6 +130,7 @@ DEFINE_HOOK(&dMenu_Insect_c::_create, InsectCreateHook);
 DEFINE_HOOK(&dMenu_Insect_c::_draw, InsectDrawHook);
 DEFINE_HOOK(&dSelect_cursor_c::draw, SelectCursorDrawHook);
 DEFINE_HOOK(&dSelect_cursor_c::update, SelectCursorUpdateHook);
+DEFINE_HOOK(&dMsgScrn3Select_c::draw, ThreeSelectDrawHook);
 DEFINE_HOOK(&dMenu_Fmap_c::_move, FmapMoveHook);
 DEFINE_HOOK(&dMenu_Fmap_c::_draw, FmapDrawHook);
 DEFINE_HOOK(&dMenu_Dmap_c::_draw, DmapDrawHook);
@@ -199,6 +203,16 @@ ResourceBuffer s_blackProFaceButtonResources[4] = {
     RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
     RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
 };
+ResourceBuffer s_playStationFaceButtonResources[2][4] = {
+    {RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
+        RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT},
+    {RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
+        RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT},
+};
+ResourceBuffer s_playStationShoulderButtonResources[2][3] = {
+    {RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT},
+    {RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT},
+};
 ResourceBuffer s_blackProBlankFaceButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_blackProShoulderButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_zlShoulderButtonResource = RESOURCE_BUFFER_INIT;
@@ -219,6 +233,9 @@ ResourceBuffer s_collectMenuButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectBackgroundResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectRowResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectSelectedRowResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_midnaChoiceRowResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_midnaChoiceSelectedRowResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_fileSelectRowShadowResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectClearRowResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectTitleRulesResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectBackLabelResource = RESOURCE_BUFFER_INIT;
@@ -228,6 +245,8 @@ ResourceBuffer s_fileSelectNumberResources[3] = {
 };
 dMenu_save_c* s_activeSaveMenu = nullptr;
 dMenu_Collect2D_c* s_activeCollectMenu = nullptr;
+dSelect_cursor_c* s_activeThreeSelectCursor = nullptr;
+J2DPicture* s_activeThreeSelectFrame = nullptr;
 J2DPicture* s_collectTitleFrame = nullptr;
 J2DPicture* s_collectSaveFrame = nullptr;
 J2DPicture* s_collectOptionsFrame = nullptr;
@@ -253,6 +272,8 @@ bool s_zHeavyBootsWaitRelease = false;
 u8 s_zHeavyBootsGuardFrames = 0;
 bool s_dpadMidnaHeld = false;
 bool s_dpadMidnaTrig = false;
+bool s_rightShoulderHeld = false;
+bool s_rightShoulderTrig = false;
 bool s_fixedZlHeld = false;
 bool s_fixedZlTrig = false;
 bool s_fixedZrHeld = false;
@@ -269,6 +290,35 @@ using GetActionBindTrigFn = bool (*)(DusklightActionBind, u32);
 GetActionBindTrigFn s_getActionBindTrig = nullptr;
 using GetActionBindButtonFn = int (*)(DusklightActionBind, u32);
 GetActionBindButtonFn s_getActionBindButton = nullptr;
+using GetSdlGamepadAxisFn = s16 (*)(SDL_Gamepad*, int);
+GetSdlGamepadAxisFn s_getSdlGamepadAxis = nullptr;
+using GetSdlGamepadButtonFn = bool (*)(SDL_Gamepad*, int);
+GetSdlGamepadButtonFn s_getSdlGamepadButton = nullptr;
+
+SDL_Gamepad* primary_sdl_gamepad() {
+    const s32 index = PADGetIndexForPort(PAD_1);
+    return index < 0 ? nullptr : PADGetSDLGamepadForIndex(static_cast<u32>(index));
+}
+
+bool physical_axis_held(s32 axis) {
+    if (SDL_Gamepad* gamepad = primary_sdl_gamepad();
+        gamepad != nullptr && s_getSdlGamepadAxis != nullptr)
+    {
+        return s_getSdlGamepadAxis(gamepad, axis) >= kSdlTriggerThreshold;
+    }
+
+    const PADSignedNativeAxis pulled = PADGetNativeAxisPulled(PAD_1);
+    return pulled.nativeAxis == axis && pulled.sign == AXIS_SIGN_POSITIVE;
+}
+
+bool physical_button_held(s32 button) {
+    if (SDL_Gamepad* gamepad = primary_sdl_gamepad();
+        gamepad != nullptr && s_getSdlGamepadButton != nullptr)
+    {
+        return s_getSdlGamepadButton(gamepad, button);
+    }
+    return PADGetNativeButtonPressed(PAD_1) == button;
+}
 
 bool midna_action_triggered() {
     return controller_compatibility() == ControllerCompatibility::FollowDusklight &&
@@ -327,6 +377,23 @@ void resolve_action_binding_functions() {
         s_getActionBindButton = nullptr;
         svc_log->warn(mod_ctx,
             "Unable to isolate Dusklight's Call Midna button from its normal game action");
+    }
+
+    address = nullptr;
+    const ModResult axisResult = svc_hook->resolve(
+        mod_ctx, "SDL_GetGamepadAxis", &address, &flags);
+    s_getSdlGamepadAxis = axisResult == MOD_OK && address != nullptr ?
+        reinterpret_cast<GetSdlGamepadAxisFn>(address) : nullptr;
+
+    address = nullptr;
+    const ModResult physicalButtonResult = svc_hook->resolve(
+        mod_ctx, "SDL_GetGamepadButton", &address, &flags);
+    s_getSdlGamepadButton = physicalButtonResult == MOD_OK && address != nullptr ?
+        reinterpret_cast<GetSdlGamepadButtonFn>(address) : nullptr;
+
+    if (s_getSdlGamepadAxis == nullptr || s_getSdlGamepadButton == nullptr) {
+        svc_log->warn(mod_ctx,
+            "Exact physical controller reads unavailable; using compatibility fallback");
     }
 }
 
@@ -717,7 +784,28 @@ ResTIMG const* styled_face_button_texture(const char letter) {
     }
 }
 
+ResTIMG const* playstation_face_button_texture(const char nativeLetter) {
+    // Preserve the native action positions while translating their labels:
+    // A/east = Circle, B/south = Cross, X/north = Triangle, Y/west = Square.
+    const int index = nativeLetter == 'A' ? 0 : nativeLetter == 'B' ? 1 :
+        nativeLetter == 'X' ? 2 : nativeLetter == 'Y' ? 3 : -1;
+    if (index < 0) {
+        return nullptr;
+    }
+    const int style = button_style() == ButtonStyle::BlackPro ? 1 : 0;
+    return resource_texture(s_playStationFaceButtonResources[style][index]);
+}
+
+ResTIMG const* playstation_shoulder_button_texture(const int index) {
+    const int style = button_style() == ButtonStyle::BlackPro ? 1 : 0;
+    return index >= 0 && index < 3 ?
+        resource_texture(s_playStationShoulderButtonResources[style][index]) : nullptr;
+}
+
 ResTIMG const* styled_r_button_texture() {
+    if (button_layout() == ButtonLayout::PlayStation) {
+        return playstation_shoulder_button_texture(1); // R1
+    }
     if (button_style() == ButtonStyle::BlackPro) {
         if (ResTIMG const* texture = resource_texture(s_blackProShoulderButtonResource)) {
             return texture;
@@ -727,6 +815,9 @@ ResTIMG const* styled_r_button_texture() {
 }
 
 ResTIMG const* styled_zl_button_texture() {
+    if (button_layout() == ButtonLayout::PlayStation) {
+        return playstation_shoulder_button_texture(0); // L2
+    }
     if (button_style() == ButtonStyle::BlackPro) {
         if (ResTIMG const* texture = resource_texture(s_blackProZlShoulderButtonResource)) {
             return texture;
@@ -736,6 +827,9 @@ ResTIMG const* styled_zl_button_texture() {
 }
 
 ResTIMG const* styled_zr_button_texture() {
+    if (button_layout() == ButtonLayout::PlayStation) {
+        return playstation_shoulder_button_texture(2); // R2
+    }
     if (button_style() == ButtonStyle::BlackPro) {
         if (ResTIMG const* texture = resource_texture(s_blackProZrShoulderButtonResource)) {
             return texture;
@@ -766,6 +860,8 @@ ResTIMG const* menu_face_button_texture(const bool nativeAAction) {
         return nativeAAction ? buttonB : buttonA;
     case ButtonLayout::Universal:
         return styled_blank_face_button_texture();
+    case ButtonLayout::PlayStation:
+        return playstation_face_button_texture(nativeAAction ? 'A' : 'B');
     }
     return nativeAAction ? buttonA : buttonB;
 }
@@ -778,6 +874,8 @@ ResTIMG const* item_assignment_button_texture(const bool nativeXButton) {
         return styled_face_button_texture(nativeXButton ? 'Y' : 'X');
     case ButtonLayout::Universal:
         return styled_blank_face_button_texture();
+    case ButtonLayout::PlayStation:
+        return playstation_face_button_texture(nativeXButton ? 'X' : 'Y');
     }
     return styled_face_button_texture(nativeXButton ? 'X' : 'Y');
 }
@@ -1660,6 +1758,192 @@ void configure_hd_picture(J2DPicture* picture) {
     picture->show();
 }
 
+// Shared three-choice prompt (Midna, message choices, and similar screens) --
+
+f32 prompt_text_width(JUTFont* font, const char* text, f32 size,
+    f32 spacing) {
+    if (font == nullptr || text == nullptr || font->getHeight() <= 0) {
+        return 0.0f;
+    }
+
+    const f32 scale = size / static_cast<f32>(font->getHeight());
+    f32 width = 0.0f;
+    const unsigned char* start =
+        reinterpret_cast<const unsigned char*>(text);
+    for (const unsigned char* cursor = start; *cursor != 0; ++cursor) {
+        if (cursor != start) {
+            width += spacing;
+        }
+        width += static_cast<f32>(font->getWidth(*cursor)) * scale;
+    }
+    return width;
+}
+
+void style_three_select_prompt(dMsgScrn3Select_c* menu) {
+    if (menu == nullptr || menu->mpScreen == nullptr) {
+        return;
+    }
+
+    ResTIMG const* normal = resource_texture(s_midnaChoiceRowResource);
+    ResTIMG const* selected = resource_texture(s_midnaChoiceSelectedRowResource);
+    if (normal == nullptr || selected == nullptr) {
+        return;
+    }
+
+    constexpr u64 frameTags[] = {
+        MULTI_CHAR('hd_3s0'), MULTI_CHAR('hd_3s1'), MULTI_CHAR('hd_3s2'),
+    };
+    constexpr u64 labelTags[] = {
+        MULTI_CHAR('hd_3t0'), MULTI_CHAR('hd_3t1'), MULTI_CHAR('hd_3t2'),
+    };
+    daAlink_c* link = daAlink_getAlinkActorClass();
+    const bool isWolf = link != nullptr && link->checkWolf();
+    const char* promptLabels[] = {
+        isWolf ? "Transform into human" : "Transform into wolf",
+        "Warp",
+        "Talk to Midna",
+    };
+
+    s_activeThreeSelectCursor = menu->mpSelectCursor;
+    s_activeThreeSelectFrame = nullptr;
+
+    for (std::size_t index = 0; index < 3; ++index) {
+        J2DPane* row = menu->mpSel_c[index] != nullptr ?
+            menu->mpSel_c[index]->getPanePtr() : nullptr;
+        J2DTextBox* text = menu->mpTmSel_c[index] != nullptr ?
+            static_cast<J2DTextBox*>(menu->mpTmSel_c[index]->getPanePtr()) : nullptr;
+        if (row == nullptr || text == nullptr) {
+            continue;
+        }
+
+        // Remove the five-piece wooden GameCube window and its animated cloud
+        // layers. The row/null panes remain intact so all native opening,
+        // selection, pointer, and closing behavior continues to work.
+        if (menu->mpSelCld_c[index] != nullptr) {
+            menu->mpSelCld_c[index]->hide();
+        }
+        if (menu->mpSelCldr_c[index] != nullptr) {
+            menu->mpSelCldr_c[index]->hide();
+        }
+        if (menu->mpSelCldm_c[index] != nullptr) {
+            menu->mpSelCldm_c[index]->hide();
+        }
+        for (std::size_t part = 0; part < 5; ++part) {
+            if (menu->mpSelCldw_c[part][index] != nullptr) {
+                menu->mpSelCldw_c[part][index]->hide();
+            }
+        }
+
+        J2DPane* textParent = text->getParentPane();
+        if (textParent == nullptr) {
+            continue;
+        }
+        J2DPicture* frame = as_picture(menu->mpScreen->search(frameTags[index]));
+        if (frame == nullptr) {
+            const JGeometry::TBox2<f32> textBounds = text->getBounds();
+            frame = JKR_NEW J2DPicture(frameTags[index],
+                JGeometry::TBox2<f32>(textBounds.i.x - 9.0f,
+                    textBounds.i.y - 5.0f, textBounds.f.x + 9.0f,
+                    textBounds.f.y + 5.0f), normal, nullptr);
+            configure_hd_picture(frame);
+            if (J2DPane* first = textParent->getFirstChildPane()) {
+                textParent->insertChild(first, frame);
+            } else {
+                textParent->appendChild(frame);
+            }
+        }
+
+        // The frame and label are siblings, so the label bounds are already in
+        // the frame's coordinate space.  Do not add the label translation: it
+        // is derived from these bounds and would displace the frame a second
+        // time.  TPHD uses compact, consistent choice panels rather than the
+        // full width of the original GameCube text pane.
+        const JGeometry::TBox2<f32> textBounds = text->getBounds();
+        constexpr f32 panelWidth = 156.0f;
+        constexpr f32 panelHeight = 34.0f;
+        const f32 textCenterX = (textBounds.i.x + textBounds.f.x) * 0.5f;
+        const f32 textCenterY = (textBounds.i.y + textBounds.f.y) * 0.5f;
+        frame->move(textCenterX - panelWidth * 0.5f,
+            textCenterY - panelHeight * 0.5f);
+        frame->resize(panelWidth, panelHeight);
+        frame->changeTexture(index == menu->mSelNo ? selected : normal, 0);
+        configure_hd_picture(frame);
+        frame->setAlpha(index == menu->mSelNo ? 255 : 205);
+        if (index == menu->mSelNo) {
+            s_activeThreeSelectFrame = frame;
+        }
+
+        // The native selected-row animation rewrites the original label's
+        // transform after our layout pass. Draw an independent label in the
+        // same bounds as the HD frame so every state remains truly centered.
+        J2DTextBox* label = static_cast<J2DTextBox*>(
+            menu->mpScreen->search(labelTags[index]));
+        if (label == nullptr) {
+            label = JKR_NEW J2DTextBox(labelTags[index],
+                JGeometry::TBox2<f32>(textCenterX - panelWidth * 0.5f,
+                    textCenterY - panelHeight * 0.5f,
+                    textCenterX + panelWidth * 0.5f,
+                    textCenterY + panelHeight * 0.5f),
+                nullptr, "", 128, HBIND_CENTER, VBIND_CENTER);
+            label->setFont(text->getFont());
+            textParent->appendChild(label);
+        }
+        const JGeometry::TBox2<f32> frameBounds = frame->getBounds();
+        // These are the only three choices on this prompt. Supplying clean
+        // strings avoids inheriting the native message renderer's embedded
+        // commands and stale print-state length, which could wrap the final
+        // glyph back into the middle of our independent label.
+        label->setString(promptLabels[index]);
+        constexpr f32 labelFontSize = 13.5f;
+        constexpr f32 labelSpacing = 0.0f;
+        label->setFontSize(labelFontSize, labelFontSize);
+        label->setCharSpace(labelSpacing);
+
+        // J2D retains a right-bound print state for these native choice rows
+        // on some layouts. A panel-width textbox therefore remains visually
+        // right aligned even after its binding bits are reset. Give the label
+        // a textbox exactly as wide as its rendered string, then center that
+        // textbox in the panel. Left, center, and right print states all land
+        // at the same visual center with this geometry.
+        const char* displayedLabel = text_box_string(label);
+        f32 labelWidth = prompt_text_width(text->getFont(), displayedLabel,
+            labelFontSize, labelSpacing);
+        if (labelWidth < 1.0f) {
+            labelWidth = 1.0f;
+        } else if (labelWidth > frameBounds.getWidth()) {
+            labelWidth = frameBounds.getWidth();
+        }
+        const f32 frameCenterX =
+            (frameBounds.i.x + frameBounds.f.x) * 0.5f;
+        label->move(frameCenterX - labelWidth * 0.5f, frameBounds.i.y);
+        label->resize(labelWidth, frameBounds.getHeight());
+        label->mFlags = static_cast<u8>((label->mFlags & ~0x0f) |
+            (HBIND_CENTER << 2) | VBIND_CENTER);
+        label->setFontColor(
+            index == menu->mSelNo ? JUtility::TColor(246, 246, 240, 255) :
+                                    JUtility::TColor(185, 183, 176, 235),
+            JUtility::TColor(255, 255, 255, 255));
+        label->setAlpha(255);
+        label->show();
+        // Alpha can be restored by the native row animation later in the
+        // draw. A zero font size safely prevents the source label from being
+        // rendered without mutating its game-owned string buffer.
+        text->setFontSize(0.0f, 0.0f);
+        text->setAlpha(0);
+        // Some three-choice layouts contain a second full-resolution text
+        // layer (the *_tf_f panes). This is the layer that remained visible
+        // and offset on the inactive Midna choices, so suppress it as well.
+        if (menu->mpTmrSel_c[index] != nullptr) {
+            auto* alternateText = static_cast<J2DTextBox*>(
+                menu->mpTmrSel_c[index]->getPanePtr());
+            if (alternateText != nullptr) {
+                alternateText->setFontSize(0.0f, 0.0f);
+                alternateText->setAlpha(0);
+            }
+        }
+    }
+}
+
 // Dungeon map ---------------------------------------------------------------
 
 void hide_large_dmap_base_art(J2DPane* pane, J2DPane* keep) {
@@ -2300,6 +2584,12 @@ void add_option_prompts(dMenu_Option_c* menu) {
         group->appendChild(picture);
     };
 
+    // Keep the flourish at its intended wide proportions and place it behind
+    // both button discs, so its loops appear to wrap A and B like TPHD.
+    addPicture(MULTI_CHAR('hd_oflr'),
+        JGeometry::TBox2<f32>(534.0f, 18.0f, 606.0f, 84.0f),
+        resource_texture(s_fileSelectPromptFlourishResource), 220);
+
     auto* confirm = JKR_NEW J2DTextBox(MULTI_CHAR('hd_ocfm'),
         JGeometry::TBox2<f32>(490.0f, 17.0f, 555.0f, 38.0f), nullptr,
         "Confirm", 16, HBIND_RIGHT, VBIND_CENTER);
@@ -2318,9 +2608,6 @@ void add_option_prompts(dMenu_Option_c* menu) {
     addPicture(MULTI_CHAR('hd_obpi'),
         JGeometry::TBox2<f32>(548.5f, 35.5f, 570.5f, 57.5f),
         menu_face_button_texture(false));
-    addPicture(MULTI_CHAR('hd_oflr'),
-        JGeometry::TBox2<f32>(562.0f, 29.0f, 600.0f, 67.0f),
-        resource_texture(s_fileSelectPromptFlourishResource), 205);
 
     auto* displayPrompt = JKR_NEW J2DTextBox(MULTI_CHAR('hd_odsp'),
         JGeometry::TBox2<f32>(403.0f, 412.0f, 570.0f, 435.0f), nullptr,
@@ -2925,6 +3212,79 @@ void position_file_select_prompt_overlays(dFile_select_c* menu) {
     }
 }
 
+void add_file_select_fixed_prompts(dFile_select_c* menu) {
+    J2DScreen* screen = menu != nullptr ? menu->fileSel.Scr : nullptr;
+    if (screen == nullptr) {
+        return;
+    }
+
+    const auto rootBounds = screen->getBounds();
+    const f32 right = rootBounds.f.x;
+    auto* group = screen->search(MULTI_CHAR('hd_fprm'));
+    if (group == nullptr) {
+        group = JKR_NEW J2DPane(MULTI_CHAR('hd_fprm'), rootBounds);
+        screen->appendChild(group);
+
+        auto addPicture = [group](u64 tag,
+                              const JGeometry::TBox2<f32>& bounds,
+                              ResTIMG const* texture, u8 alpha = 255) {
+            if (texture == nullptr) {
+                return;
+            }
+            auto* picture = JKR_NEW J2DPicture(tag, bounds, texture, nullptr);
+            picture->setTexCoord(picture->getTexture(0), BIND15, MIRROR0, false);
+            picture->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+                JUtility::TColor(255, 255, 255, 255));
+            picture->setCornerColor(JUtility::TColor(255, 255, 255, alpha));
+            group->appendChild(picture);
+        };
+
+        // The flourish is behind both discs: TPHD hides the middle of each
+        // loop beneath A and B so the visible line appears to wrap them.
+        addPicture(MULTI_CHAR('hd_fflr'),
+            JGeometry::TBox2<f32>(right - 74.0f, 18.0f,
+                right - 2.0f, 84.0f),
+            resource_texture(s_fileSelectPromptFlourishResource), 220);
+
+        auto* confirm = JKR_NEW J2DTextBox(MULTI_CHAR('hd_fcon'),
+            JGeometry::TBox2<f32>(right - 112.0f, 30.0f,
+                right - 48.0f, 51.0f), nullptr,
+            "Confirm", 16, HBIND_RIGHT, VBIND_CENTER);
+        confirm->setFont(menu->fileSel.font[0]);
+        confirm->setFontSize(13.5f, 13.5f);
+        confirm->setFontColor(JUtility::TColor(235, 235, 230, 255),
+            JUtility::TColor(255, 255, 255, 255));
+        group->appendChild(confirm);
+
+        addPicture(MULTI_CHAR('hd_fapi'),
+            JGeometry::TBox2<f32>(right - 50.0f, 28.0f,
+                right - 23.0f, 55.0f), menu_face_button_texture(true));
+        addPicture(MULTI_CHAR('hd_fbck'),
+            JGeometry::TBox2<f32>(right - 100.0f, 51.0f,
+                right - 61.0f, 67.0f),
+            resource_texture(s_fileSelectBackLabelResource));
+        addPicture(MULTI_CHAR('hd_fbpi'),
+            JGeometry::TBox2<f32>(right - 62.0f, 49.0f,
+                right - 35.0f, 76.0f), menu_face_button_texture(false));
+    }
+
+    update_menu_face_button(screen, MULTI_CHAR('hd_fapi'), true);
+    update_menu_face_button(screen, MULTI_CHAR('hd_fbpi'), false);
+    group->show();
+
+    // The stock prompt groups are animated and can be hidden or translated by
+    // the file-select state machine.  Suppress them completely; the fixed
+    // canvas group above is deterministic at every desktop aspect ratio.
+    for (CPaneMgrAlpha* pane : {
+             menu->mKetteiTxtPane, menu->mAbtnPane,
+             menu->mModoruTxtPane, menu->mBbtnPane,
+         }) {
+        if (pane != nullptr && pane->getPanePtr() != nullptr) {
+            pane->getPanePtr()->hide();
+        }
+    }
+}
+
 f32 copy_title_text_width(JUTFont* font, const char* text, f32 size,
     f32 spacing);
 J2DTextBox* copy_metadata_text(J2DPane* group, u64 tag,
@@ -2944,6 +3304,18 @@ void style_file_select_action_buttons(dFile_select_c* menu) {
     constexpr f32 targetWidth = 142.0f;
     constexpr f32 targetHeight = 26.0f;
 
+    // mDataSelProc can briefly retain MENU_SELECT across Dusklight's Reset
+    // reconstruction even though the native three-action pane is closed.
+    // The native menu animation owns these two flags: field_0x0283 while the
+    // pane is moving open and field_0x0360 once it is fully open.  Requiring
+    // one of them prevents our opaque replacement frames from appearing as
+    // unexplained black boxes at the bottom of the quest-log screen.
+    const bool actionMenuVisible =
+        (menu->field_0x0283 || menu->field_0x0360) &&
+        (menu->mDataSelProc == dFile_select_c::DATASELPROC_MENU_SELECT ||
+            menu->mDataSelProc ==
+                dFile_select_c::DATASELPROC_MENU_SELECT_MOVE_ANM);
+
     for (std::size_t index = 0; index < 3; ++index) {
         J2DPane* group = menu->m3mSelPane[index] != nullptr ?
             menu->m3mSelPane[index]->getPanePtr() : nullptr;
@@ -2953,10 +3325,13 @@ void style_file_select_action_buttons(dFile_select_c* menu) {
 
         // A Yes/No modal temporarily hides these panes. Restore them once
         // File Selection returns to its ordinary action-selection state.
-        if (menu->mDataSelProc == dFile_select_c::DATASELPROC_MENU_SELECT ||
-            menu->mDataSelProc ==
-                dFile_select_c::DATASELPROC_MENU_SELECT_MOVE_ANM) {
+        if (actionMenuVisible) {
             group->show();
+        } else {
+            // Outside the action submenu the native group can remain visible
+            // after its label and ornaments have faded, which leaves a pair
+            // of unexplained solid black rectangles at the footer.
+            group->hide();
         }
 
         auto* frame = as_picture(group->search(frameTags[index]));
@@ -3107,7 +3482,22 @@ void move_file_select_pane_center(J2DPane* pane, const f32 targetX,
     const JGeometry::TBox2<f32>& bounds = pane->getGlbBounds();
     const f32 centerX = (bounds.i.x + bounds.f.x) * 0.5f;
     const f32 centerY = (bounds.i.y + bounds.f.y) * 0.5f;
-    pane->add(targetX - centerX, targetY - centerY);
+    f32 parentScaleX = 1.0f;
+    f32 parentScaleY = 1.0f;
+    if (J2DPane* parent = pane->getParentPane()) {
+        const JGeometry::TBox2<f32>& parentGlobal = parent->getGlbBounds();
+        if (std::fabs(parent->getWidth()) > 0.001f) {
+            parentScaleX = parentGlobal.getWidth() / parent->getWidth();
+        }
+        if (std::fabs(parent->getHeight()) > 0.001f) {
+            parentScaleY = parentGlobal.getHeight() / parent->getHeight();
+        }
+    }
+    // add() consumes parent-local coordinates, while getGlbBounds() and the
+    // target are global layout coordinates. Converting the delta prevents an
+    // over-correction/under-correction loop when a desktop window is resized.
+    pane->add((targetX - centerX) / parentScaleX,
+        (targetY - centerY) / parentScaleY);
 }
 
 void position_file_select_prompts(dFile_select_c* menu) {
@@ -3115,7 +3505,18 @@ void position_file_select_prompts(dFile_select_c* menu) {
         return;
     }
     const JGeometry::TBox2<f32> rootBounds = menu->fileSel.Scr->getBounds();
-    const f32 right = rootBounds.f.x;
+    // The archive remains authored on a 608-unit 4:3 canvas. Follow the live
+    // widescreen edge so the prompt cluster reaches TPHD's upper-right corner
+    // and remains responsive to arbitrary desktop window widths.
+#if TARGET_PC
+    // Anchor to Dusklight's visible HUD-safe edge.  The full virtual canvas can
+    // extend beyond the window at both narrow and very wide desktop aspects;
+    // using it (or blending toward it) makes these panes disappear or jump
+    // while the host window is resized.
+    const f32 right = mDoGph_gInf_c::getSafeMaxXF();
+#else
+    const f32 right = mDoGph_gInf_c::getMaxXF();
+#endif
     const f32 top = rootBounds.i.y;
     move_file_select_pane_center(
         menu->mKetteiTxtPane != nullptr ? menu->mKetteiTxtPane->getPanePtr() : nullptr,
@@ -3130,6 +3531,7 @@ void position_file_select_prompts(dFile_select_c* menu) {
         menu->mBbtnPane != nullptr ? menu->mBbtnPane->getPanePtr() : nullptr,
         right - 47.0f, top + 46.0f);
     position_file_select_prompt_overlays(menu);
+    add_file_select_fixed_prompts(menu);
 }
 
 void replace_large_file_select_backgrounds(J2DPane* pane,
@@ -3184,13 +3586,49 @@ void replace_file_select_background(dFile_select_c* menu) {
         return;
     }
 
+    J2DPane* root = menu->fileSel.Scr;
     J2DPicture* background = as_picture(
-        menu->fileSel.Scr->search(MULTI_CHAR('w_dmbase')));
+        root->search(MULTI_CHAR('hd_fsbg')));
     if (background == nullptr) {
-        return;
+        background = JKR_NEW J2DPicture(MULTI_CHAR('hd_fsbg'),
+            JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f, 448.0f),
+            replacement, nullptr);
+        background->setTexCoord(background->getTexture(0), BIND15, MIRROR0,
+            false);
+        background->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+            JUtility::TColor(255, 255, 255, 255));
+        background->setCornerColor(JUtility::TColor(255, 255, 255, 255));
+        background->setAlpha(255);
+        if (J2DPane* first = root->getFirstChildPane()) {
+            root->insertChild(first, background);
+        } else {
+            root->appendChild(background);
+        }
+    } else if (background->getTexture(0) == nullptr ||
+        background->getTexture(0)->getTexInfo() != replacement) {
+        background->changeTexture(replacement, 0);
     }
-    replace_large_file_select_backgrounds(menu->fileSel.Scr, brick, replacement,
-        background);
+    background->show();
+
+    // Every archive-authored background lives below additional animated
+    // containers. Suppress all of them and use one direct child of the root;
+    // only then can the root transform be inverted without inherited offsets
+    // producing black strips or resize-dependent jumps.
+    replace_large_file_select_backgrounds(root, brick, replacement, nullptr);
+
+    // The native file-select root itself is translated and horizontally
+    // scaled by Dusklight. Counter that live transform when sizing only the
+    // backdrop, mapping it exactly to the full viewport. This avoids both
+    // safe-area bars and the resize-dependent crop/jump caused by overscan.
+    const f32 rootScaleX = std::fabs(root->getScaleX()) > 0.001f ?
+        root->getScaleX() : 1.0f;
+    const f32 rootScaleY = std::fabs(root->getScaleY()) > 0.001f ?
+        root->getScaleY() : 1.0f;
+    background->resize(mDoGph_gInf_c::getWidthF() / rootScaleX,
+        mDoGph_gInf_c::getHeightF() / rootScaleY);
+    background->move(
+        (mDoGph_gInf_c::getMinXF() - root->getTranslateX()) / rootScaleX,
+        (mDoGph_gInf_c::getMinYF() - root->getTranslateY()) / rootScaleY);
 }
 
 void find_picture_with_texture(J2DPane* pane, ResTIMG const* texture,
@@ -3317,6 +3755,136 @@ void simplify_file_select_rows(dFile_select_c* menu) {
                 base->show();
             }
         }
+    }
+}
+
+constexpr u64 kFileSelectHeartTags[] = {
+    MULTI_CHAR('hear_20'), MULTI_CHAR('hear_21'),
+    MULTI_CHAR('hear_22'), MULTI_CHAR('hear_23'),
+    MULTI_CHAR('hear_24'), MULTI_CHAR('hear_25'),
+    MULTI_CHAR('hear_26'), MULTI_CHAR('hear_27'),
+    MULTI_CHAR('hear_28'), MULTI_CHAR('hear_29'),
+    MULTI_CHAR('hear_30'), MULTI_CHAR('hear_31'),
+    MULTI_CHAR('hear_32'), MULTI_CHAR('hear_33'),
+    MULTI_CHAR('hear_34'), MULTI_CHAR('hear_35'),
+    MULTI_CHAR('hear_36'), MULTI_CHAR('hear_37'),
+    MULTI_CHAR('hear_38'), MULTI_CHAR('hear_39'),
+};
+
+bool file_info_has_second_heart_line(J2DPane* group) {
+    if (group == nullptr) {
+        return false;
+    }
+    for (std::size_t heart = 10; heart < std::size(kFileSelectHeartTags); ++heart) {
+        J2DPane* pane = group->search(kFileSelectHeartTags[heart]);
+        if (pane != nullptr && pane->isVisible()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+struct FileSelectRowGeometry {
+    J2DPicture* picture = nullptr;
+    f32 left = 0.0f;
+    f32 top = 0.0f;
+    f32 width = 0.0f;
+    f32 height = 0.0f;
+};
+
+void size_file_select_row_for_hearts(J2DPicture* row, const bool hasSecondLine,
+    FileSelectRowGeometry& geometry) {
+    if (row == nullptr) {
+        return;
+    }
+    if (geometry.picture != row) {
+        const JGeometry::TBox2<f32> bounds = row->getBounds();
+        geometry = {
+            .picture = row,
+            .left = bounds.i.x,
+            .top = bounds.i.y,
+            .width = bounds.getWidth(),
+            .height = bounds.getHeight(),
+        };
+    }
+
+    // Keep the archive-authored size as the baseline. Single-line rows gain
+    // breathing room for Total play time; wrapped rows gain enough height for
+    // a dedicated second heart baseline, matching TPHD's taller occupied card.
+    // This archive's local row size changes with the platform widescreen
+    // transform, so use TPHD's proportional 16:9 width rather than a fixed
+    // local-unit cap.
+    // The stock archive's virtual width grows with Dusklight's desktop aspect.
+    // Preserve the roomier card needed for two heart rows at 4:3, then taper
+    // to TPHD's narrower 16:9 proportion instead of applying one multiplier
+    // to every possible window shape.
+#if TARGET_PC
+    // getWidthF()/getHeightF() can remain on the virtual 608x448 canvas while
+    // a desktop window is resized.  The framebuffer dimensions are the stable
+    // source of truth for the actual host-window aspect.
+    const f32 aspect = mDoGph_gInf_c::getHeight() > 0.001f ?
+        mDoGph_gInf_c::getWidth() / mDoGph_gInf_c::getHeight() : 4.0f / 3.0f;
+#else
+    const f32 aspect = mDoGph_gInf_c::getHeightF() > 0.001f ?
+        mDoGph_gInf_c::getWidthF() / mDoGph_gInf_c::getHeightF() : 4.0f / 3.0f;
+#endif
+    f32 widescreenBlend = (aspect - 4.0f / 3.0f) / (4.0f / 9.0f);
+    if (widescreenBlend < 0.0f) {
+        widescreenBlend = 0.0f;
+    } else if (widescreenBlend > 1.0f) {
+        widescreenBlend = 1.0f;
+    }
+    // The row and its file-info contents share this fixed virtual canvas.
+    // Converting through getGlbBounds() here is unstable: that matrix still
+    // contains the preceding draw's aspect transform while a desktop window
+    // is resizing, so repeating this function progressively shrinks the row
+    // without moving its hearts. Size directly in local canvas units.
+    //
+    // TPHD devotes a larger share of the narrower canvas to each card. Below
+    // 4:3 the heart group keeps its authored spacing, so expand the panel to a
+    // hard 470-unit narrow-window floor by 1.20:1. From 4:3 through 16:9,
+    // taper from 420 to 350 units so widescreen cards remain restrained.
+    f32 targetWidth = 540.0f;
+    if (aspect < 4.0f / 3.0f) {
+        f32 narrowBlend = ((4.0f / 3.0f) - aspect) /
+            ((4.0f / 3.0f) - 1.20f);
+        narrowBlend = std::clamp(narrowBlend, 0.0f, 1.0f);
+        targetWidth += (560.0f - 540.0f) * narrowBlend;
+    } else {
+        targetWidth += (350.0f - 540.0f) * widescreenBlend;
+    }
+    const f32 extraHeight = hasSecondLine ? 24.0f : 8.0f;
+    const f32 targetHeight = geometry.height + extraHeight;
+    row->resize(targetWidth, targetHeight);
+    row->move(geometry.left + (geometry.width - targetWidth) * 0.5f,
+        geometry.top - extraHeight * 0.5f);
+}
+
+void update_file_select_row_shadow(J2DPicture* row, const bool selected) {
+    ResTIMG const* texture = resource_texture(s_fileSelectRowShadowResource);
+    if (row == nullptr || texture == nullptr) {
+        return;
+    }
+
+    auto* shadow = as_picture(row->search(MULTI_CHAR('hd_rshd')));
+    if (shadow == nullptr) {
+        shadow = JKR_NEW J2DPicture(MULTI_CHAR('hd_rshd'),
+            JGeometry::TBox2<f32>(0.0f, 0.0f, 1.0f, 1.0f), texture, nullptr);
+        shadow->setTexCoord(shadow->getTexture(0), BIND15, MIRROR0, false);
+        shadow->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+            JUtility::TColor(255, 255, 255, 255));
+        shadow->setCornerColor(JUtility::TColor(255, 255, 255, 255));
+        row->appendChild(shadow);
+    }
+
+    // Keep the drop shadow outside the panel so neither metadata nor cursor
+    // bounds need to include it.
+    shadow->resize(row->getWidth() - 12.0f, 24.0f);
+    shadow->move(6.0f, row->getHeight() - 1.0f);
+    if (selected) {
+        shadow->show();
+    } else {
+        shadow->hide();
     }
 }
 
@@ -3471,6 +4039,7 @@ void style_copy_destination_metadata_overlay(dFile_select_c* menu,
     if (source == nullptr) {
         return;
     }
+    const bool hasSecondHeartLine = file_info_has_second_heart_line(source);
     JUTFont* font = menu->fileSel.font[0];
     auto sourceText = [source](u64 tag) {
         return static_cast<J2DTextBox*>(source->search(tag));
@@ -3485,25 +4054,29 @@ void style_copy_destination_metadata_overlay(dFile_select_c* menu,
     };
 
     const f32 left = (608.0f - 435.0f) * 0.5f;
+    const f32 nameTop = hasSecondHeartLine ? rowY - 28.0f : rowY - 21.0f;
+    const f32 nameBottom = hasSecondHeartLine ? rowY - 10.0f : rowY - 3.0f;
+    const f32 saveTop = hasSecondHeartLine ? rowY + 1.0f : rowY - 5.0f;
+    const f32 playTop = hasSecondHeartLine ? rowY + 16.0f : rowY + 10.0f;
     auto* name = copy_metadata_text(overlay, MULTI_CHAR('hd_mnam'),
-        JGeometry::TBox2<f32>(left + 125.0f, rowY - 21.0f,
-            left + 235.0f, rowY - 3.0f), font, HBIND_RIGHT, 13.5f,
+        JGeometry::TBox2<f32>(left + 125.0f, nameTop,
+            left + 235.0f, nameBottom), font, HBIND_RIGHT, 13.5f,
         JUtility::TColor(235, 232, 211, 255));
     auto* saveLabel = copy_metadata_text(overlay, MULTI_CHAR('hd_msav'),
-        JGeometry::TBox2<f32>(left + 125.0f, rowY - 5.0f,
-            left + 235.0f, rowY + 9.0f), font, HBIND_RIGHT, 11.5f,
+        JGeometry::TBox2<f32>(left + 125.0f, saveTop,
+            left + 235.0f, saveTop + 14.0f), font, HBIND_RIGHT, 11.5f,
         JUtility::TColor(190, 202, 255, 255));
     auto* playLabel = copy_metadata_text(overlay, MULTI_CHAR('hd_mply'),
-        JGeometry::TBox2<f32>(left + 105.0f, rowY + 10.0f,
-            left + 235.0f, rowY + 25.0f), font, HBIND_RIGHT, 11.5f,
+        JGeometry::TBox2<f32>(left + 105.0f, playTop,
+            left + 235.0f, playTop + 15.0f), font, HBIND_RIGHT, 11.5f,
         JUtility::TColor(188, 225, 112, 255));
     auto* saveValue = copy_metadata_text(overlay, MULTI_CHAR('hd_msva'),
-        JGeometry::TBox2<f32>(left + 245.0f, rowY - 5.0f,
-            left + 420.0f, rowY + 9.0f), font, HBIND_LEFT, 11.5f,
+        JGeometry::TBox2<f32>(left + 245.0f, saveTop,
+            left + 420.0f, saveTop + 14.0f), font, HBIND_LEFT, 11.5f,
         JUtility::TColor(190, 202, 255, 255));
     auto* playValue = copy_metadata_text(overlay, MULTI_CHAR('hd_mpva'),
-        JGeometry::TBox2<f32>(left + 245.0f, rowY + 10.0f,
-            left + 420.0f, rowY + 25.0f), font, HBIND_LEFT, 11.5f,
+        JGeometry::TBox2<f32>(left + 245.0f, playTop,
+            left + 420.0f, playTop + 15.0f), font, HBIND_LEFT, 11.5f,
         JUtility::TColor(188, 225, 112, 255));
     copyString(name, sourceText(MULTI_CHAR('f_name01')), "Link");
     copyString(saveLabel, sourceText(MULTI_CHAR('f_s_t_02')), "Save time");
@@ -3541,8 +4114,9 @@ void style_copy_destination_metadata_overlay(dFile_select_c* menu,
             const std::size_t column = heart % 10;
             const std::size_t line = heart / 10;
             heartPicture->resize(12.0f, 12.0f);
+            const f32 heartTop = hasSecondHeartLine ? rowY - 25.0f : rowY - 17.0f;
             heartPicture->move(left + 245.0f + column * 15.0f,
-                rowY - 17.0f + line * 12.0f);
+                heartTop + line * 12.0f);
             if (sourceHeart != nullptr) {
                 heartPicture->setBlackWhite(sourceHeart->getBlack(),
                     sourceHeart->getWhite());
@@ -3919,9 +4493,14 @@ void style_copy_destination_screen(dFile_select_c* menu) {
             // list during entry or exit.
             const f32 rowY = confirmActive ? 220.0f :
                 (index == 0 ? 165.0f : 275.0f);
-            rows[index]->resize(435.0f, 62.0f);
+            J2DPane* source = menu->mCpFileInfo[index] != nullptr &&
+                    menu->mCpFileInfo[index]->getDatBase() != nullptr ?
+                menu->mCpFileInfo[index]->getDatBase()->getPanePtr() : nullptr;
+            const bool hasSecondHeartLine = file_info_has_second_heart_line(source);
+            const f32 rowHeight = hasSecondHeartLine ? 86.0f : 70.0f;
+            rows[index]->resize(435.0f, rowHeight);
             rows[index]->move((608.0f - 435.0f) * 0.5f,
-                rowY - 31.0f);
+                rowY - rowHeight * 0.5f);
             apply_file_select_row_texture(rows[index],
                 resource_texture(menu->field_0x026b == index ?
                     s_fileSelectSelectedRowResource : s_fileSelectRowResource));
@@ -4001,6 +4580,12 @@ void update_file_select_row_selection(dFile_select_c* menu) {
     constexpr u64 rowBaseTags[] = {
         MULTI_CHAR('w_go_b00'), MULTI_CHAR('w_go_b01'), MULTI_CHAR('w_go_b02'),
     };
+    static dFile_select_c* geometryOwner = nullptr;
+    static std::array<FileSelectRowGeometry, 3> rowGeometry = {};
+    if (geometryOwner != menu) {
+        geometryOwner = menu;
+        rowGeometry = {};
+    }
     const int selectedIndex = menu->getSelectNum();
     for (std::size_t index = 0; index < 3; ++index) {
         ResTIMG const* texture = static_cast<int>(index) == selectedIndex ? selected : normal;
@@ -4010,7 +4595,13 @@ void update_file_select_row_selection(dFile_select_c* menu) {
             f32 largestArea = 0.0f;
             find_largest_picture(rowGroup, rowBase, largestArea);
         }
+        J2DPane* infoGroup = menu->mFileInfoDatBasePane[index] != nullptr ?
+            menu->mFileInfoDatBasePane[index]->getPanePtr() : nullptr;
+        size_file_select_row_for_hearts(rowBase,
+            file_info_has_second_heart_line(infoGroup), rowGeometry[index]);
         apply_file_select_row_texture(rowBase, texture);
+        update_file_select_row_shadow(rowBase,
+            static_cast<int>(index) == selectedIndex);
     }
 }
 
@@ -4061,9 +4652,16 @@ void position_file_select_cursor(dFile_select_c* menu) {
     const bool launchingFromStart =
         menu->mDataSelProc == dFile_select_c::DATASELPROC_NEXT_MODE_WAIT &&
         menu->mIsSelectEnd && menu->mSelectMenuNum == 1;
+    if (launchingFromStart) {
+        // Once Start has been accepted, the native file-select contents fade
+        // immediately.  Do not preserve our pane-attached cursor throughout
+        // NEXT_MODE_WAIT; otherwise its four corners outlive the rest of the
+        // screen while the game is loading.
+        menu->mSelIcon->setAlphaRate(0.0f);
+        return;
+    }
     if ((menu->mDataSelProc == dFile_select_c::DATASELPROC_MENU_SELECT ||
-            menu->mDataSelProc == dFile_select_c::DATASELPROC_MENU_SELECT_MOVE_ANM ||
-            launchingFromStart) &&
+            menu->mDataSelProc == dFile_select_c::DATASELPROC_MENU_SELECT_MOVE_ANM) &&
         menu->mSelectMenuNum < 3) {
         J2DPane* group = menu->m3mSelPane[menu->mSelectMenuNum] != nullptr ?
             menu->m3mSelPane[menu->mSelectMenuNum]->getPanePtr() : nullptr;
@@ -4121,18 +4719,6 @@ void style_file_select_metadata(dFile_select_c* menu) {
     constexpr u64 valueTags[] = {
         MULTI_CHAR('w_time01'), MULTI_CHAR('w_ptim01'),
     };
-    constexpr u64 heartTags[] = {
-        MULTI_CHAR('hear_20'), MULTI_CHAR('hear_21'),
-        MULTI_CHAR('hear_22'), MULTI_CHAR('hear_23'),
-        MULTI_CHAR('hear_24'), MULTI_CHAR('hear_25'),
-        MULTI_CHAR('hear_26'), MULTI_CHAR('hear_27'),
-        MULTI_CHAR('hear_28'), MULTI_CHAR('hear_29'),
-        MULTI_CHAR('hear_30'), MULTI_CHAR('hear_31'),
-        MULTI_CHAR('hear_32'), MULTI_CHAR('hear_33'),
-        MULTI_CHAR('hear_34'), MULTI_CHAR('hear_35'),
-        MULTI_CHAR('hear_36'), MULTI_CHAR('hear_37'),
-        MULTI_CHAR('hear_38'), MULTI_CHAR('hear_39'),
-    };
     for (std::size_t index = 0; index < 3; ++index) {
         J2DPane* group = menu->mFileInfoDatBasePane[index] != nullptr ?
             menu->mFileInfoDatBasePane[index]->getPanePtr() : nullptr;
@@ -4149,6 +4735,27 @@ void style_file_select_metadata(dFile_select_c* menu) {
             groupGlobal.getWidth() / group->getWidth() : 1.0f;
         const f32 scaleY = group->getHeight() > 0.0f ?
             groupGlobal.getHeight() / group->getHeight() : 1.0f;
+        const bool hasSecondHeartLine = file_info_has_second_heart_line(group);
+        const f32 saveCenterY = saveLabel != nullptr ?
+            (saveLabel->getGlbBounds().i.y + saveLabel->getGlbBounds().f.y) * 0.5f :
+            0.0f;
+    const f32 totalTimeSpacing = hasSecondHeartLine ? 24.0f : 17.0f;
+        auto alignTotalTimeY = [saveLabel, saveCenterY, scaleY,
+                                   totalTimeSpacing](J2DPane* pane) {
+            if (saveLabel == nullptr || pane == nullptr ||
+                !std::isfinite(scaleY) || std::fabs(scaleY) <= 0.001f) {
+                return;
+            }
+            const auto& bounds = pane->getGlbBounds();
+            const f32 centerY = (bounds.i.y + bounds.f.y) * 0.5f;
+            // TPHD leaves the total-play-time row below the middle rule and
+            // closer to the lower rule.  Resolve from Save time every frame so
+            // this remains idempotent through animation and window resizing.
+            const f32 targetY = saveCenterY + totalTimeSpacing * scaleY;
+            if (std::isfinite(centerY) && std::isfinite(targetY)) {
+                pane->add(0.0f, (targetY - centerY) / scaleY);
+            }
+        };
 
         // Resolve every position from live pane geometry. The archive applies
         // one last transform after reset/create; additive one-time offsets
@@ -4157,22 +4764,15 @@ void style_file_select_metadata(dFile_select_c* menu) {
         // repeat immediately before every draw.
         if (saveLabel != nullptr && std::isfinite(scaleY) &&
             std::fabs(scaleY) > 0.001f) {
-            bool hasSecondHeartLine = false;
-            for (std::size_t heart = 10; heart < 20; ++heart) {
-                J2DPane* pane = group->search(heartTags[heart]);
-                if (pane != nullptr && pane->isVisible()) {
-                    hasSecondHeartLine = true;
-                    break;
-                }
-            }
             const f32 saveTop = saveLabel->getGlbBounds().i.y;
             for (std::size_t heart = 0; heart < 20; ++heart) {
-                J2DPane* pane = group->search(heartTags[heart]);
+                J2DPane* pane = group->search(kFileSelectHeartTags[heart]);
                 if (pane == nullptr || !pane->isVisible()) {
                     continue;
                 }
                 const JGeometry::TBox2<f32>& bounds = pane->getGlbBounds();
-                const f32 targetBottom = saveTop - 3.0f * scaleY -
+                const f32 targetBottom = saveTop -
+                    (hasSecondHeartLine ? 5.0f : 3.0f) * scaleY -
                     (hasSecondHeartLine && heart < 10 ?
                         bounds.getHeight() : 0.0f);
                 if (std::isfinite(bounds.f.y) &&
@@ -4212,6 +4812,9 @@ void style_file_select_metadata(dFile_select_c* menu) {
             auto* text = static_cast<J2DTextBox*>(group->search(tag));
             if (text != nullptr) {
                 text->setFontSize(11.5f, 11.5f);
+                if (tag == MULTI_CHAR('f_p_t_02')) {
+                    alignTotalTimeY(text);
+                }
             }
         }
         for (u64 tag : valueTags) {
@@ -4229,6 +4832,9 @@ void style_file_select_metadata(dFile_select_c* menu) {
                     if (std::isfinite(deltaX)) {
                         text->add(deltaX / scaleX, 0.0f);
                     }
+                }
+                if (tag == MULTI_CHAR('w_ptim01')) {
+                    alignTotalTimeY(text);
                 }
             }
         }
@@ -4511,8 +5117,6 @@ void simplify_save_menu_rows(dMenu_save_c* menu) {
             if (panel != nullptr) {
                 apply_file_select_row_texture(panel,
                     resource_texture(s_fileSelectRowResource));
-                panel->move(0.0f, 0.0f);
-                panel->resize(row->getWidth(), row->getHeight());
                 panel->show();
             }
             for (J2DPane* child = row->getFirstChildPane(); child != nullptr;
@@ -4585,9 +5189,21 @@ void update_save_menu_row_selection(dMenu_save_c* menu) {
     if (menu == nullptr || normal == nullptr || selected == nullptr) {
         return;
     }
+    static dMenu_save_c* geometryOwner = nullptr;
+    static std::array<FileSelectRowGeometry, 3> rowGeometry = {};
+    if (geometryOwner != menu) {
+        geometryOwner = menu;
+        rowGeometry = {};
+    }
     for (std::size_t index = 0; index < 3; ++index) {
-        apply_file_select_row_texture(save_menu_row_picture(menu, index),
+        J2DPicture* row = save_menu_row_picture(menu, index);
+        J2DPane* infoGroup = menu->mpDataBase[index] != nullptr ?
+            menu->mpDataBase[index]->getPanePtr() : nullptr;
+        size_file_select_row_for_hearts(row,
+            file_info_has_second_heart_line(infoGroup), rowGeometry[index]);
+        apply_file_select_row_texture(row,
             index == menu->mSelectedFile ? selected : normal);
+        update_file_select_row_shadow(row, index == menu->mSelectedFile);
     }
 }
 
@@ -4601,18 +5217,6 @@ void style_save_menu_metadata(dMenu_save_c* menu) {
     constexpr u64 valueTags[] = {
         MULTI_CHAR('w_time01'), MULTI_CHAR('w_ptim01'),
     };
-    constexpr u64 heartTags[] = {
-        MULTI_CHAR('hear_20'), MULTI_CHAR('hear_21'),
-        MULTI_CHAR('hear_22'), MULTI_CHAR('hear_23'),
-        MULTI_CHAR('hear_24'), MULTI_CHAR('hear_25'),
-        MULTI_CHAR('hear_26'), MULTI_CHAR('hear_27'),
-        MULTI_CHAR('hear_28'), MULTI_CHAR('hear_29'),
-        MULTI_CHAR('hear_30'), MULTI_CHAR('hear_31'),
-        MULTI_CHAR('hear_32'), MULTI_CHAR('hear_33'),
-        MULTI_CHAR('hear_34'), MULTI_CHAR('hear_35'),
-        MULTI_CHAR('hear_36'), MULTI_CHAR('hear_37'),
-        MULTI_CHAR('hear_38'), MULTI_CHAR('hear_39'),
-    };
     for (std::size_t index = 0; index < 3; ++index) {
         J2DPane* group = menu->mpDataBase[index] != nullptr ?
             menu->mpDataBase[index]->getPanePtr() : nullptr;
@@ -4623,38 +5227,46 @@ void style_save_menu_metadata(dMenu_save_c* menu) {
             group->search(MULTI_CHAR('f_name01')));
         auto* saveLabel = static_cast<J2DTextBox*>(
             group->search(MULTI_CHAR('f_s_t_02')));
+        auto* playLabel = static_cast<J2DTextBox*>(
+            group->search(MULTI_CHAR('f_p_t_02')));
+        auto* playValue = static_cast<J2DTextBox*>(
+            group->search(MULTI_CHAR('w_ptim01')));
         J2DPane* firstHeart = group->search(MULTI_CHAR('hear_20'));
-        const f32 heartLeft = firstHeart != nullptr ?
-            firstHeart->getGlbBounds().i.x : 0.0f;
-        const bool canAlignValues = firstHeart != nullptr &&
-            std::isfinite(heartLeft) && heartLeft > -1000.0f &&
-            heartLeft < 1000.0f;
-        if (name != nullptr) {
-            name->setFontSize(13.5f, 13.5f);
-        }
         const JGeometry::TBox2<f32>& groupGlobal = group->getGlbBounds();
         const f32 scaleX = group->getWidth() > 0.0f ?
             groupGlobal.getWidth() / group->getWidth() : 1.0f;
         const f32 scaleY = group->getHeight() > 0.0f ?
             groupGlobal.getHeight() / group->getHeight() : 1.0f;
+        const bool hasSecondHeartLine = file_info_has_second_heart_line(group);
+        const f32 saveCenterY = saveLabel != nullptr ?
+            (saveLabel->getGlbBounds().i.y + saveLabel->getGlbBounds().f.y) *
+                0.5f :
+            0.0f;
+        const f32 totalTimeSpacing = hasSecondHeartLine ? 24.0f : 17.0f;
+        auto alignTotalTimeY = [saveLabel, saveCenterY, scaleY,
+                                   totalTimeSpacing](J2DPane* pane) {
+            if (saveLabel == nullptr || pane == nullptr ||
+                !std::isfinite(scaleY) || std::fabs(scaleY) <= 0.001f) {
+                return;
+            }
+            const auto& bounds = pane->getGlbBounds();
+            const f32 centerY = (bounds.i.y + bounds.f.y) * 0.5f;
+            const f32 targetY = saveCenterY + totalTimeSpacing * scaleY;
+            if (std::isfinite(centerY) && std::isfinite(targetY)) {
+                pane->add(0.0f, (targetY - centerY) / scaleY);
+            }
+        };
         if (saveLabel != nullptr && std::isfinite(scaleY) &&
             std::fabs(scaleY) > 0.001f) {
-            bool hasSecondHeartLine = false;
-            for (std::size_t heart = 10; heart < 20; ++heart) {
-                J2DPane* pane = group->search(heartTags[heart]);
-                if (pane != nullptr && pane->isVisible()) {
-                    hasSecondHeartLine = true;
-                    break;
-                }
-            }
             const f32 saveTop = saveLabel->getGlbBounds().i.y;
             for (std::size_t heart = 0; heart < 20; ++heart) {
-                J2DPane* pane = group->search(heartTags[heart]);
+                J2DPane* pane = group->search(kFileSelectHeartTags[heart]);
                 if (pane == nullptr || !pane->isVisible()) {
                     continue;
                 }
                 const JGeometry::TBox2<f32>& bounds = pane->getGlbBounds();
-                const f32 targetBottom = saveTop - 3.0f * scaleY -
+                const f32 targetBottom = saveTop -
+                    (hasSecondHeartLine ? 5.0f : 3.0f) * scaleY -
                     (hasSecondHeartLine && heart < 10 ?
                         bounds.getHeight() : 0.0f);
                 if (std::isfinite(bounds.f.y) &&
@@ -4663,28 +5275,40 @@ void style_save_menu_metadata(dMenu_save_c* menu) {
                 }
             }
         }
-        if (name != nullptr && saveLabel != nullptr && firstHeart != nullptr &&
-            std::isfinite(scaleX) && std::isfinite(scaleY) &&
-            std::fabs(scaleX) > 0.001f && std::fabs(scaleY) > 0.001f) {
-            name->mFlags = static_cast<u8>((name->mFlags & ~0x0c) |
-                (HBIND_RIGHT << 2));
-            const JGeometry::TBox2<f32>& nameBounds = name->getGlbBounds();
-            const JGeometry::TBox2<f32>& labelBounds =
-                saveLabel->getGlbBounds();
-            const JGeometry::TBox2<f32>& heartBounds =
-                firstHeart->getGlbBounds();
-            const f32 deltaX = labelBounds.f.x - nameBounds.f.x;
-            const f32 deltaY =
-                (heartBounds.i.y + heartBounds.f.y -
-                    nameBounds.i.y - nameBounds.f.y) * 0.5f;
-            if (std::isfinite(deltaX) && std::isfinite(deltaY)) {
-                name->add(deltaX / scaleX, deltaY / scaleY);
+
+        const f32 heartLeft = firstHeart != nullptr ?
+            firstHeart->getGlbBounds().i.x : 0.0f;
+        const bool canAlign = firstHeart != nullptr &&
+            std::isfinite(heartLeft) && std::isfinite(scaleX) &&
+            std::isfinite(scaleY) && std::fabs(scaleX) > 0.001f &&
+            std::fabs(scaleY) > 0.001f;
+
+        if (name != nullptr) {
+            name->setFontSize(13.5f, 13.5f);
+            if (saveLabel != nullptr && canAlign) {
+                name->mFlags = static_cast<u8>((name->mFlags & ~0x0c) |
+                    (HBIND_RIGHT << 2));
+                const JGeometry::TBox2<f32>& nameBounds = name->getGlbBounds();
+                const JGeometry::TBox2<f32>& labelBounds =
+                    saveLabel->getGlbBounds();
+                const JGeometry::TBox2<f32>& heartBounds =
+                    firstHeart->getGlbBounds();
+                const f32 deltaX = labelBounds.f.x - nameBounds.f.x;
+                const f32 deltaY =
+                    (heartBounds.i.y + heartBounds.f.y -
+                        nameBounds.i.y - nameBounds.f.y) * 0.5f;
+                if (std::isfinite(deltaX) && std::isfinite(deltaY)) {
+                    name->add(deltaX / scaleX, deltaY / scaleY);
+                }
             }
         }
         for (u64 tag : labelTags) {
             auto* text = static_cast<J2DTextBox*>(group->search(tag));
             if (text != nullptr) {
                 text->setFontSize(11.5f, 11.5f);
+                if (text == playLabel) {
+                    alignTotalTimeY(text);
+                }
             }
         }
         for (u64 tag : valueTags) {
@@ -4696,12 +5320,15 @@ void style_save_menu_metadata(dMenu_save_c* menu) {
                 if (tag == MULTI_CHAR('w_time01')) {
                     text->setCharSpace(-0.25f);
                 }
-                const f32 valueLeft = text->getGlbBounds().i.x;
-                if (canAlignValues && std::isfinite(valueLeft) &&
-                    valueLeft > -1000.0f && valueLeft < 1000.0f) {
-                    // Match File Selection's shared value column: both the
-                    // date and total time begin beneath the first heart.
-                    text->add(heartLeft + 5.0f - valueLeft, 0.0f);
+                if (canAlign) {
+                    const f32 deltaX = heartLeft + 5.0f * scaleX -
+                        text->getGlbBounds().i.x;
+                    if (std::isfinite(deltaX)) {
+                        text->add(deltaX / scaleX, 0.0f);
+                    }
+                }
+                if (text == playValue) {
+                    alignTotalTimeY(text);
                 }
             }
         }
@@ -4733,49 +5360,71 @@ void add_save_menu_fixed_prompts(dMenu_save_c* menu) {
     if (screen == nullptr) {
         return;
     }
-    if (screen->search(MULTI_CHAR('hd_sprm')) != nullptr) {
-        update_menu_face_button(screen, MULTI_CHAR('hd_sapi'), true);
-        update_menu_face_button(screen, MULTI_CHAR('hd_sbpi'), false);
-        return;
-    }
-    auto* group = JKR_NEW J2DPane(MULTI_CHAR('hd_sprm'),
-        JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f, 448.0f));
-    screen->appendChild(group);
 
-    auto addPicture = [group](u64 tag, const JGeometry::TBox2<f32>& bounds,
-                          ResTIMG const* texture, u8 alpha = 255) {
-        if (texture == nullptr) {
-            return;
-        }
-        auto* picture = JKR_NEW J2DPicture(tag, bounds, texture, nullptr);
-        picture->setTexCoord(picture->getTexture(0), BIND15, MIRROR0, false);
-        picture->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+    const auto rootBounds = screen->getBounds();
+    const f32 right = rootBounds.f.x;
+    auto* group = screen->search(MULTI_CHAR('hd_sprm'));
+    if (group == nullptr) {
+        group = JKR_NEW J2DPane(MULTI_CHAR('hd_sprm'), rootBounds);
+        screen->appendChild(group);
+
+        auto addPicture = [group](u64 tag,
+                              const JGeometry::TBox2<f32>& bounds,
+                              ResTIMG const* texture, u8 alpha = 255) {
+            if (texture == nullptr) {
+                return;
+            }
+            auto* picture = JKR_NEW J2DPicture(tag, bounds, texture, nullptr);
+            picture->setTexCoord(picture->getTexture(0), BIND15, MIRROR0, false);
+            picture->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+                JUtility::TColor(255, 255, 255, 255));
+            picture->setCornerColor(JUtility::TColor(255, 255, 255, alpha));
+            group->appendChild(picture);
+        };
+
+        // Use the opening Quest Log prompt geometry verbatim: the flourish
+        // keeps its intended aspect ratio and sits behind both button discs.
+        addPicture(MULTI_CHAR('hd_sflr'),
+            JGeometry::TBox2<f32>(right - 74.0f, 18.0f,
+                right - 2.0f, 84.0f),
+            resource_texture(s_fileSelectPromptFlourishResource), 220);
+
+        auto* confirm = JKR_NEW J2DTextBox(MULTI_CHAR('hd_sconf'),
+            JGeometry::TBox2<f32>(right - 112.0f, 30.0f,
+                right - 48.0f, 51.0f), nullptr,
+            "Confirm", 16, HBIND_RIGHT, VBIND_CENTER);
+        confirm->setFont(menu->mSaveSel.font[0]);
+        confirm->setFontSize(13.5f, 13.5f);
+        confirm->setFontColor(JUtility::TColor(235, 235, 230, 255),
             JUtility::TColor(255, 255, 255, 255));
-        picture->setCornerColor(JUtility::TColor(255, 255, 255, alpha));
-        group->appendChild(picture);
-    };
+        group->appendChild(confirm);
 
-    auto* confirm = JKR_NEW J2DTextBox(MULTI_CHAR('hd_sconf'),
-        JGeometry::TBox2<f32>(496.0f, 16.0f, 560.0f, 37.0f), nullptr,
-        "Confirm", 16, HBIND_RIGHT, VBIND_CENTER);
-    confirm->setFont(menu->mSaveSel.font[0]);
-    confirm->setFontSize(13.5f, 13.5f);
-    confirm->setFontColor(JUtility::TColor(235, 235, 230, 255),
-        JUtility::TColor(255, 255, 255, 255));
-    group->appendChild(confirm);
+        addPicture(MULTI_CHAR('hd_sapi'),
+            JGeometry::TBox2<f32>(right - 50.0f, 28.0f,
+                right - 23.0f, 55.0f), menu_face_button_texture(true));
+        addPicture(MULTI_CHAR('hd_sbck'),
+            JGeometry::TBox2<f32>(right - 100.0f, 51.0f,
+                right - 61.0f, 67.0f),
+            resource_texture(s_fileSelectBackLabelResource));
+        addPicture(MULTI_CHAR('hd_sbpi'),
+            JGeometry::TBox2<f32>(right - 62.0f, 49.0f,
+                right - 35.0f, 76.0f), menu_face_button_texture(false));
+    }
 
-    addPicture(MULTI_CHAR('hd_sapi'),
-        JGeometry::TBox2<f32>(558.0f, 14.0f, 585.0f, 41.0f),
-        menu_face_button_texture(true));
-    addPicture(MULTI_CHAR('hd_sbck'),
-        JGeometry::TBox2<f32>(508.0f, 34.0f, 547.0f, 50.0f),
-        resource_texture(s_fileSelectBackLabelResource));
-    addPicture(MULTI_CHAR('hd_sbpi'),
-        JGeometry::TBox2<f32>(546.0f, 32.0f, 573.0f, 59.0f),
-        menu_face_button_texture(false));
-    addPicture(MULTI_CHAR('hd_sflr'),
-        JGeometry::TBox2<f32>(562.0f, 29.0f, 600.0f, 67.0f),
-        resource_texture(s_fileSelectPromptFlourishResource), 205);
+    update_menu_face_button(screen, MULTI_CHAR('hd_sapi'), true);
+    update_menu_face_button(screen, MULTI_CHAR('hd_sbpi'), false);
+    group->show();
+
+    // Match opening Quest Log: only the fixed prompt group draws, so native
+    // animation cannot offset a second A/B cluster from the shared geometry.
+    for (CPaneMgrAlpha* pane : {
+             menu->mpConfirmTxt, menu->mpABtnIcon,
+             menu->mpBackTxt, menu->mpBBtnIcon,
+         }) {
+        if (pane != nullptr && pane->getPanePtr() != nullptr) {
+            pane->getPanePtr()->hide();
+        }
+    }
 }
 
 void add_save_menu_prompt_overlays(dMenu_save_c* menu) {
@@ -4815,7 +5464,11 @@ void position_save_menu_prompts(dMenu_save_c* menu) {
         return;
     }
     const auto rootBounds = screen->getBounds();
-    const f32 right = rootBounds.f.x;
+#if TARGET_PC
+    const f32 right = mDoGph_gInf_c::getSafeMaxXF();
+#else
+    const f32 right = mDoGph_gInf_c::getMaxXF();
+#endif
     const f32 top = rootBounds.i.y;
     move_file_select_pane_center(menu->mpConfirmTxt != nullptr ?
         menu->mpConfirmTxt->getPanePtr() : nullptr, right - 66.0f, top + 28.0f);
@@ -5155,6 +5808,10 @@ void apply_collect_menu_button_layout(dMenu_Collect2D_c* menu) {
         buttonB = blank;
         break;
     }
+    case ButtonLayout::PlayStation:
+        buttonA = playstation_face_button_texture('A');
+        buttonB = playstation_face_button_texture('B');
+        break;
     }
 
     replace_collect_buttons_in_tree(screen, baseTexture, aGlyphTexture,
@@ -5182,7 +5839,7 @@ void apply_collection_submenu_button_layout(J2DScreen* screen,
     // Letters, Fish Journal, Hidden Skills, and Golden Bugs all instantiate
     // this same prompt layout from their own mounted archive. Match the native
     // A/B glyphs by those archive-local pointers, then install the configured
-    // Nintendo, Xbox-swapped, universal, or alternate-style face buttons.
+    // Nintendo, Xbox-swapped, universal, PlayStation, or alternate-style face buttons.
     ResTIMG const* baseTexture = collection_submenu_texture(
         archive, "tt_zelda_button_ab_maru.bti");
     ResTIMG const* aGlyphTexture = collection_submenu_texture(
@@ -5234,6 +5891,15 @@ void apply_button_layout_preference(dMeter2Draw_c* meter) {
         set_face_button_texture(meter, MULTI_CHAR('b_btn'), buttonA);
         set_face_button_texture(meter, MULTI_CHAR('x_btn'), styled_face_button_texture('Y'));
         set_face_button_texture(meter, MULTI_CHAR('y_btn'), styled_face_button_texture('X'));
+    } else if (layout == ButtonLayout::PlayStation) {
+        set_face_button_texture(meter, MULTI_CHAR('a_btn'),
+            playstation_face_button_texture('A'));
+        set_face_button_texture(meter, MULTI_CHAR('b_btn'),
+            playstation_face_button_texture('B'));
+        set_face_button_texture(meter, MULTI_CHAR('x_btn'),
+            playstation_face_button_texture('X'));
+        set_face_button_texture(meter, MULTI_CHAR('y_btn'),
+            playstation_face_button_texture('Y'));
     }
 }
 
@@ -5245,7 +5911,7 @@ void restore_archive_face_button_diamond(dMeter2Draw_c* meter) {
     restore_archive_pane(meter->mpButtonA);
     restore_archive_pane(meter->mpTextA);
     if (meter->mpTextA != nullptr) {
-        meter->mpTextA->paneTrans(10.0f, -4.0f);
+        meter->mpTextA->paneTrans(22.0f, -4.0f);
         meter->mpTextA->scale(meter->mpTextA->getInitScaleX() * 1.25f,
             meter->mpTextA->getInitScaleY() * 1.25f);
     }
@@ -5884,6 +6550,9 @@ ResTIMG const* ring_assignment_face_texture(const bool xButton) {
     if (layout == ButtonLayout::Xbox) {
         return styled_face_button_texture(xButton ? 'Y' : 'X');
     }
+    if (layout == ButtonLayout::PlayStation) {
+        return playstation_face_button_texture(xButton ? 'X' : 'Y');
+    }
     return styled_face_button_texture(xButton ? 'X' : 'Y');
 }
 
@@ -6005,9 +6674,10 @@ void create_ring_z_prompt(dMenu_Ring_c* ring) {
         buttonR = JKR_NEW J2DPicture(texture);
     }
 
+    const char* comboLabel = button_layout() == ButtonLayout::PlayStation ? "L2" : "ZL";
     auto* comboZL = JKR_NEW J2DTextBox(MULTI_CHAR('hd_czl'),
         JGeometry::TBox2<f32>(516.0f, 384.0f, 552.0f, 411.0f), nullptr,
-        "ZL", 4, HBIND_CENTER, VBIND_CENTER);
+        comboLabel, 4, HBIND_CENTER, VBIND_CENTER);
     if (comboZL != nullptr) {
         comboZL->setFont(mDoExt_getMesgFont());
         comboZL->setFontSize(16.0f, 16.0f);
@@ -6048,8 +6718,8 @@ void draw_ring_z_prompt(dMenu_Ring_c* ring) {
     apply_item_wheel_z_offset(pos);
 
     // The native combo group still owns the localized message and controls
-    // its visibility.  Draw the ZL badge independently so the original
-    // GameCube wedge can remain hidden without loading another layout screen.
+    // its visibility. Draw the configured ZL/L2 badge independently so the
+    // original GameCube wedge can remain hidden without another layout screen.
     const bool comboVisible = ring->mpTextParent[4] != nullptr &&
         ring->mpTextParent[4]->isVisible();
     if (s_ringZPrompt.comboZL != nullptr) {
@@ -7195,30 +7865,64 @@ void after_set_select_item(ModContext*, void* args, void*, void*) {
 void after_pad_read(ModContext*, void*, void*, void*) {
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
 
-    // Fixed TPHD bindings read both physical triggers independently of the
-    // emulated GameCube shoulder mappings selected in Dusklight's profile.
-    // ZL remains available for normal lock-on and paused item combinations;
-    // ZR adds Gale Boomerang targets.
     const bool fixedTphdBindings =
         controller_compatibility() == ControllerCompatibility::FixedTphd;
-    bool physicalZlHeld = false;
-    bool physicalZrHeld = false;
-    if (fixedTphdBindings) {
-        const PADSignedNativeAxis nativeAxis = PADGetNativeAxisPulled(PAD_1);
-        physicalZlHeld = nativeAxis.nativeAxis == kSdlLeftTriggerAxis &&
-            nativeAxis.sign == AXIS_SIGN_POSITIVE;
-        physicalZrHeld = nativeAxis.nativeAxis == kSdlRightTriggerAxis &&
-            nativeAxis.sign == AXIS_SIGN_POSITIVE;
-    }
+
+    // Read R/R1 as a physical shoulder button rather than copying all logical
+    // GameCube R input into the item slot. This keeps the shoulder item and
+    // the ZR trigger distinct even when a profile maps both through related
+    // GameCube shoulder controls.
+    const bool rightShoulderHeld = physical_button_held(kSdlRightShoulderButton);
+    s_rightShoulderTrig = rightShoulderHeld && !s_rightShoulderHeld;
+    s_rightShoulderHeld = rightShoulderHeld;
+
+    const bool physicalZlHeld = fixedTphdBindings &&
+        physical_axis_held(kSdlLeftTriggerAxis);
     s_fixedZlTrig = physicalZlHeld && !s_fixedZlHeld;
     s_fixedZlHeld = physicalZlHeld;
+
+    const bool physicalZrHeld = fixedTphdBindings &&
+        physical_axis_held(kSdlRightTriggerAxis);
     s_fixedZrTrig = physicalZrHeld && !s_fixedZrHeld;
     s_fixedZrHeld = physicalZrHeld;
 
-    // Dusklight can also expose physical ZR through GameCube R. In the fixed
-    // layout, reserve ZR for boomerang targeting so it cannot activate the
-    // third item at the same time. Physical R remains the third-item control.
-    if (fixedTphdBindings && physicalZrHeld) {
+    // Fixed mode reconstructs logical L and R from the two physical trigger
+    // axes. The shoulder buttons can therefore never masquerade as ZL/ZR,
+    // regardless of the active Dusklight controller profile.
+    if (fixedTphdBindings) {
+        pad.mButtonFlags &= ~(PAD_TRIGGER_L | PAD_TRIGGER_R);
+        pad.mPressedButtonFlags &= ~(PAD_TRIGGER_L | PAD_TRIGGER_R);
+        pad.mTriggerLeft = 0.0f;
+        pad.mTriggerRight = 0.0f;
+        pad.mHoldLockL = false;
+        pad.mTrigLockL = false;
+        pad.mHoldLockR = false;
+        pad.mTrigLockR = false;
+
+        if (physicalZlHeld) {
+            pad.mButtonFlags |= PAD_TRIGGER_L;
+            pad.mTriggerLeft = 1.0f;
+            pad.mHoldLockL = true;
+            if (s_fixedZlTrig) {
+                pad.mPressedButtonFlags |= PAD_TRIGGER_L;
+                pad.mTrigLockL = true;
+            }
+        }
+        if (physicalZrHeld) {
+            pad.mButtonFlags |= PAD_TRIGGER_R;
+            pad.mTriggerRight = 1.0f;
+            pad.mHoldLockR = true;
+            if (s_fixedZrTrig) {
+                pad.mPressedButtonFlags |= PAD_TRIGGER_R;
+                pad.mTrigLockR = true;
+            }
+        }
+    }
+
+    // If the active profile maps R/R1 to logical GameCube R, reserve that
+    // particular press for the third item. A true ZR trigger remains logical
+    // R and is still visible to Dusklight's R+X/R+Y combinations.
+    if (!fixedTphdBindings && rightShoulderHeld) {
         pad.mButtonFlags &= ~PAD_TRIGGER_R;
         pad.mPressedButtonFlags &= ~PAD_TRIGGER_R;
         pad.mTriggerRight = 0.0f;
@@ -7244,21 +7948,21 @@ void after_set_stick_data(ModContext*, void* args, void*, void*) {
         return;
     }
 
-    // A dedicated Dusklight action binding takes precedence over the third
-    // item if both resolve to the same physical control.
-    if (midna_action_triggered()) {
+    // A dedicated Dusklight Call Midna binding takes precedence only when it
+    // shares GameCube Z with the third item. Other Midna bindings must not
+    // disturb the independently mapped item input.
+    if (midna_action_triggered() &&
+        (midna_game_button_mask() & PAD_TRIGGER_Z) != 0)
+    {
         link->mItemTrigger &= ~daAlink_c::BTN_Z;
+        link->mItemButton &= ~daAlink_c::BTN_Z;
         return;
     }
 
-    // TPHD's third slot uses logical R in either compatibility mode. Dusklight
-    // remains responsible for deciding which physical control produces R.
-    // Apply the translation only after the game's input snapshot is built so
-    // the shared controller profile and pad state remain untouched.
-    if (mDoCPd_c::getTrigR(PAD_1)) {
+    if (s_rightShoulderTrig) {
         link->mItemTrigger |= daAlink_c::BTN_Z;
     }
-    if (mDoCPd_c::getHoldR(PAD_1)) {
+    if (s_rightShoulderHeld) {
         link->mItemButton |= daAlink_c::BTN_Z;
     }
 }
@@ -7411,12 +8115,23 @@ HookAction before_insect_draw(ModContext*, void* args, void*, void*) {
 
 HookAction before_select_cursor_draw(ModContext*, void* args, void*, void*) {
     auto* cursor = mods::arg<dSelect_cursor_c*>(args, 0);
+    if (cursor == s_activeThreeSelectCursor &&
+        s_activeThreeSelectFrame != nullptr) {
+        position_cursor_outside_frame(cursor, s_activeThreeSelectFrame,
+            4.0f, 3.0f);
+    }
     if (s_activeCollectMenu != nullptr &&
         cursor == s_activeCollectMenu->mpDrawCursor) {
         // This is the final point before the cursor's four panes render;
         // Collection's animation has already finished moving them here.
         position_collect_footer_cursor(s_activeCollectMenu);
     }
+    return HOOK_CONTINUE;
+}
+
+HookAction before_three_select_draw(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMsgScrn3Select_c*>(args, 0);
+    style_three_select_prompt(menu);
     return HOOK_CONTINUE;
 }
 
@@ -7577,7 +8292,10 @@ void after_file_select_create(ModContext*, void* args, void*, void*) {
 }
 
 void after_file_select_move(ModContext*, void* args, void*, void*) {
-    position_file_select_prompts(mods::arg<dFile_select_c*>(args, 0));
+    // The native move pass runs before Dusklight's widescreen transform.
+    // Positioning here and again before draw makes the two transforms fight
+    // while a desktop window is being resized, producing visible flashing.
+    // before_file_select_draw applies the final idempotent placement instead.
 }
 
 HookAction before_file_select_draw(ModContext*, void* args, void*, void*) {
@@ -7713,7 +8431,9 @@ HookAction before_save_dlst_draw(ModContext*, void* args, void*, void*) {
         simplify_save_menu_rows(s_activeSaveMenu);
         hide_save_menu_stonework(s_activeSaveMenu);
         update_save_menu_row_selection(s_activeSaveMenu);
+        style_save_menu_metadata(s_activeSaveMenu);
         style_save_menu_prompts(s_activeSaveMenu);
+        add_save_menu_fixed_prompts(s_activeSaveMenu);
         position_save_menu_prompts(s_activeSaveMenu);
         style_save_menu_yes_no_buttons(s_activeSaveMenu);
     }
@@ -7856,9 +8576,10 @@ void apply_context_button_layout(dMeterButton_c* buttons) {
         }
     }
 
-    // TPHD uses ZR to add Gale Boomerang targets, while the same context layout
-    // still serves legitimate R prompts elsewhere. Preserve the archive's R
-    // artwork and replace it only while Link is holding the boomerang ready.
+    // TPHD uses ZR for the original GameCube R actions shown while aiming:
+    // adding Gale Boomerang targets and switching the bow's arrow type. The
+    // same context layout still serves legitimate R prompts elsewhere, so
+    // preserve the archive's R artwork outside those ready/aiming animations.
     J2DPicture* rButton = as_picture(
         buttons->mpButtonScreen->search(MULTI_CHAR('r_btn_b')));
     if (s_contextRButtonScreen != buttons->mpButtonScreen) {
@@ -7871,9 +8592,9 @@ void apply_context_button_layout(dMeterButton_c* buttons) {
     }
 
     daAlink_c* link = daAlink_getAlinkActorClass();
-    const bool boomerangLock =
-        link != nullptr && link->checkBoomerangReadyAnime();
-    if (rButton != nullptr && boomerangLock) {
+    const bool zrAimAction = link != nullptr &&
+        (link->checkBoomerangReadyAnime() || link->checkBowAnime());
+    if (rButton != nullptr && zrAimAction) {
         if (!s_contextRButtonUsesZr && buttons->mpButtonR != nullptr) {
             s_contextRPictureStateCount = 0;
             capture_context_r_pictures(
@@ -8070,9 +8791,6 @@ HookAction before_ring_set_active_cursor(ModContext*, void* args, void*, void*) 
         return HOOK_CONTINUE;
     }
 
-    // Fixed mode uses the physical ZL edge captured after PADRead. Follow
-    // mode honors whichever physical control the user's Dusklight profile
-    // maps to the logical GameCube L input.
     const bool comboTriggered =
         controller_compatibility() == ControllerCompatibility::FixedTphd ?
             s_fixedZlTrig : mDoCPd_c::getTrigL(PAD_1);
@@ -8092,22 +8810,7 @@ HookAction before_ring_set_active_cursor(ModContext*, void* args, void*, void*) 
         return HOOK_SKIP_ORIGINAL;
     }
 
-    if (mDoCPd_c::getTrigR(PAD_1)) {
-        s_pendingAssign = {};
-        if (item_assign_allowed(ring)) {
-            assign_current_item(ring, kZItemSlot);
-            if (ring->mpItemExplain->getStatus() == 0) {
-                ring->setStatus(dMenu_Ring_c::STATUS_WAIT);
-                ring->stick_wait_init();
-            }
-        } else {
-            Z2GetAudioMgr()->seStart(Z2SE_SYS_ERROR, nullptr, 0, 0, 1.0f, 1.0f,
-                -1.0f, -1.0f, 0);
-        }
-        return HOOK_SKIP_ORIGINAL;
-    }
-
-    if (!mDoCPd_c::getTrigZ(PAD_1)) {
+    if (!s_rightShoulderTrig && !mDoCPd_c::getTrigZ(PAD_1)) {
         capture_vanilla_assign(ring);
         return HOOK_CONTINUE;
     }
@@ -8167,11 +8870,10 @@ HookAction before_item_action_trigger(ModContext*, void* args, void* retval, voi
         return HOOK_CONTINUE;
     }
 
-    // The original boomerang lock action shares GameCube R with the generic
-    // item-action path. R belongs to the third item slot in this layout, so
-    // redirect only the boomerang's ready/aiming state to TPHD's ZR action.
-    // Follow mode retains Dusklight's logical R mapping; Fixed mode reads the
-    // physical ZR edge and keeps it distinct from the R bumper item slot.
+    // Dusklight maps the controller's right trigger to logical GameCube R.
+    // Keep it distinct from GameCube Z (the right-shoulder third item) so ZR
+    // can target the boomerang and continue to drive Dusklight's R+X/R+Y
+    // Sun's Song and Quick Transform combinations.
     *static_cast<BOOL*>(retval) =
         controller_compatibility() == ControllerCompatibility::FixedTphd ?
             s_fixedZrTrig : mDoCPd_c::getTrigR(PAD_1);
@@ -8528,6 +9230,48 @@ void initialize_face_button_textures() {
             svc_log->warn(mod_ctx, "Unable to load a Black Pro button texture");
         }
     }
+    constexpr const char* playStationFacePaths[2][4] = {
+        {
+            "hud/face-button-ps-circle.bti",
+            "hud/face-button-ps-cross.bti",
+            "hud/face-button-ps-triangle.bti",
+            "hud/face-button-ps-square.bti",
+        },
+        {
+            "hud/face-button-ps-circle-black-pro.bti",
+            "hud/face-button-ps-cross-black-pro.bti",
+            "hud/face-button-ps-triangle-black-pro.bti",
+            "hud/face-button-ps-square-black-pro.bti",
+        },
+    };
+    for (std::size_t style = 0; style < 2; ++style) {
+        for (std::size_t index = 0; index < 4; ++index) {
+            if (svc_resource->load(mod_ctx, playStationFacePaths[style][index],
+                    &s_playStationFaceButtonResources[style][index]) != MOD_OK) {
+                svc_log->warn(mod_ctx, "Unable to load a PlayStation face-button texture");
+            }
+        }
+    }
+    constexpr const char* playStationShoulderPaths[2][3] = {
+        {
+            "hud/shoulder-button-ps-l2.bti",
+            "hud/shoulder-button-ps-r1.bti",
+            "hud/shoulder-button-ps-r2.bti",
+        },
+        {
+            "hud/shoulder-button-ps-l2-black-pro.bti",
+            "hud/shoulder-button-ps-r1-black-pro.bti",
+            "hud/shoulder-button-ps-r2-black-pro.bti",
+        },
+    };
+    for (std::size_t style = 0; style < 2; ++style) {
+        for (std::size_t index = 0; index < 3; ++index) {
+            if (svc_resource->load(mod_ctx, playStationShoulderPaths[style][index],
+                    &s_playStationShoulderButtonResources[style][index]) != MOD_OK) {
+                svc_log->warn(mod_ctx, "Unable to load a PlayStation shoulder-button texture");
+            }
+        }
+    }
     if (svc_resource->load(mod_ctx, "hud/face-button-blank-black-pro.bti",
             &s_blackProBlankFaceButtonResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the blank Black Pro button texture");
@@ -8572,6 +9316,18 @@ void initialize_face_button_textures() {
             &s_fileSelectSelectedRowResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the selected File Selection row panel");
     }
+    if (svc_resource->load(mod_ctx, "menu/midna-choice-row.bti",
+            &s_midnaChoiceRowResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Midna choice row panel");
+    }
+    if (svc_resource->load(mod_ctx, "menu/midna-choice-row-selected.bti",
+            &s_midnaChoiceSelectedRowResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the selected Midna choice row panel");
+    }
+    if (svc_resource->load(mod_ctx, "menu/file-select-row-shadow.bti",
+            &s_fileSelectRowShadowResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the File Selection row shadow");
+    }
     if (svc_resource->load(mod_ctx, "menu/file-select-row-clear.bti",
             &s_fileSelectClearRowResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the clear File Selection row panel");
@@ -8607,6 +9363,16 @@ void shutdown_face_button_textures() {
     for (ResourceBuffer& resource : s_blackProFaceButtonResources) {
         free_resource(resource);
     }
+    for (auto& styleResources : s_playStationFaceButtonResources) {
+        for (ResourceBuffer& resource : styleResources) {
+            free_resource(resource);
+        }
+    }
+    for (auto& styleResources : s_playStationShoulderButtonResources) {
+        for (ResourceBuffer& resource : styleResources) {
+            free_resource(resource);
+        }
+    }
     free_resource(s_blackProBlankFaceButtonResource);
     free_resource(s_blackProShoulderButtonResource);
     free_resource(s_zlShoulderButtonResource);
@@ -8618,6 +9384,9 @@ void shutdown_face_button_textures() {
     free_resource(s_fileSelectBackgroundResource);
     free_resource(s_fileSelectRowResource);
     free_resource(s_fileSelectSelectedRowResource);
+    free_resource(s_midnaChoiceRowResource);
+    free_resource(s_midnaChoiceSelectedRowResource);
+    free_resource(s_fileSelectRowShadowResource);
     free_resource(s_fileSelectClearRowResource);
     free_resource(s_fileSelectTitleRulesResource);
     free_resource(s_fileSelectBackLabelResource);
@@ -8645,6 +9414,8 @@ void shutdown_item_slot_resources() {
     s_fileSelectYesNoLayoutReady = false;
     s_dpadMidnaHeld = false;
     s_dpadMidnaTrig = false;
+    s_rightShoulderHeld = false;
+    s_rightShoulderTrig = false;
     s_fixedZlHeld = false;
     s_fixedZlTrig = false;
     s_fixedZrHeld = false;
@@ -8653,6 +9424,8 @@ void shutdown_item_slot_resources() {
     s_menuWindowSuppressedTrig = 0;
     s_getActionBindTrig = nullptr;
     s_getActionBindButton = nullptr;
+    s_getSdlGamepadAxis = nullptr;
+    s_getSdlGamepadButton = nullptr;
     clear_z_heavy_boots_input_lock();
 }
 
@@ -8721,6 +9494,10 @@ ModResult install_item_slot_hooks(ModError* error) {
 #endif
     ADD_POST(SelectCursorUpdateHook, after_select_cursor_update,
         "collection footer cursor final alignment");
+    ADD_PRE(SelectCursorDrawHook, before_select_cursor_draw,
+        "HD selection cursor final alignment");
+    ADD_PRE(ThreeSelectDrawHook, before_three_select_draw,
+        "three-choice prompt HD style");
     ADD_PRE(FmapMoveHook, before_fmap_move, "field map portals R button mapping");
     ADD_PRE(FmapDrawHook, before_fmap_draw,
         "field map HD background, title, and prompts");

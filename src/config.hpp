@@ -9,6 +9,7 @@ enum class ButtonLayout : int {
     Nintendo = 0,
     Xbox = 1,
     Universal = 2,
+    PlayStation = 3,
 };
 
 enum class ButtonStyle : int {

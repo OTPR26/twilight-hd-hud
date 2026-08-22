@@ -12,6 +12,7 @@ Dusklight builds.
 - Stationary D-Pad behavior when the minimap is shown or hidden.
 - Wii U-style upper-right action and item-icon arrangement.
 - Round X/Y button presentation.
+- Optional grey-and-black PlayStation Circle, Cross, Triangle, Square, L2, R1, and R2 prompts.
 - Support for the existing lantern, oxygen, rupee and context-sensitive HUD states.
 
 ## Controller profile
