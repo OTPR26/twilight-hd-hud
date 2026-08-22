@@ -3781,15 +3781,13 @@ void size_file_select_row_for_hearts(J2DPicture* row, const bool hasSecondLine,
         };
     }
 
-    // Keep one shared bounded width curve on every platform. At 4:3 the row
-    // needs 435 local units to leave visible padding beyond the authored
-    // ten-heart line;
-    // at 16:9 the widescreen parent transform makes 265 units match TPHD's
-    // restrained card width while retaining visible padding past the final
-    // heart. Clamp both ends so narrower views cannot spill hearts and wider
-    // views cannot stretch the cards across the screen.
-    constexpr f32 kMinimumTphdWidth = 265.0f;
-    constexpr f32 kMaximumHeartSafeWidth = 435.0f;
+    // File Selection and Save inherit different parent transforms, so equal
+    // local pane widths do not produce equal rectangles on screen. Define the
+    // shared TPHD width in final screen space, then divide out each row's live
+    // inherited scale. The two endpoints provide the narrow heart-safe width
+    // at 4:3 and the restrained maximum at 16:9 and wider.
+    constexpr f32 kFourThreeWidthInHeights = 2.0f / 3.0f;
+    constexpr f32 kWideWidthInHeights = 1.03f;
 #if TARGET_PC || defined(__ANDROID__)
     const f32 aspect = mDoGph_gInf_c::getHeight() > 0.001f ?
         mDoGph_gInf_c::getWidth() / mDoGph_gInf_c::getHeight() : 4.0f / 3.0f;
@@ -3799,10 +3797,18 @@ void size_file_select_row_for_hearts(J2DPicture* row, const bool hasSecondLine,
 #endif
     const f32 aspectBlend = std::clamp(
         (aspect - 4.0f / 3.0f) / (4.0f / 9.0f), 0.0f, 1.0f);
-    const f32 targetWidth = std::clamp(
-        kMaximumHeartSafeWidth +
-            (kMinimumTphdWidth - kMaximumHeartSafeWidth) * aspectBlend,
-        kMinimumTphdWidth, kMaximumHeartSafeWidth);
+    const f32 widthInHeights = kFourThreeWidthInHeights +
+        (kWideWidthInHeights - kFourThreeWidthInHeights) * aspectBlend;
+#if TARGET_PC || defined(__ANDROID__)
+    const f32 viewportHeight = static_cast<f32>(mDoGph_gInf_c::getHeight());
+#else
+    const f32 viewportHeight = mDoGph_gInf_c::getHeightF();
+#endif
+    const f32 localWidth = row->getBounds().getWidth();
+    const f32 renderedWidth = row->getGlbBounds().getWidth();
+    const f32 inheritedScale = localWidth > 0.001f && renderedWidth > 0.001f ?
+        renderedWidth / localWidth : 1.0f;
+    const f32 targetWidth = viewportHeight * widthInHeights / inheritedScale;
     const f32 extraHeight = hasSecondLine ? 24.0f : 8.0f;
     const f32 targetHeight = geometry.height + extraHeight;
     row->resize(targetWidth, targetHeight);
