@@ -3781,16 +3781,26 @@ void size_file_select_row_for_hearts(J2DPicture* row, const bool hasSecondLine,
         };
     }
 
-    // The native row inherits a platform- and state-dependent parent scale,
-    // so deriving its width from either framebuffer or virtual-canvas aspect
-    // makes the same card balloon on both desktop and Android. Keep the local
-    // width inside a platform-independent TPHD range instead. The lower bound
-    // remains just outside the authored ten-heart span; the upper bound stops
-    // the panel from stretching across the screen after a layout rebuild.
-    constexpr f32 kMinimumHeartSafeWidth = 240.0f;
-    constexpr f32 kMaximumTphdWidth = 250.0f;
-    const f32 targetWidth = std::clamp(geometry.width,
-        kMinimumHeartSafeWidth, kMaximumTphdWidth);
+    // Keep one shared bounded width curve on every platform. At 4:3 the row
+    // needs 420 local units to extend just beyond the authored ten-heart line;
+    // at 16:9 the widescreen parent transform makes 250 units match TPHD's
+    // restrained card width. Clamp both ends so narrower views cannot spill
+    // hearts and wider views cannot stretch the cards across the screen.
+    constexpr f32 kMinimumTphdWidth = 250.0f;
+    constexpr f32 kMaximumHeartSafeWidth = 420.0f;
+#if TARGET_PC || defined(__ANDROID__)
+    const f32 aspect = mDoGph_gInf_c::getHeight() > 0.001f ?
+        mDoGph_gInf_c::getWidth() / mDoGph_gInf_c::getHeight() : 4.0f / 3.0f;
+#else
+    const f32 aspect = mDoGph_gInf_c::getHeightF() > 0.001f ?
+        mDoGph_gInf_c::getWidthF() / mDoGph_gInf_c::getHeightF() : 4.0f / 3.0f;
+#endif
+    const f32 aspectBlend = std::clamp(
+        (aspect - 4.0f / 3.0f) / (4.0f / 9.0f), 0.0f, 1.0f);
+    const f32 targetWidth = std::clamp(
+        kMaximumHeartSafeWidth +
+            (kMinimumTphdWidth - kMaximumHeartSafeWidth) * aspectBlend,
+        kMinimumTphdWidth, kMaximumHeartSafeWidth);
     const f32 extraHeight = hasSecondLine ? 24.0f : 8.0f;
     const f32 targetHeight = geometry.height + extraHeight;
     row->resize(targetWidth, targetHeight);
