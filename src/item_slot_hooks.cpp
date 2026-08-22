@@ -3786,7 +3786,7 @@ void size_file_select_row_for_hearts(J2DPicture* row, const bool hasSecondLine,
     // shared TPHD width in final screen space, then divide out each row's live
     // inherited scale. The two endpoints provide the narrow heart-safe width
     // at 4:3 and the restrained maximum at 16:9 and wider.
-    constexpr f32 kFourThreeWidthInHeights = 0.89f;
+    constexpr f32 kFourThreeWidthInHeights = 0.93f;
     constexpr f32 kWideWidthInHeights = 1.03f;
 #if TARGET_PC || defined(__ANDROID__)
     const f32 aspect = mDoGph_gInf_c::getHeight() > 0.001f ?
