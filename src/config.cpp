@@ -60,7 +60,7 @@ ControllerCompatibility controller_compatibility() {
 ButtonLayout button_layout() {
     const int64_t value = get_int(s_buttonLayout, static_cast<int64_t>(ButtonLayout::Nintendo));
     if (value < static_cast<int64_t>(ButtonLayout::Nintendo) ||
-        value > static_cast<int64_t>(ButtonLayout::Universal))
+        value > static_cast<int64_t>(ButtonLayout::PlayStation))
     {
         return ButtonLayout::Nintendo;
     }

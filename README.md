@@ -12,7 +12,7 @@ Dusklight **v1.4.1-141 or newer** is required. The mod is built and tested again
 - Three item slots using X, Y, and R
 - Independent D-Pad and minimap behavior
 - Human and wolf action artwork
-- ABXY, BAYX, and letter-free button-label options
+- ABXY, BAYX, PlayStation-symbol, and letter-free button-label options
 - HUD sizes of 75%, 100%, and 125%
 - Native modules for Windows x64, Linux x64, macOS Apple Silicon, Android ARM64, iOS ARM64, and tvOS ARM64
 
@@ -75,16 +75,21 @@ The package does not contain game files. A compatible, legally obtained disc ima
 
 Physical controller bindings still depend on the active Dusklight controller profile.
 
+The **Button Layout** setting includes a PlayStation option that displays Circle for the east
+action, Cross for the south attack, Triangle and Square for the two face-button items, R1 for the
+third item, L2 for enemy lock-on, and R2 for Gale Boomerang multi-target lock.
+
 The **Button Style** setting switches between the standard silver TPHD prompts and dark graphite
-**Black Pro** prompts. Button Style is independent of the ABXY, BAYX, and Universal lettering
+**Black Pro** prompts. Button Style is independent of the ABXY, BAYX, Universal, and PlayStation
 layouts.
 
 The default **Follow Dusklight Bindings** controller mode leaves that profile unchanged and honors
 the configured **Call Midna** action without also triggering the control's normal game action. The
 optional **TPHD Fixed Bindings** mode ignores the separate Call Midna binding and keeps Midna
-exclusively on D-Pad Up. In both modes, the control mapped to logical R operates the third item and
-related menu actions without rewriting the saved controller profile. In Follow mode, a D-Pad Down
-Midna assignment is also reflected visually: Midna appears below the D-Pad and Items above it.
+exclusively on D-Pad Up. The third item follows logical GameCube Z (normally the controller's right
+shoulder), while ZR follows logical GameCube R for Gale Boomerang targeting and Dusklight's R+X/R+Y
+Sun's Song and Quick Transform combinations. In Follow mode, a D-Pad Down Midna assignment is also
+reflected visually: Midna appears below the D-Pad and Items above it.
 
 ## Building
 

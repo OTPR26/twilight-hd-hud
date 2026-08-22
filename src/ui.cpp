@@ -56,11 +56,12 @@ ModResult build_hud_tab(
         "ABXY",
         "BAYX",
         "Universal",
+        "PlayStation",
     };
     if (add_select(ctx, left, "Button Layout", button_layout_config_var(),
             kButtonLayouts, std::size(kButtonLayouts),
-            "Changes the buttons to match ABXY or BAYX controllers. Universal leaves buttons "
-            "blank.")
+            "Changes the prompts to match ABXY, BAYX, or PlayStation controllers. Universal "
+            "leaves face buttons blank.")
         != MOD_OK)
     {
         return MOD_ERROR;
@@ -86,7 +87,8 @@ ModResult build_hud_tab(
             std::size(kControllerCompatibility),
             "Follow Dusklight Bindings respects the active controller profile and its Call Midna "
             "action. TPHD Fixed Bindings instead reserves D-Pad Up for Midna. In both modes, the "
-            "control mapped to logical R operates the third item and related menu actions.")
+            "control mapped to logical Z operates the third item; logical R remains available "
+            "for ZR actions and Dusklight's R-button combinations.")
         != MOD_OK)
     {
         return MOD_ERROR;
