@@ -3783,10 +3783,11 @@ void size_file_select_row_for_hearts(J2DPicture* row, const bool hasSecondLine,
 
     // Keep one shared bounded width curve on every platform. At 4:3 the row
     // needs 420 local units to extend just beyond the authored ten-heart line;
-    // at 16:9 the widescreen parent transform makes 250 units match TPHD's
-    // restrained card width. Clamp both ends so narrower views cannot spill
-    // hearts and wider views cannot stretch the cards across the screen.
-    constexpr f32 kMinimumTphdWidth = 250.0f;
+    // at 16:9 the widescreen parent transform makes 265 units match TPHD's
+    // restrained card width while retaining visible padding past the final
+    // heart. Clamp both ends so narrower views cannot spill hearts and wider
+    // views cannot stretch the cards across the screen.
+    constexpr f32 kMinimumTphdWidth = 265.0f;
     constexpr f32 kMaximumHeartSafeWidth = 420.0f;
 #if TARGET_PC || defined(__ANDROID__)
     const f32 aspect = mDoGph_gInf_c::getHeight() > 0.001f ?
