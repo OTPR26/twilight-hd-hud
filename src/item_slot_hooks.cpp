@@ -1760,25 +1760,6 @@ void configure_hd_picture(J2DPicture* picture) {
 
 // Shared three-choice prompt (Midna, message choices, and similar screens) --
 
-f32 prompt_text_width(JUTFont* font, const char* text, f32 size,
-    f32 spacing) {
-    if (font == nullptr || text == nullptr || font->getHeight() <= 0) {
-        return 0.0f;
-    }
-
-    const f32 scale = size / static_cast<f32>(font->getHeight());
-    f32 width = 0.0f;
-    const unsigned char* start =
-        reinterpret_cast<const unsigned char*>(text);
-    for (const unsigned char* cursor = start; *cursor != 0; ++cursor) {
-        if (cursor != start) {
-            width += spacing;
-        }
-        width += static_cast<f32>(font->getWidth(*cursor)) * scale;
-    }
-    return width;
-}
-
 void style_three_select_prompt(dMsgScrn3Select_c* menu) {
     if (menu == nullptr || menu->mpScreen == nullptr) {
         return;
@@ -1889,36 +1870,21 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
             textParent->appendChild(label);
         }
         const JGeometry::TBox2<f32> frameBounds = frame->getBounds();
-        // These are the only three choices on this prompt. Supplying clean
-        // strings avoids inheriting the native message renderer's embedded
-        // commands and stale print-state length, which could wrap the final
-        // glyph back into the middle of our independent label.
-        label->setString(promptLabels[index]);
         constexpr f32 labelFontSize = 13.5f;
         constexpr f32 labelSpacing = 0.0f;
-        label->setFontSize(labelFontSize, labelFontSize);
-        label->setCharSpace(labelSpacing);
 
-        // J2D retains a right-bound print state for these native choice rows
-        // on some layouts. A panel-width textbox therefore remains visually
-        // right aligned even after its binding bits are reset. Give the label
-        // a textbox exactly as wide as its rendered string, then center that
-        // textbox in the panel. Left, center, and right print states all land
-        // at the same visual center with this geometry.
-        const char* displayedLabel = text_box_string(label);
-        f32 labelWidth = prompt_text_width(text->getFont(), displayedLabel,
-            labelFontSize, labelSpacing);
-        if (labelWidth < 1.0f) {
-            labelWidth = 1.0f;
-        } else if (labelWidth > frameBounds.getWidth()) {
-            labelWidth = frameBounds.getWidth();
-        }
-        const f32 frameCenterX =
-            (frameBounds.i.x + frameBounds.f.x) * 0.5f;
-        label->move(frameCenterX - labelWidth * 0.5f, frameBounds.i.y);
-        label->resize(labelWidth, frameBounds.getHeight());
+        // Keep the replacement textbox at the full panel width. The earlier
+        // measured-width pane landed exactly on J2D's fractional wrap edge;
+        // on the following frame its final glyph wrapped back into the middle
+        // of the sentence. Establish the roomy geometry and binding first,
+        // then assign the clean label string.
+        label->move(frameBounds.i.x, frameBounds.i.y);
+        label->resize(frameBounds.getWidth(), frameBounds.getHeight());
         label->mFlags = static_cast<u8>((label->mFlags & ~0x0f) |
             (HBIND_CENTER << 2) | VBIND_CENTER);
+        label->setFontSize(labelFontSize, labelFontSize);
+        label->setCharSpace(labelSpacing);
+        label->setString(promptLabels[index]);
         label->setFontColor(
             index == menu->mSelNo ? JUtility::TColor(246, 246, 240, 255) :
                                     JUtility::TColor(185, 183, 176, 235),
