@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.0.0 - 2026-08-22
+
+- Add a complete PlayStation-symbol button layout, including matching Silver
+  and Black Pro face buttons, **R1**, **L2**, and **R2** prompts across the HUD,
+  item wheel, menus, maps, and contextual actions.
+- Keep physical **R/R1** dedicated to the third item while preserving **ZR** as
+  logical GameCube R for Gale Boomerang targeting and Dusklight's **R+X/R+Y**
+  Sun's Song and Quick Transform combinations.
+- Redesign the Quest Log and in-game Save rows around one shared responsive
+  layout with matching metadata, rules, selected-row treatment, cursor
+  spacing, and heart-safe minimum and maximum widths at 4:3 and widescreen.
+- Correct the file-selection flourish, number art, prompt placement, and
+  reset-only footer residue.
+- Restyle Midna's three-choice prompt and prevent its labels from wrapping or
+  colliding.
+- Preserve the completed Collection-screen layout and related submenu prompt
+  styling while applying the selected controller artwork consistently.
+- Validate the release package on Windows x64, macOS Apple Silicon, and Android
+  ARM64 with Dusklight v1.4.1 builds in the supported 141-or-newer range.
+
 ## v0.9.1 - 2026-08-20
 
 - Correct Gale Boomerang multi-target selection to use **ZR**, matching
