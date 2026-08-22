@@ -3270,13 +3270,20 @@ void style_file_select_action_buttons(dFile_select_c* menu) {
     constexpr f32 targetWidth = 142.0f;
     constexpr f32 targetHeight = 26.0f;
 
-    // mDataSelProc can briefly retain MENU_SELECT across Dusklight's Reset
-    // reconstruction even though the native three-action pane is closed.
-    // The native menu animation owns these two flags: field_0x0283 while the
-    // pane is moving open and field_0x0360 once it is fully open.  Requiring
-    // one of them prevents our opaque replacement frames from appearing as
-    // unexplained black boxes at the bottom of the quest-log screen.
+    // mDataSelProc and both animation flags can retain their old values across
+    // Dusklight's Reset reconstruction. The freshly restored list title is the
+    // authoritative signal that the three-action pane is closed; without this
+    // guard one cached custom frame is drawn as a black footer rectangle.
+    const u8 titleIndex = menu->mHeaderTxtDispIdx < 2 ?
+        menu->mHeaderTxtDispIdx : 0;
+    auto* displayedTitle = menu->mHeaderTxtPane[titleIndex] != nullptr ?
+        static_cast<J2DTextBox*>(
+            menu->mHeaderTxtPane[titleIndex]->getPanePtr()) : nullptr;
+    const char* displayedTitleText = text_box_string(displayedTitle);
+    const bool showingQuestLogList = displayedTitleText != nullptr &&
+        std::strstr(displayedTitleText, "Choose a Quest Log") != nullptr;
     const bool actionMenuVisible =
+        !showingQuestLogList &&
         (menu->field_0x0283 || menu->field_0x0360) &&
         (menu->mDataSelProc == dFile_select_c::DATASELPROC_MENU_SELECT ||
             menu->mDataSelProc ==
@@ -3774,51 +3781,16 @@ void size_file_select_row_for_hearts(J2DPicture* row, const bool hasSecondLine,
         };
     }
 
-    // Keep the archive-authored size as the baseline. Single-line rows gain
-    // breathing room for Total play time; wrapped rows gain enough height for
-    // a dedicated second heart baseline, matching TPHD's taller occupied card.
-    // This archive's local row size changes with the platform widescreen
-    // transform, so use TPHD's proportional 16:9 width rather than a fixed
-    // local-unit cap.
-    // The stock archive's virtual width grows with Dusklight's desktop aspect.
-    // Preserve the roomier card needed for two heart rows at 4:3, then taper
-    // to TPHD's narrower 16:9 proportion instead of applying one multiplier
-    // to every possible window shape.
-#if TARGET_PC
-    // getWidthF()/getHeightF() can remain on the virtual 608x448 canvas while
-    // a desktop window is resized.  The framebuffer dimensions are the stable
-    // source of truth for the actual host-window aspect.
-    const f32 aspect = mDoGph_gInf_c::getHeight() > 0.001f ?
-        mDoGph_gInf_c::getWidth() / mDoGph_gInf_c::getHeight() : 4.0f / 3.0f;
-#else
-    const f32 aspect = mDoGph_gInf_c::getHeightF() > 0.001f ?
-        mDoGph_gInf_c::getWidthF() / mDoGph_gInf_c::getHeightF() : 4.0f / 3.0f;
-#endif
-    f32 widescreenBlend = (aspect - 4.0f / 3.0f) / (4.0f / 9.0f);
-    if (widescreenBlend < 0.0f) {
-        widescreenBlend = 0.0f;
-    } else if (widescreenBlend > 1.0f) {
-        widescreenBlend = 1.0f;
-    }
-    // The row and its file-info contents share this fixed virtual canvas.
-    // Converting through getGlbBounds() here is unstable: that matrix still
-    // contains the preceding draw's aspect transform while a desktop window
-    // is resizing, so repeating this function progressively shrinks the row
-    // without moving its hearts. Size directly in local canvas units.
-    //
-    // TPHD devotes a larger share of the narrower canvas to each card. Below
-    // 4:3 the heart group keeps its authored spacing, so expand the panel to a
-    // hard 470-unit narrow-window floor by 1.20:1. From 4:3 through 16:9,
-    // taper from 420 to 350 units so widescreen cards remain restrained.
-    f32 targetWidth = 540.0f;
-    if (aspect < 4.0f / 3.0f) {
-        f32 narrowBlend = ((4.0f / 3.0f) - aspect) /
-            ((4.0f / 3.0f) - 1.20f);
-        narrowBlend = std::clamp(narrowBlend, 0.0f, 1.0f);
-        targetWidth += (560.0f - 540.0f) * narrowBlend;
-    } else {
-        targetWidth += (350.0f - 540.0f) * widescreenBlend;
-    }
+    // The native row inherits a platform- and state-dependent parent scale,
+    // so deriving its width from either framebuffer or virtual-canvas aspect
+    // makes the same card balloon on both desktop and Android. Keep the local
+    // width inside a platform-independent TPHD range instead. The lower bound
+    // remains just outside the authored ten-heart span; the upper bound stops
+    // the panel from stretching across the screen after a layout rebuild.
+    constexpr f32 kMinimumHeartSafeWidth = 240.0f;
+    constexpr f32 kMaximumTphdWidth = 250.0f;
+    const f32 targetWidth = std::clamp(geometry.width,
+        kMinimumHeartSafeWidth, kMaximumTphdWidth);
     const f32 extraHeight = hasSecondLine ? 24.0f : 8.0f;
     const f32 targetHeight = geometry.height + extraHeight;
     row->resize(targetWidth, targetHeight);
