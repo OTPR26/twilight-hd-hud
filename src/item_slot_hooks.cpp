@@ -1760,6 +1760,33 @@ void configure_hd_picture(J2DPicture* picture) {
 
 // Shared three-choice prompt (Midna, message choices, and similar screens) --
 
+f32 three_select_label_font_size(JUTFont* font, const char* text,
+    const f32 panelWidth) {
+    constexpr f32 defaultSize = 13.5f;
+    constexpr f32 minimumSize = 9.5f;
+    constexpr f32 horizontalPadding = 12.0f;
+    if (font == nullptr || text == nullptr || text[0] == '\0' ||
+        font->getHeight() <= 0)
+    {
+        return defaultSize;
+    }
+
+    const f32 scale = defaultSize / static_cast<f32>(font->getHeight());
+    f32 textWidth = 0.0f;
+    for (const unsigned char* cursor =
+             reinterpret_cast<const unsigned char*>(text);
+         *cursor != 0; ++cursor)
+    {
+        textWidth += static_cast<f32>(font->getWidth(*cursor)) * scale;
+    }
+
+    const f32 availableWidth = panelWidth - horizontalPadding;
+    if (textWidth <= availableWidth || textWidth <= 0.0f) {
+        return defaultSize;
+    }
+    return std::max(minimumSize, defaultSize * availableWidth / textWidth);
+}
+
 void style_three_select_prompt(dMsgScrn3Select_c* menu) {
     if (menu == nullptr || menu->mpScreen == nullptr) {
         return;
@@ -1777,14 +1804,6 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
     constexpr u64 labelTags[] = {
         MULTI_CHAR('hd_3t0'), MULTI_CHAR('hd_3t1'), MULTI_CHAR('hd_3t2'),
     };
-    daAlink_c* link = daAlink_getAlinkActorClass();
-    const bool isWolf = link != nullptr && link->checkWolf();
-    const char* promptLabels[] = {
-        isWolf ? "Transform into human" : "Transform into wolf",
-        "Warp",
-        "Talk to Midna",
-    };
-
     s_activeThreeSelectCursor = menu->mpSelectCursor;
     s_activeThreeSelectFrame = nullptr;
 
@@ -1870,8 +1889,11 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
             textParent->appendChild(label);
         }
         const JGeometry::TBox2<f32> frameBounds = frame->getBounds();
-        constexpr f32 labelFontSize = 13.5f;
         constexpr f32 labelSpacing = 0.0f;
+        const char* nativeLabel = text_box_string(text);
+        if (nativeLabel == nullptr) {
+            nativeLabel = "";
+        }
 
         // Keep the replacement textbox at the full panel width. The earlier
         // measured-width pane landed exactly on J2D's fractional wrap edge;
@@ -1882,9 +1904,16 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
         label->resize(frameBounds.getWidth(), frameBounds.getHeight());
         label->mFlags = static_cast<u8>((label->mFlags & ~0x0f) |
             (HBIND_CENTER << 2) | VBIND_CENTER);
+        const f32 labelFontSize = three_select_label_font_size(
+            text->getFont(), nativeLabel, frameBounds.getWidth());
         label->setFontSize(labelFontSize, labelFontSize);
         label->setCharSpace(labelSpacing);
-        label->setString(promptLabels[index]);
+        // This renderer is shared by Midna and ordinary dialogue choices.
+        // Preserve the live game-owned string instead of applying Midna's
+        // three labels globally; the native pane continues to receive each
+        // screen's localized message while our independent pane supplies only
+        // the HD presentation.
+        label->setString(128, nativeLabel);
         label->setFontColor(
             index == menu->mSelNo ? JUtility::TColor(246, 246, 240, 255) :
                                     JUtility::TColor(185, 183, 176, 235),
