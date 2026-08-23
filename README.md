@@ -12,7 +12,7 @@ Dusklight **v1.4.1-141 or newer** is required. The mod is built and tested again
 - Three item slots using X, Y, and R
 - Independent D-Pad and minimap behavior
 - Human and wolf action artwork
-- ABXY, BAYX, PlayStation-symbol, and letter-free button-label options
+- ABXY, BAYX, PlayStation-symbol, and blank button-label options
 - HUD sizes of 75%, 100%, and 125%
 - Native modules for Windows x64, Linux x64, macOS Apple Silicon, Android ARM64, iOS ARM64, and tvOS ARM64
 
