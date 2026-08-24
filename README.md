@@ -14,6 +14,7 @@ Dusklight **v1.4.1-141 or newer** is required. The mod is built and tested again
 - Human and wolf action artwork
 - ABXY, BAYX, PlayStation-symbol, and blank button-label options
 - HUD sizes of 75%, 100%, and 125%
+- *Twilight Princess HD*-style panels for shared three-choice dialogue screens
 - Native modules for Windows x64, Linux x64, macOS Apple Silicon, Android ARM64, iOS ARM64, and tvOS ARM64
 
 Planned improvements are tracked in [ROADMAP.md](ROADMAP.md).

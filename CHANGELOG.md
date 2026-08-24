@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.0 - 2026-08-23
+
+- Extend the *Twilight Princess HD*-style choice panels and selection treatment
+  from Midna's prompt to every shared three-choice dialogue screen.
+- Preserve each dialogue's native localized choice text instead of applying
+  Midna's Transform, Warp, and Talk labels to unrelated conversations.
+- Automatically reduce the label size when a longer choice needs additional
+  room while retaining the same panel dimensions, padding, and centered layout.
+
 ## v1.0.0 - 2026-08-22
 
 - Add a complete PlayStation-symbol button layout, including matching Silver
