@@ -130,7 +130,6 @@ DEFINE_HOOK(&dMenu_Insect_c::_create, InsectCreateHook);
 DEFINE_HOOK(&dMenu_Insect_c::_draw, InsectDrawHook);
 DEFINE_HOOK(&dSelect_cursor_c::draw, SelectCursorDrawHook);
 DEFINE_HOOK(&dSelect_cursor_c::update, SelectCursorUpdateHook);
-DEFINE_HOOK(&dMsgScrn3Select_c::selAnimeInit, ThreeSelectInitHook);
 DEFINE_HOOK(&dMsgScrn3Select_c::draw, ThreeSelectDrawHook);
 DEFINE_HOOK(&dMenu_Fmap_c::_move, FmapMoveHook);
 DEFINE_HOOK(&dMenu_Fmap_c::_draw, FmapDrawHook);
@@ -1774,6 +1773,21 @@ std::array<char, 128> clean_three_select_label(const char* text) {
     while (*begin != '\0' && isPadding(static_cast<unsigned char>(*begin))) {
         ++begin;
     }
+    // Map Warp confirmation strings are prefixed with an ESC CR[n] command
+    // that horizontally positions YES/NO inside the original GameCube pane.
+    // The replacement textbox is already centered, so retaining that command
+    // shifts the visible word to the right. Remove leading layout commands
+    // while preserving the localized text that follows them.
+    while (static_cast<unsigned char>(*begin) == 0x1b) {
+        const char* commandEnd = std::strchr(begin, ']');
+        if (commandEnd == nullptr) {
+            break;
+        }
+        begin = commandEnd + 1;
+        while (*begin != '\0' && isPadding(static_cast<unsigned char>(*begin))) {
+            ++begin;
+        }
+    }
     const char* end = begin + std::strlen(begin);
     while (end > begin && isPadding(static_cast<unsigned char>(end[-1]))) {
         --end;
@@ -1811,32 +1825,6 @@ f32 three_select_label_font_size(JUTFont* font, const char* text,
         return defaultSize;
     }
     return std::max(minimumSize, defaultSize * availableWidth / textWidth);
-}
-
-void center_two_choice_prompt(dMsgScrn3Select_c* menu) {
-    if (menu == nullptr || menu->mSelNum != 2 || menu->mpParent == nullptr ||
-        menu->mpTmSel_c[1] == nullptr) {
-        return;
-    }
-
-    // selAnimeInit has finished applying the native row width and translation
-    // before this runs. Shift the common parent once so the panels, labels,
-    // cursor, pointer hit targets, and opening/closing animations remain in a
-    // single coordinate space. Repositioning individual children during draw
-    // feeds their previous global transform back into the next frame and
-    // causes visible flashing.
-    CPaneMgr* anchor = menu->mpTmSel_c[1];
-    const f32 choiceCenterX =
-        anchor->getGlobalPosX() + anchor->getSizeX() * 0.5f;
-    const f32 viewportCenterX =
-        (mDoGph_gInf_c::getMinXF() + mDoGph_gInf_c::getMaxXF()) * 0.5f;
-    const f32 shiftX = viewportCenterX - choiceCenterX;
-
-    J2DPane* parent = menu->mpParent->getPanePtr();
-    if (parent != nullptr) {
-        const JGeometry::TBox2<f32> bounds = parent->getBounds();
-        parent->move(bounds.i.x + shiftX, bounds.i.y);
-    }
 }
 
 void style_three_select_prompt(dMsgScrn3Select_c* menu) {
@@ -8212,10 +8200,6 @@ HookAction before_three_select_draw(ModContext*, void* args, void*, void*) {
     return HOOK_CONTINUE;
 }
 
-void after_three_select_init(ModContext*, void* args, void*, void*) {
-    center_two_choice_prompt(mods::arg<dMsgScrn3Select_c*>(args, 0));
-}
-
 void after_select_cursor_update(ModContext*, void* args, void*, void*) {
     auto* cursor = mods::arg<dSelect_cursor_c*>(args, 0);
     if (s_activeCollectMenu != nullptr &&
@@ -9577,8 +9561,6 @@ ModResult install_item_slot_hooks(ModError* error) {
         "collection footer cursor final alignment");
     ADD_PRE(SelectCursorDrawHook, before_select_cursor_draw,
         "HD selection cursor final alignment");
-    ADD_POST(ThreeSelectInitHook, after_three_select_init,
-        "two-choice prompt centering");
     ADD_PRE(ThreeSelectDrawHook, before_three_select_draw,
         "three-choice prompt HD style");
     ADD_PRE(FmapMoveHook, before_fmap_move, "field map portals R button mapping");
