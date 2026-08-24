@@ -1812,7 +1812,7 @@ f32 three_select_label_font_size(JUTFont* font, const char* text,
     return std::max(minimumSize, defaultSize * availableWidth / textWidth);
 }
 
-void style_three_select_prompt(dMsgScrn3Select_c* menu) {
+void style_three_select_prompt(dMsgScrn3Select_c* menu, const f32 drawOffsetX) {
     if (menu == nullptr || menu->mpScreen == nullptr) {
         return;
     }
@@ -1902,7 +1902,38 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
         constexpr f32 panelHeight = 34.0f;
         const f32 textCenterX = (textBounds.i.x + textBounds.f.x) * 0.5f;
         const f32 textCenterY = (textBounds.i.y + textBounds.f.y) * 0.5f;
-        frame->move(textCenterX - panelWidth * 0.5f,
+        f32 panelCenterX = textCenterX;
+        if (isTwoChoicePrompt) {
+            // The map Warp confirmation is authored as a right-side prompt,
+            // while TPHD centers its Yes/No rows on the viewport. Convert the
+            // viewport-centre delta from global layout coordinates into this
+            // row parent's local coordinates. The three-choice Midna menu
+            // deliberately retains its right-side placement.
+            const JGeometry::TBox2<f32>& textGlobalBounds =
+                text->getGlbBounds();
+            const f32 textGlobalCenterX =
+                (textGlobalBounds.i.x + textGlobalBounds.f.x) * 0.5f;
+            // dMsgScrn3Select_c applies drawOffsetX only when mpScreen is
+            // drawn, after this hook runs. Compensate for that final draw
+            // translation so the rendered (not merely archive-local) centre
+            // lands on the viewport centre.
+            const f32 viewportCenterX =
+                (mDoGph_gInf_c::getMinXF() + mDoGph_gInf_c::getMaxXF()) *
+                0.5f - drawOffsetX;
+            f32 parentScaleX = 1.0f;
+            const JGeometry::TBox2<f32>& parentGlobalBounds =
+                textParent->getGlbBounds();
+            if (std::fabs(textParent->getWidth()) > 0.001f) {
+                parentScaleX =
+                    parentGlobalBounds.getWidth() / textParent->getWidth();
+            }
+            if (std::fabs(parentScaleX) < 0.001f) {
+                parentScaleX = 1.0f;
+            }
+            panelCenterX +=
+                (viewportCenterX - textGlobalCenterX) / parentScaleX;
+        }
+        frame->move(panelCenterX - panelWidth * 0.5f,
             textCenterY - panelHeight * 0.5f);
         frame->resize(panelWidth, panelHeight);
         frame->changeTexture(index == menu->mSelNo ? selected : normal, 0);
@@ -8181,7 +8212,8 @@ HookAction before_select_cursor_draw(ModContext*, void* args, void*, void*) {
 
 HookAction before_three_select_draw(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMsgScrn3Select_c*>(args, 0);
-    style_three_select_prompt(menu);
+    const f32 drawOffsetX = mods::arg<f32>(args, 1);
+    style_three_select_prompt(menu, drawOffsetX);
     return HOOK_CONTINUE;
 }
 
