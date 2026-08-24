@@ -1829,6 +1829,19 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
     constexpr u64 labelTags[] = {
         MULTI_CHAR('hd_3t0'), MULTI_CHAR('hd_3t1'), MULTI_CHAR('hd_3t2'),
     };
+    const J2DTextBox* firstSource = menu->mpTmSel_c[0] != nullptr ?
+        static_cast<J2DTextBox*>(menu->mpTmSel_c[0]->getPanePtr()) : nullptr;
+    const std::array<char, 128> firstNativeLabel =
+        clean_three_select_label(text_box_string(firstSource));
+    const bool isMidnaPrompt =
+        std::strstr(firstNativeLabel.data(), "Transform into") != nullptr;
+    daAlink_c* link = daAlink_getAlinkActorClass();
+    const bool isWolf = link != nullptr && link->checkWolf();
+    const char* midnaPromptLabels[] = {
+        isWolf ? "Transform into human" : "Transform into wolf",
+        "Warp",
+        "Talk to Midna",
+    };
     s_activeThreeSelectCursor = menu->mpSelectCursor;
     s_activeThreeSelectFrame = nullptr;
 
@@ -1921,6 +1934,8 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
         // HD textbox. Ordinary dialogue strings pass through unchanged.
         const std::array<char, 128> nativeLabel =
             clean_three_select_label(text_box_string(text));
+        const char* displayLabel = isMidnaPrompt ?
+            midnaPromptLabels[index] : nativeLabel.data();
 
         // Keep the replacement textbox at the full panel width. The earlier
         // measured-width pane landed exactly on J2D's fractional wrap edge;
@@ -1932,7 +1947,7 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
         label->mFlags = static_cast<u8>((label->mFlags & ~0x0f) |
             (HBIND_CENTER << 2) | VBIND_CENTER);
         const f32 labelFontSize = three_select_label_font_size(
-            text->getFont(), nativeLabel.data(), frameBounds.getWidth());
+            text->getFont(), displayLabel, frameBounds.getWidth());
         label->setFontSize(labelFontSize, labelFontSize);
         label->setCharSpace(labelSpacing);
         // This renderer is shared by Midna and ordinary dialogue choices.
@@ -1940,7 +1955,7 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
         // three labels globally; the native pane continues to receive each
         // screen's localized message while our independent pane supplies only
         // the HD presentation.
-        label->setString(128, nativeLabel.data());
+        label->setString(128, displayLabel);
         label->setFontColor(
             index == menu->mSelNo ? JUtility::TColor(246, 246, 240, 255) :
                                     JUtility::TColor(185, 183, 176, 235),
