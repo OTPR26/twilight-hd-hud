@@ -1835,6 +1835,7 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
         clean_three_select_label(text_box_string(firstSource));
     const bool isMidnaPrompt =
         std::strstr(firstNativeLabel.data(), "Transform into") != nullptr;
+    const bool isTwoChoicePrompt = menu->mSelNum == 2;
     daAlink_c* link = daAlink_getAlinkActorClass();
     const bool isWolf = link != nullptr && link->checkWolf();
     const char* midnaPromptLabels[] = {
@@ -1891,11 +1892,11 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
             }
         }
 
-        // The frame and label are siblings, so the label bounds are already in
-        // the frame's coordinate space.  Do not add the label translation: it
-        // is derived from these bounds and would displace the frame a second
-        // time.  TPHD uses compact, consistent choice panels rather than the
-        // full width of the original GameCube text pane.
+        // TPHD uses compact, consistent choice panels rather than the full
+        // width of the original GameCube text pane. Three-choice labels use
+        // the same sibling coordinate space as the frame; two-choice labels
+        // are anchored inside the frame below to avoid their extra native
+        // width translation.
         const JGeometry::TBox2<f32> textBounds = text->getBounds();
         constexpr f32 panelWidth = 156.0f;
         constexpr f32 panelHeight = 34.0f;
@@ -1917,14 +1918,31 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
         J2DTextBox* label = static_cast<J2DTextBox*>(
             menu->mpScreen->search(labelTags[index]));
         if (label == nullptr) {
-            label = JKR_NEW J2DTextBox(labelTags[index],
+            const JGeometry::TBox2<f32> labelBounds = isTwoChoicePrompt ?
+                JGeometry::TBox2<f32>(0.0f, 0.0f, panelWidth, panelHeight) :
                 JGeometry::TBox2<f32>(textCenterX - panelWidth * 0.5f,
                     textCenterY - panelHeight * 0.5f,
                     textCenterX + panelWidth * 0.5f,
-                    textCenterY + panelHeight * 0.5f),
+                    textCenterY + panelHeight * 0.5f);
+            label = JKR_NEW J2DTextBox(labelTags[index],
+                labelBounds,
                 nullptr, "", 128, HBIND_CENTER, VBIND_CENTER);
             label->setFont(text->getFont());
-            textParent->appendChild(label);
+            (isTwoChoicePrompt ? static_cast<J2DPane*>(frame) : textParent)
+                ->appendChild(label);
+        }
+        // Two-choice prompts use rows B/C and apply a width-dependent native
+        // translation to their original text panes. Keep the replacement
+        // label inside the HD frame so it cannot drift independently from the
+        // panel. Three-choice prompts retain their already-tested sibling
+        // geometry.
+        J2DPane* desiredLabelParent = isTwoChoicePrompt ?
+            static_cast<J2DPane*>(frame) : textParent;
+        if (label->getParentPane() != desiredLabelParent) {
+            if (J2DPane* currentParent = label->getParentPane()) {
+                currentParent->mPaneTree.removeChild(&label->mPaneTree);
+            }
+            desiredLabelParent->appendChild(label);
         }
         const JGeometry::TBox2<f32> frameBounds = frame->getBounds();
         constexpr f32 labelSpacing = 0.0f;
@@ -1942,8 +1960,13 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
         // on the following frame its final glyph wrapped back into the middle
         // of the sentence. Establish the roomy geometry and binding first,
         // then assign the clean label string.
-        label->move(frameBounds.i.x, frameBounds.i.y);
-        label->resize(frameBounds.getWidth(), frameBounds.getHeight());
+        if (isTwoChoicePrompt) {
+            label->move(0.0f, 0.0f);
+            label->resize(frameBounds.getWidth(), frameBounds.getHeight());
+        } else {
+            label->move(frameBounds.i.x, frameBounds.i.y);
+            label->resize(frameBounds.getWidth(), frameBounds.getHeight());
+        }
         label->mFlags = static_cast<u8>((label->mFlags & ~0x0f) |
             (HBIND_CENTER << 2) | VBIND_CENTER);
         const f32 labelFontSize = three_select_label_font_size(
