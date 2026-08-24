@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.1 - 2026-08-23
+
+- Center the localized **Yes** and **No** labels inside the HD map-warp
+  confirmation panels by removing the original GameCube text-positioning
+  commands before drawing the replacement labels.
+- Keep two-choice labels anchored to their own HD frames without moving the
+  shared choice containers, preserving shop option placement and eliminating
+  the flashing introduced by earlier centering attempts.
+
 ## v1.1.0 - 2026-08-23
 
 - Extend the *Twilight Princess HD*-style choice panels and selection treatment
