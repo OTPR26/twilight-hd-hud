@@ -49,7 +49,7 @@ ModResult build_hud_tab(
         return MOD_ERROR;
     }
     if (add_text(ctx, left,
-            "Uses the Twilight Princess HD HUD arrangement and smaller minimap presentation. "
+            "Uses the Twilight Princess HD HUD arrangement. "
             "Disable the mod from Dusklight's Mods screen to restore the standard HUD.")
         != MOD_OK) return MOD_ERROR;
     static constexpr const char* kButtonLayouts[] = {
@@ -85,10 +85,8 @@ ModResult build_hud_tab(
     if (add_select(ctx, left, "Controller Compatibility",
             controller_compatibility_config_var(), kControllerCompatibility,
             std::size(kControllerCompatibility),
-            "Follow Dusklight Bindings respects the active controller profile and its Call Midna "
-            "action. TPHD Fixed Bindings instead reserves D-Pad Up for Midna. In both modes, the "
-            "control mapped to logical Z operates the third item; logical R remains available "
-            "for ZR actions and Dusklight's R-button combinations.")
+            "Follow Dusklight Bindings respects the custom bindings for Midna.<br/><br/>"
+            "TPHD Fixed Bindings follows TPHD bindings.")
         != MOD_OK)
     {
         return MOD_ERROR;

@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.2.0 - 2026-08-25
+
+- Redesign the Quest Log screen with *Twilight Princess HD*-inspired panels.
+- Move Midna to **L/L1** when using **TPHD Fixed Bindings** and add matching
+  artwork for every supported button style and controller layout.
+- Add a TPHD-style map icon and improve the D-Pad HUD presentation.
+- Update map and portal prompts, including a clearer **ZR** prompt.
+- Respect the custom Midna binding when using **Follow Dusklight Bindings**.
+- Fix black prompt boxes appearing after resetting Dusklight.
+- Improve HUD behavior when Midna is assigned to **R** or a D-Pad direction.
+- Include additional bug fixes and stability improvements.
+
 ## v1.1.1 - 2026-08-23
 
 - Center the localized **Yes** and **No** labels inside the HD map-warp

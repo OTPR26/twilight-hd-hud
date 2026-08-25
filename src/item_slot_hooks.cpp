@@ -69,8 +69,13 @@ namespace twilight_hd_hud {
 namespace {
 
 constexpr u8 kZItemSlot = SELECT_ITEM_DOWN;
-// SDL_GamepadButton values are ABI-stable; the right shoulder is R/R1.
+// SDL_GamepadButton values are ABI-stable; the shoulders are L/R (L1/R1).
+constexpr s32 kSdlLeftShoulderButton = 9;
 constexpr s32 kSdlRightShoulderButton = 10;
+constexpr s32 kSdlDpadUpButton = 11;
+constexpr s32 kSdlDpadDownButton = 12;
+constexpr s32 kSdlDpadLeftButton = 13;
+constexpr s32 kSdlDpadRightButton = 14;
 constexpr s32 kSdlLeftTriggerAxis = 4;
 constexpr s32 kSdlRightTriggerAxis = 5;
 constexpr s16 kSdlTriggerThreshold = 16384;
@@ -79,6 +84,7 @@ constexpr int kSelectItemNotFound = 3;
 constexpr int kItemProcBootsEquip = 1;
 int s_descenderCorrectionDrawDepth = 0;
 dFile_select_c* s_activeFileSelect = nullptr;
+bool s_fileSelectScreenActive = false;
 bool s_fileSelectYesNoLayoutReady = false;
 f32 s_fileSelectYesNoX[2] = {};
 f32 s_fileSelectYesNoY[2] = {};
@@ -113,6 +119,7 @@ DEFINE_HOOK(&dMeter2Draw_c::drawKantera, MeterDrawKanteraHook);
 DEFINE_HOOK(&dMeter2Draw_c::drawOxygen, MeterDrawOxygenHook);
 DEFINE_HOOK(&dMeter2Draw_c::setButtonIconMidonaAlpha, MeterMidnaAlphaHook);
 DEFINE_HOOK(&dMeterMap_c::draw, MeterMapDrawHook);
+DEFINE_HOOK(&dMeterMap_c::ctrlShowMap, MeterMapCtrlShowHook);
 DEFINE_HOOK(&dMenu_Collect2D_c::_create, CollectCreateHook);
 DEFINE_HOOK(&dMenu_Collect2D_c::_move, CollectMoveHook);
 DEFINE_HOOK(&dMenu_Collect2D_c::_draw, CollectDrawHook);
@@ -145,6 +152,7 @@ DEFINE_HOOK(&dFile_select_c::_create, FileSelectCreateHook);
 DEFINE_HOOK(&dFile_select_c::_move, FileSelectMoveHook);
 DEFINE_HOOK(&dFile_select_c::_draw, FileSelectDrawHook);
 DEFINE_HOOK(&dDlst_FileSel_c::draw, FileSelectMainDrawHook);
+DEFINE_HOOK(&dDlst_FileSel3m_c::draw, FileSelectActionDrawHook);
 DEFINE_HOOK(&dMenu_save_c::screenSet, SaveMenuScreenSetHook);
 DEFINE_HOOK(&dMenu_save_c::_delete, SaveMenuDeleteHook);
 DEFINE_HOOK(&dMenu_save_c::_draw2, SaveMenuDrawHook);
@@ -197,6 +205,8 @@ ResourceBuffer s_digIconResource = RESOURCE_BUFFER_INIT;
 J2DPicture* s_digIconPicture = nullptr;
 ResourceBuffer s_attackIconResource = RESOURCE_BUFFER_INIT;
 J2DPicture* s_attackIconPicture = nullptr;
+ResourceBuffer s_tphdMapIconResource = RESOURCE_BUFFER_INIT;
+J2DPicture* s_tphdMapIconPicture = nullptr;
 ResourceBuffer s_faceButtonAResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_faceButtonBResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_blackProFaceButtonResources[4] = {
@@ -213,8 +223,13 @@ ResourceBuffer s_playStationShoulderButtonResources[2][3] = {
     {RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT},
     {RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT},
 };
+ResourceBuffer s_playStationL1ButtonResources[2] = {
+    RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
+};
 ResourceBuffer s_blackProBlankFaceButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_blackProShoulderButtonResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_lShoulderButtonResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_blackProLShoulderButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_zlShoulderButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_blackProZlShoulderButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_zrShoulderButtonResource = RESOURCE_BUFFER_INIT;
@@ -270,8 +285,11 @@ daAlink_c* s_zHeavyBootsGuardLink = nullptr;
 bool s_zHeavyBootsManualToggleOff = false;
 bool s_zHeavyBootsWaitRelease = false;
 u8 s_zHeavyBootsGuardFrames = 0;
-bool s_dpadMidnaHeld = false;
-bool s_dpadMidnaTrig = false;
+bool s_fixedMidnaHeld = false;
+bool s_fixedMidnaTrig = false;
+bool s_fixedOpenMapTrig = false;
+bool s_fixedToggleMinimapTrig = false;
+bool s_combinedMapMinimapTrig = false;
 bool s_rightShoulderHeld = false;
 bool s_rightShoulderTrig = false;
 bool s_fixedZlHeld = false;
@@ -284,12 +302,16 @@ u32 s_menuWindowSuppressedTrig = 0;
 enum class DusklightActionBind {
     FirstPersonCamera,
     CallMidna,
+    OpenMapScreen,
+    ToggleMinimap,
 };
 
 using GetActionBindTrigFn = bool (*)(DusklightActionBind, u32);
 GetActionBindTrigFn s_getActionBindTrig = nullptr;
 using GetActionBindButtonFn = int (*)(DusklightActionBind, u32);
 GetActionBindButtonFn s_getActionBindButton = nullptr;
+using SetVirtualActionBindFn = void (*)(DusklightActionBind, u32, bool, bool);
+SetVirtualActionBindFn s_setVirtualActionBind = nullptr;
 using GetSdlGamepadAxisFn = s16 (*)(SDL_Gamepad*, int);
 GetSdlGamepadAxisFn s_getSdlGamepadAxis = nullptr;
 using GetSdlGamepadButtonFn = bool (*)(SDL_Gamepad*, int);
@@ -320,21 +342,38 @@ bool physical_button_held(s32 button) {
     return PADGetNativeButtonPressed(PAD_1) == button;
 }
 
-bool midna_action_triggered() {
-    return controller_compatibility() == ControllerCompatibility::FollowDusklight &&
-        s_getActionBindTrig != nullptr &&
-        s_getActionBindTrig(DusklightActionBind::CallMidna, PAD_1);
-}
-
-u32 midna_game_button_mask() {
+int midna_native_button() {
     if (controller_compatibility() != ControllerCompatibility::FollowDusklight ||
         s_getActionBindButton == nullptr)
     {
-        return 0;
+        return PAD_NATIVE_BUTTON_INVALID;
     }
+    return s_getActionBindButton(DusklightActionBind::CallMidna, PAD_1);
+}
 
-    const int nativeButton =
-        s_getActionBindButton(DusklightActionBind::CallMidna, PAD_1);
+int action_native_button(const DusklightActionBind action) {
+    if (controller_compatibility() != ControllerCompatibility::FollowDusklight ||
+        s_getActionBindButton == nullptr)
+    {
+        return PAD_NATIVE_BUTTON_INVALID;
+    }
+    return s_getActionBindButton(action, PAD_1);
+}
+
+bool use_tphd_midna_binding() {
+    return controller_compatibility() == ControllerCompatibility::FixedTphd ||
+        midna_native_button() == PAD_NATIVE_BUTTON_INVALID;
+}
+
+bool use_legacy_follow_dpad_layout() {
+    // An empty Dusklight custom action deliberately falls back to the TPHD
+    // defaults. Only an explicit Follow-mode assignment restores the 1.1.1
+    // D-Pad cluster that the custom binding is expected to inhabit.
+    return controller_compatibility() == ControllerCompatibility::FollowDusklight &&
+        midna_native_button() != PAD_NATIVE_BUTTON_INVALID;
+}
+
+u32 game_button_mask_for_native(const int nativeButton) {
     if (nativeButton == PAD_NATIVE_BUTTON_INVALID) {
         return 0;
     }
@@ -350,9 +389,112 @@ u32 midna_game_button_mask() {
     return gameButtonMask;
 }
 
+bool midna_action_triggered() {
+    return controller_compatibility() == ControllerCompatibility::FollowDusklight &&
+        s_getActionBindTrig != nullptr &&
+        s_getActionBindTrig(DusklightActionBind::CallMidna, PAD_1);
+}
+
+u32 midna_game_button_mask() {
+    if (controller_compatibility() != ControllerCompatibility::FollowDusklight ||
+        s_getActionBindButton == nullptr)
+    {
+        return 0;
+    }
+
+    return game_button_mask_for_native(midna_native_button());
+}
+
 bool midna_uses_dpad_down() {
     return controller_compatibility() == ControllerCompatibility::FollowDusklight &&
-        (midna_game_button_mask() & PAD_BUTTON_DOWN) != 0;
+        (midna_native_button() == kSdlDpadDownButton ||
+            (midna_game_button_mask() & PAD_BUTTON_DOWN) != 0);
+}
+
+enum class DpadDirection {
+    None,
+    Up,
+    Down,
+    Left,
+    Right,
+};
+
+DpadDirection dpad_direction_for_native_button(const int nativeButton) {
+    switch (nativeButton) {
+    case kSdlDpadUpButton:
+        return DpadDirection::Up;
+    case kSdlDpadDownButton:
+        return DpadDirection::Down;
+    case kSdlDpadLeftButton:
+        return DpadDirection::Left;
+    case kSdlDpadRightButton:
+        return DpadDirection::Right;
+    default:
+        return DpadDirection::None;
+    }
+}
+
+u32 game_button_for_dpad_direction(const DpadDirection direction) {
+    switch (direction) {
+    case DpadDirection::Up:
+        return PAD_BUTTON_UP;
+    case DpadDirection::Down:
+        return PAD_BUTTON_DOWN;
+    case DpadDirection::Left:
+        return PAD_BUTTON_LEFT;
+    case DpadDirection::Right:
+        return PAD_BUTTON_RIGHT;
+    default:
+        return 0;
+    }
+}
+
+struct FollowDpadLayout {
+    DpadDirection midna = DpadDirection::None;
+    DpadDirection map = DpadDirection::Up;
+    DpadDirection minimap = DpadDirection::Right;
+    DpadDirection items = DpadDirection::Down;
+    bool combinedMapAndMinimap = false;
+};
+
+FollowDpadLayout follow_dpad_layout() {
+    FollowDpadLayout layout;
+    layout.midna = dpad_direction_for_native_button(midna_native_button());
+    switch (layout.midna) {
+    case DpadDirection::Right:
+        // Keep the parchment on Up and let that control cycle the minimap and
+        // full map. Right is reserved exclusively for Midna.
+        layout.minimap = DpadDirection::Up;
+        layout.combinedMapAndMinimap = true;
+        break;
+    case DpadDirection::Up:
+        // Midna owns the authored map position, so move the combined map
+        // control to the normal Minimap direction.
+        layout.map = DpadDirection::Right;
+        layout.minimap = DpadDirection::Right;
+        layout.combinedMapAndMinimap = true;
+        break;
+    case DpadDirection::Down:
+        // Down normally owns Items. Move Items to Right and Minimap to Left so
+        // all four D-Pad roles remain distinct.
+        layout.items = DpadDirection::Right;
+        layout.minimap = DpadDirection::Left;
+        break;
+    default:
+        break;
+    }
+    return layout;
+}
+
+bool use_tphd_dpad_map_bindings() {
+    // Fixed mode retains its established TPHD mapping. Follow mode resolves
+    // the same roles around the live custom Midna direction below.
+    return true;
+}
+
+bool midna_uses_right_shoulder() {
+    return controller_compatibility() == ControllerCompatibility::FollowDusklight &&
+        midna_native_button() == kSdlRightShoulderButton;
 }
 
 void resolve_action_binding_functions() {
@@ -377,6 +519,17 @@ void resolve_action_binding_functions() {
         s_getActionBindButton = nullptr;
         svc_log->warn(mod_ctx,
             "Unable to isolate Dusklight's Call Midna button from its normal game action");
+    }
+
+    address = nullptr;
+    const ModResult virtualBindResult = svc_hook->resolve(
+        mod_ctx, "dusk::setVirtualActionBind", &address, &flags);
+    if (virtualBindResult == MOD_OK && address != nullptr) {
+        s_setVirtualActionBind = reinterpret_cast<SetVirtualActionBindFn>(address);
+    } else {
+        s_setVirtualActionBind = nullptr;
+        svc_log->warn(mod_ctx,
+            "Unable to install the fixed TPHD map and minimap bindings");
     }
 
     address = nullptr;
@@ -812,6 +965,19 @@ ResTIMG const* styled_r_button_texture() {
         }
     }
     return archive_texture("wiiu_r.bti");
+}
+
+ResTIMG const* styled_l_button_texture() {
+    if (button_layout() == ButtonLayout::PlayStation) {
+        const int style = button_style() == ButtonStyle::BlackPro ? 1 : 0;
+        return resource_texture(s_playStationL1ButtonResources[style]);
+    }
+    if (button_style() == ButtonStyle::BlackPro) {
+        if (ResTIMG const* texture = resource_texture(s_blackProLShoulderButtonResource)) {
+            return texture;
+        }
+    }
+    return resource_texture(s_lShoulderButtonResource);
 }
 
 ResTIMG const* styled_zl_button_texture() {
@@ -2275,8 +2441,17 @@ void add_fmap_top_overlay(dMenu_Fmap2DTop_c* map) {
     // Use the native control pane only to locate and suppress the old prompt
     // art. The replacement lives on the title screen so it can be anchored to
     // the current widescreen-safe edge without inheriting native animation.
-    constexpr f32 fontSizes[] = {8.5f, 10.0f, 11.0f};
-    constexpr f32 iconSizes[] = {10.0f, 14.0f, 16.0f};
+    // Portals is a primary map action in TPHD.  The stock GameCube prompt
+    // used a very small Z label here, which made both the translated label
+    // and shoulder icon noticeably harder to read than the zoom controls.
+    // Keep the row compact, but give it the same visual weight and preserve
+    // the wide ZR-button silhouette instead of squeezing it into a square.
+    constexpr f32 fontSizes[] = {10.5f, 10.0f, 11.0f};
+    // Shoulder-button resources use a square 64x64 canvas; their wide shell
+    // is already composed inside that canvas.  Keep the pane square so the
+    // artwork is scaled uniformly instead of flattening it a second time.
+    constexpr f32 iconWidths[] = {20.0f, 14.0f, 16.0f};
+    constexpr f32 iconHeights[] = {20.0f, 14.0f, 16.0f};
     constexpr f32 centers[] = {12.0f, 34.0f, 60.0f};
     constexpr u64 textTags[] = {
         MULTI_CHAR('hd_fpt0'), MULTI_CHAR('hd_fpt1'), MULTI_CHAR('hd_fpt2'),
@@ -2285,7 +2460,7 @@ void add_fmap_top_overlay(dMenu_Fmap2DTop_c* map) {
         MULTI_CHAR('hd_fri0'), MULTI_CHAR('hd_fai1'), MULTI_CHAR('hd_fbi2'),
     };
     ResTIMG const* iconTextures[] = {
-        styled_r_button_texture(), menu_face_button_texture(true),
+        styled_zr_button_texture(), menu_face_button_texture(true),
         menu_face_button_texture(false),
     };
     J2DPane* controlAnchor = map->mpContPane->getPanePtr();
@@ -2318,11 +2493,12 @@ void add_fmap_top_overlay(dMenu_Fmap2DTop_c* map) {
         promptGroup->appendChild(text);
 
         if (iconTextures[index] != nullptr) {
-            const f32 halfIcon = iconSizes[index] * 0.5f;
+            const f32 halfIconWidth = iconWidths[index] * 0.5f;
+            const f32 halfIconHeight = iconHeights[index] * 0.5f;
             auto* icon = JKR_NEW J2DPicture(iconTags[index],
-                JGeometry::TBox2<f32>(railX - halfIcon,
-                    centers[index] - halfIcon, railX + halfIcon,
-                    centers[index] + halfIcon),
+                JGeometry::TBox2<f32>(railX - halfIconWidth,
+                    centers[index] - halfIconHeight, railX + halfIconWidth,
+                    centers[index] + halfIconHeight),
                 iconTextures[index], nullptr);
             configure_hd_picture(icon);
             promptGroup->appendChild(icon);
@@ -3367,6 +3543,54 @@ J2DTextBox* copy_metadata_text(J2DPane* group, u64 tag,
     J2DTextBoxHBinding binding, f32 size,
     const JUtility::TColor& color);
 
+void add_file_select_detail_frame(dFile_select_c* menu) {
+    ResTIMG const* frameTexture = resource_texture(s_collectMenuButtonResource);
+    J2DScreen* screen = menu != nullptr ? menu->mSelDt.ScrDt : nullptr;
+    J2DPane* detail = screen != nullptr ?
+        screen->search(MULTI_CHAR('d_win_n')) : nullptr;
+    if (detail == nullptr || frameTexture == nullptr) {
+        return;
+    }
+
+    // Retire the first-pass stretched panel if this function is reached on a
+    // live reconstructed screen. A button texture cannot be scaled to the
+    // presentation's aspect without turning its fill into heavy black rails.
+    if (J2DPane* oldFrame = detail->search(MULTI_CHAR('hd_dtfr'))) {
+        oldFrame->hide();
+    }
+
+    const f32 width = detail->getWidth();
+    const f32 height = detail->getHeight();
+    auto ensureRule = [&](u64 tag, const JGeometry::TBox2<f32>& bounds,
+                          const JUtility::TColor& color, u8 alpha) {
+        auto* rule = as_picture(detail->search(tag));
+        if (rule == nullptr) {
+            rule = JKR_NEW J2DPicture(tag, bounds, frameTexture, nullptr);
+            rule->setTexCoord(rule->getTexture(0), BIND15, MIRROR0, false);
+            detail->insertChild(detail->getFirstChildPane(), rule);
+        }
+        rule->resize(bounds.getWidth(), bounds.getHeight());
+        rule->move(bounds.i.x, bounds.i.y);
+        // Mapping both texture endpoints to one color makes each piece a
+        // clean solid rule while retaining the resource's soft alpha edge.
+        rule->setBlackWhite(color, color);
+        rule->setCornerColor(JUtility::TColor(255, 255, 255, 255));
+        rule->setAlpha(alpha);
+        rule->show();
+    };
+
+    const JUtility::TColor gold(208, 203, 145, 255);
+    const JUtility::TColor inner(145, 145, 132, 255);
+    ensureRule(MULTI_CHAR('hd_dto1'), {-2.5f, -2.5f, width + 2.5f, -1.0f}, gold, 235);
+    ensureRule(MULTI_CHAR('hd_dto2'), {-2.5f, height + 1.0f, width + 2.5f, height + 2.5f}, gold, 235);
+    ensureRule(MULTI_CHAR('hd_dto3'), {-2.5f, -1.0f, -1.0f, height + 1.0f}, gold, 235);
+    ensureRule(MULTI_CHAR('hd_dto4'), {width + 1.0f, -1.0f, width + 2.5f, height + 1.0f}, gold, 235);
+    ensureRule(MULTI_CHAR('hd_dti1'), {-0.75f, -0.75f, width + 0.75f, 0.0f}, inner, 190);
+    ensureRule(MULTI_CHAR('hd_dti2'), {-0.75f, height, width + 0.75f, height + 0.75f}, inner, 190);
+    ensureRule(MULTI_CHAR('hd_dti3'), {-0.75f, 0.0f, 0.0f, height}, inner, 190);
+    ensureRule(MULTI_CHAR('hd_dti4'), {width, 0.0f, width + 0.75f, height}, inner, 190);
+}
+
 void style_file_select_action_buttons(dFile_select_c* menu) {
     ResTIMG const* frameTexture = resource_texture(s_collectMenuButtonResource);
     if (menu == nullptr || frameTexture == nullptr) {
@@ -3379,24 +3603,36 @@ void style_file_select_action_buttons(dFile_select_c* menu) {
     constexpr f32 targetWidth = 142.0f;
     constexpr f32 targetHeight = 26.0f;
 
-    // mDataSelProc and both animation flags can retain their old values across
-    // Dusklight's Reset reconstruction. The freshly restored list title is the
-    // authoritative signal that the three-action pane is closed; without this
-    // guard one cached custom frame is drawn as a black footer rectangle.
-    const u8 titleIndex = menu->mHeaderTxtDispIdx < 2 ?
-        menu->mHeaderTxtDispIdx : 0;
-    auto* displayedTitle = menu->mHeaderTxtPane[titleIndex] != nullptr ?
-        static_cast<J2DTextBox*>(
-            menu->mHeaderTxtPane[titleIndex]->getPanePtr()) : nullptr;
-    const char* displayedTitleText = text_box_string(displayedTitle);
-    const bool showingQuestLogList = displayedTitleText != nullptr &&
-        std::strstr(displayedTitleText, "Choose a Quest Log") != nullptr;
+    // The native procedure is authoritative. The reset artifacts previously
+    // attributed to this screen were the separate w_abase/w_bbase prompt
+    // windows and are now suppressed by exact tag in the main-screen cleanup.
     const bool actionMenuVisible =
-        !showingQuestLogList &&
-        (menu->field_0x0283 || menu->field_0x0360) &&
         (menu->mDataSelProc == dFile_select_c::DATASELPROC_MENU_SELECT ||
             menu->mDataSelProc ==
                 dFile_select_c::DATASELPROC_MENU_SELECT_MOVE_ANM);
+    const bool launchingFromStart =
+        menu->mDataSelProc == dFile_select_c::DATASELPROC_NEXT_MODE_WAIT &&
+        menu->mIsSelectEnd && menu->mSelectMenuNum == 1;
+
+    // Move the complete three-action window, including its clipping pane,
+    // instead of pushing the individual choices outside that window. This
+    // preserves the native reveal animation and keeps the lower row visible.
+    static J2DPane* actionMenuPane = nullptr;
+    static f32 actionMenuBaseX = 0.0f;
+    static f32 actionMenuBaseY = 0.0f;
+    if (menu->m3mMenuPane != nullptr) {
+        if (actionMenuPane != menu->m3mMenuPane) {
+            actionMenuPane = menu->m3mMenuPane;
+            actionMenuBaseX = menu->m3mMenuPane->getTranslateX();
+            actionMenuBaseY = menu->m3mMenuPane->getTranslateY();
+        }
+        if (actionMenuVisible) {
+            menu->m3mMenuPane->show();
+            menu->m3mMenuPane->setAlpha(255);
+            menu->m3mMenuPane->translate(actionMenuBaseX,
+                actionMenuBaseY + 22.0f);
+        }
+    }
 
     for (std::size_t index = 0; index < 3; ++index) {
         J2DPane* group = menu->m3mSelPane[index] != nullptr ?
@@ -3405,15 +3641,25 @@ void style_file_select_action_buttons(dFile_select_c* menu) {
             continue;
         }
 
-        // A Yes/No modal temporarily hides these panes. Restore them once
-        // File Selection returns to its ordinary action-selection state.
-        if (actionMenuVisible) {
+        CPaneMgr* textManager = menu->m3mSelTextPane[index];
+        auto* text = textManager != nullptr ?
+            static_cast<J2DTextBox*>(textManager->getPanePtr()) : nullptr;
+
+        // Yes/No animations leave these managers at zero alpha. The native
+        // procedure returning to MENU_SELECT is the authoritative signal to
+        // restore the complete action row; consulting the stale label alpha
+        // here makes the hidden state self-perpetuating after choosing No.
+        const bool panelDrawable = actionMenuVisible;
+
+        if (panelDrawable) {
+            // Erase -> No restores MENU_SELECT and the cursor, but leaves the
+            // three selection-group managers at zero alpha. A visible child
+            // frame cannot draw through that stale ancestor state.
+            menu->m3mSelPane[index]->show();
+            menu->m3mSelPane[index]->setAlphaRate(1.0f);
+            menu->m3mSelPane[index]->setAlpha(255);
             group->show();
-        } else {
-            // Outside the action submenu the native group can remain visible
-            // after its label and ornaments have faded, which leaves a pair
-            // of unexplained solid black rectangles at the footer.
-            group->hide();
+            group->setAlpha(255);
         }
 
         auto* frame = as_picture(group->search(frameTags[index]));
@@ -3423,14 +3669,9 @@ void style_file_select_action_buttons(dFile_select_c* menu) {
                 frameTexture, nullptr);
             frame->setTexCoord(frame->getTexture(0), BIND15, MIRROR0, false);
             frame->setCornerColor(JUtility::TColor(255, 255, 255, 255));
-            // Insert first so the existing text pane is drawn afterward.
-            // Appending placed the opaque panel over Copy/Start/Erase.
             group->insertChild(group->getFirstChildPane(), frame);
         }
 
-        // The original three-menu artwork stacks bright stone borders,
-        // patterned fills, and selection effects. TPHD reduces each action
-        // to one compact dark panel with a fine gold edge.
         hide_other_pictures(group, frame);
         frame->resize(targetWidth, targetHeight);
         frame->move((group->getWidth() - targetWidth) * 0.5f,
@@ -3442,12 +3683,29 @@ void style_file_select_action_buttons(dFile_select_c* menu) {
             frame->setBlackWhite(JUtility::TColor(8, 8, 6, 255),
                 JUtility::TColor(205, 201, 116, 255));
         }
-        frame->setAlpha(255);
-        frame->show();
+        if (panelDrawable) {
+            frame->setAlpha(255);
+            frame->show();
+        } else {
+            frame->setAlpha(0);
+            frame->hide();
+            frame->resize(1.0f, 1.0f);
+            frame->move(-1000.0f, -1000.0f);
+        }
 
-        auto* text = menu->m3mSelTextPane[index] != nullptr ?
-            static_cast<J2DTextBox*>(menu->m3mSelTextPane[index]->getPanePtr()) : nullptr;
         if (text != nullptr) {
+            // Start removes the action panels before switching to gameplay.
+            // Match the cursor's existing NEXT_MODE_WAIT cutoff so these
+            // labels cannot linger alone during that transition.
+            if (panelDrawable && !launchingFromStart) {
+                textManager->show();
+                textManager->setAlphaRate(1.0f);
+                textManager->setAlpha(255);
+                text->show();
+                text->setAlpha(255);
+            } else {
+                text->setAlpha(0);
+            }
             text->setFontSize(16.0f, 16.0f);
             text->setCharSpace(0.0f);
             const JUtility::TColor textColor =
@@ -3496,6 +3754,7 @@ void style_file_select_action_buttons(dFile_select_c* menu) {
                 }
             }
         }
+
     }
 }
 
@@ -4988,6 +5247,17 @@ void remove_file_select_stonework(dFile_select_c* menu) {
         hide_collect_decoration_texture(menu->fileSel.Scr,
             file_select_archive_texture(menu, textureName));
     }
+
+    // The prompt backplates are J2DWindow panes, not pictures, so the
+    // texture-based prompt cleanup cannot match them. Keep the button discs,
+    // custom Back label, and flourish while suppressing only the two opaque
+    // native rectangles behind the A/B prompts.
+    for (const u64 tag : {
+             MULTI_CHAR('w_abase'), MULTI_CHAR('w_bbase')}) {
+        if (J2DPane* pane = menu->fileSel.Scr->search(tag)) {
+            pane->hide();
+        }
+    }
 }
 
 void apply_file_select_hd_style(dFile_select_c* menu) {
@@ -5016,6 +5286,7 @@ void apply_file_select_hd_style(dFile_select_c* menu) {
     simplify_file_select_numbers(menu);
     style_file_select_metadata(menu);
     update_file_select_row_selection(menu);
+    add_file_select_detail_frame(menu);
     add_file_select_title_rules(menu);
     add_file_select_back_label(menu);
     add_file_select_prompt_flourish(menu);
@@ -5975,8 +6246,12 @@ void restore_archive_face_button_diamond(dMeter2Draw_c* meter) {
 
     restore_archive_pane(meter->mpButtonA);
     restore_archive_pane(meter->mpTextA);
-    if (meter->mpTextA != nullptr) {
-        meter->mpTextA->paneTrans(22.0f, -4.0f);
+if (meter->mpTextA != nullptr) {
+    constexpr f32 kDefaultATextOffsetX = 22.0f;
+    constexpr f32 kEnlargedATextOffsetX = 4.0f;
+        const f32 textOffsetX =
+            hud_scale() > 1.001f ? kEnlargedATextOffsetX : kDefaultATextOffsetX;
+        meter->mpTextA->paneTrans(textOffsetX, -4.0f);
         meter->mpTextA->scale(meter->mpTextA->getInitScaleX() * 1.25f,
             meter->mpTextA->getInitScaleY() * 1.25f);
     }
@@ -6140,12 +6415,14 @@ void apply_wii_u_r_button_art(dMeter2Draw_c* meter) {
 
     const u8 itemNo = dComIfGp_getSelectItem(kZItemSlot);
     const bool itemRingOpen = s_ringZPrompt.ring != nullptr;
+    const bool midnaUsesR = midna_uses_right_shoulder();
     const bool rHudVisible = meter->mpButtonParent != nullptr &&
         meter->mpButtonParent->getPanePtr()->isVisible() &&
         meter->mpButtonParent->getAlphaRate() > 0.01f &&
-        itemNo != dItemNo_NONE_e && itemNo != 0 &&
-        !daPy_py_c::checkNowWolf() &&
-        (!z_item_menu_or_pause_context() || itemRingOpen);
+        (midnaUsesR ||
+            (itemNo != dItemNo_NONE_e && itemNo != 0 &&
+                !daPy_py_c::checkNowWolf() &&
+                (!z_item_menu_or_pause_context() || itemRingOpen)));
 
     if (rHudVisible) {
         meter->mpButtonXY[2]->show();
@@ -6153,8 +6430,15 @@ void apply_wii_u_r_button_art(dMeter2Draw_c* meter) {
             s_wiiURButtonPicture->show();
             s_wiiURButtonPicture->setAlpha(255);
         }
+        if (midnaUsesR) {
+            // Keep the authored R button/pane as the custom-action anchor,
+            // but suppress only the third-slot item artwork it used to own.
+            meter->mpItemR->hide();
+            meter->mpLightXY[2]->hide();
+        }
     } else {
-        meter->mpButtonXY[2]->hide();
+        // mpButtonXY[2] also owns the correctly positioned R button. Leave
+        // that pane available for Call Midna and hide only its old item.
         meter->mpItemR->hide();
         meter->mpLightXY[2]->hide();
         if (s_wiiURButtonPicture != nullptr) {
@@ -6218,6 +6502,13 @@ void apply_wii_u_archive_layout_corrections(dMeter2Draw_c* meter) {
     }
 
     const f32 scale = hud_scale();
+    // Scaling the D-Pad parent also enlarges the vertical distance from its
+    // anchor. At 125% that pulls the top of the TPHD stack back into the life
+    // meter. Compensate only for the amount above 100%, keeping the established
+    // 100% positions unchanged on every platform.
+    const f32 scaleAboveOne = std::max(0.0f, scale - 1.0f);
+    const f32 scaledDpadXOffset = scaleAboveOne * -16.0f;
+    const f32 scaledDpadYOffset = scaleAboveOne * 64.0f;
 
     if (meter->mpButtonParent != nullptr) {
         meter->mpButtonParent->scale(meter->mpButtonParent->getInitScaleX() * scale,
@@ -6229,8 +6520,22 @@ void apply_wii_u_archive_layout_corrections(dMeter2Draw_c* meter) {
     apply_hud_pane_transform(HudPaneSlot::TextZ, meter->mpTextXY[2], true, 31.0f,
         -4.0f, 0.45f);
 
-    apply_hud_pane_transform(HudPaneSlot::DPad, meter->mpButtonCrossParent, true,
-        -24.0f, -307.0f, 1.30f * scale);
+    // Keep both layouts in the transform tracker so changing compatibility at
+    // runtime first restores the archive-authored pose instead of accumulating
+    // one preset on top of the other. Follow mode with an explicit custom
+    // action uses the exact v1.1.1 D-Pad transform; otherwise the TPHD stack
+    // remains the default.
+    if (use_legacy_follow_dpad_layout()) {
+        apply_hud_pane_transform(HudPaneSlot::DPad,
+            meter->mpButtonCrossParent, true, -24.0f + scaledDpadXOffset,
+            -307.0f + scaledDpadYOffset,
+            1.30f * scale);
+    } else {
+        apply_hud_pane_transform(HudPaneSlot::DPad,
+            meter->mpButtonCrossParent, true,
+            -22.0f + scaledDpadXOffset, -282.0f + scaledDpadYOffset,
+            1.62f * scale);
+    }
     apply_hud_pane_transform(HudPaneSlot::Hearts, meter->mpLifeParent, true, -22.0f,
         -19.0f, scale);
     // Keep the icon, frame, and digit layers on their common animated parent.
@@ -6443,10 +6748,95 @@ void draw_wolf_action_icons(dMeter2Draw_c* meter) {
     draw_wolf_icon(meter->mpButtonB, s_attackIconPicture, kAttackIconLayout);
 }
 
+void draw_tphd_map_icon(dMeter2Draw_c* meter) {
+    const bool fixedTphdBindings =
+        controller_compatibility() == ControllerCompatibility::FixedTphd;
+    const DpadDirection mapDirection = fixedTphdBindings ?
+        DpadDirection::Up : follow_dpad_layout().map;
+    if (meter == nullptr || meter->mpScreen == nullptr ||
+        s_tphdMapIconPicture == nullptr || meter->mpButtonCrossParent == nullptr)
+    {
+        return;
+    }
+
+    J2DPane* crossParent = meter->mpButtonCrossParent->getPanePtr();
+    if (crossParent == nullptr || !crossParent->isVisible() ||
+        meter->mpButtonCrossParent->getAlphaRate() <= 0.01f)
+    {
+        return;
+    }
+
+    constexpr u64 dpadTags[] = {
+        MULTI_CHAR('juji_001'), MULTI_CHAR('juji_002'),
+        MULTI_CHAR('juji_003'), MULTI_CHAR('juji_004'),
+    };
+    bool haveBounds = false;
+    f32 left = 0.0f;
+    f32 top = 0.0f;
+    f32 right = 0.0f;
+    f32 bottom = 0.0f;
+    for (const u64 tag : dpadTags) {
+        J2DPane* piece = meter->mpScreen->search(tag);
+        if (piece == nullptr || !piece->isVisible()) {
+            continue;
+        }
+        const Vec pieceTopLeft = piece->getGlbVtx(0);
+        const Vec pieceBottomRight = piece->getGlbVtx(3);
+        if (!haveBounds) {
+            left = pieceTopLeft.x;
+            top = pieceTopLeft.y;
+            right = pieceBottomRight.x;
+            bottom = pieceBottomRight.y;
+            haveBounds = true;
+        } else {
+            left = std::min(left, pieceTopLeft.x);
+            top = std::min(top, pieceTopLeft.y);
+            right = std::max(right, pieceBottomRight.x);
+            bottom = std::max(bottom, pieceBottomRight.y);
+        }
+    }
+    if (!haveBounds || right <= left || bottom <= top) {
+        return;
+    }
+
+    // TPHD's parchment is almost as wide as the cross. Its lower edge sits
+    // across the upper stem instead of floating above it. Deriving both size
+    // and position from the rendered cross keeps that overlap invariant while
+    // Dusklight changes aspect ratio or HUD scale.
+    const f32 crossWidth = right - left;
+    const f32 crossHeight = bottom - top;
+    const f32 iconWidth = crossWidth * 0.88f;
+    const f32 iconHeight = iconWidth * (104.0f / 128.0f);
+    f32 iconX = (left + right - iconWidth) * 0.5f;
+    f32 iconY = top - iconHeight + crossHeight * 0.27f;
+    if (mapDirection == DpadDirection::Right) {
+        iconX = right - crossWidth * 0.05f;
+        iconY = (top + bottom - iconHeight) * 0.5f;
+    }
+    const f32 alphaRate = meter->mpButtonCrossParent->getAlphaRate();
+    s_tphdMapIconPicture->setAlpha(static_cast<u8>(255.0f * alphaRate));
+    s_tphdMapIconPicture->draw(iconX, iconY, iconWidth, iconHeight,
+        false, false, false);
+}
+
 
 void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
     if (meter == nullptr || meter->mpScreen == nullptr) {
         return;
+    }
+
+    const u8 hudAlpha = meter->mpLifeParent != nullptr ?
+        meter->mpLifeParent->getAlpha() : 255;
+    if (meter->mpButtonCrossParent != nullptr) {
+        // The stock D-Pad begins its own entrance animation before the rest of
+        // the gameplay HUD. TPHD brings the cluster in as one unit, so borrow
+        // the hearts' common HUD fade while retaining the cross's own anchor.
+        meter->mpButtonCrossParent->setAlpha(hudAlpha);
+        if (hudAlpha == 0) {
+            meter->mpButtonCrossParent->hide();
+        } else {
+            meter->mpButtonCrossParent->show();
+        }
     }
 
     // Recolor the stock D-Pad without changing its artwork or geometry. Its
@@ -6459,7 +6849,15 @@ void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
     const bool blackPro = button_style() == ButtonStyle::BlackPro;
     for (const u64 tag : dpadTags) {
         if (J2DPane* piece = meter->mpScreen->search(tag)) {
-            piece->show();
+            if (hudAlpha == 0) {
+                piece->hide();
+            } else {
+                piece->show();
+            }
+            // The individual directions carry stock pulse animation. TPHD
+            // presents them as one steady white cross; retain only the common
+            // parent's HUD fade.
+            piece->setAlpha(255);
             if (J2DPicture* picture = as_picture(piece)) {
                 picture->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
                     blackPro ? JUtility::TColor(112, 117, 124, 255)
@@ -6495,20 +6893,29 @@ void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
     // Keep the font these layered text panes were authored for so their outline
     // copies stay registered. A compact group scale gives the lighter Wii U
     // presentation without creating separated black shadows.
+    const bool legacyFollowLayout = use_legacy_follow_dpad_layout();
+    const f32 textScale = legacyFollowLayout ? 0.42f : 0.30f;
     if (meter->mpTextI != nullptr) {
-        meter->mpTextI->scale(0.42f, 0.42f);
+        meter->mpTextI->scale(textScale, textScale);
         // In Follow mode, mirror the user's Call Midna assignment. The stock
         // Items row is above the cross; move it below only while Midna is not
         // assigned to D-Pad Down.
-        constexpr f32 upperRowOffsetY = 15.0f;
-        constexpr f32 lowerRowOffsetY = 46.0f;
+        const f32 upperRowOffsetY = legacyFollowLayout ? 15.0f : 8.0f;
+        const f32 lowerRowOffsetY = legacyFollowLayout ? 46.0f : 42.0f;
         meter->mpTextI->paneTrans(0.0f,
             midna_uses_dpad_down() ? upperRowOffsetY : lowerRowOffsetY);
     }
     if (meter->mpTextM != nullptr) {
-        meter->mpTextM->scale(0.42f, 0.42f);
-        meter->mpTextM->paneTrans(-11.0f, 0.0f);
+        meter->mpTextM->scale(textScale, textScale);
+        // TPHD places the full "Minimap" label immediately to the right of
+        // the cross.  Do not pull this group back over the D-Pad.
+        meter->mpTextM->paneTrans(
+            legacyFollowLayout ? -11.0f : -13.0f,
+            legacyFollowLayout ? 0.0f : 1.5f);
     }
+    const bool followMidnaOwnsDown =
+        controller_compatibility() == ControllerCompatibility::FollowDusklight &&
+        follow_dpad_layout().midna == DpadDirection::Down;
     constexpr u64 textTags[] = {
         MULTI_CHAR('cont_ju0'), MULTI_CHAR('cont_ju1'), MULTI_CHAR('cont_ju2'),
         MULTI_CHAR('cont_ju3'), MULTI_CHAR('cont_ju4'), MULTI_CHAR('cont_ju5'),
@@ -6538,11 +6945,39 @@ void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
             text->setFontSize(actionFontSize);
             text->setCharSpace(actionText->getCharSpace());
             text->setLineSpace(actionText->getLineSpace());
-            const char* label = destination < 5 ? "Items" : "Map";
+            // With Midna on Down, Left remains a deliberately unlabeled
+            // minimap toggle and the existing right-side group labels Items.
+            const char* label = destination < 5 || followMidnaOwnsDown ?
+                "Items" : "Minimap";
             const char* currentLabel = text_box_string(text);
             if (currentLabel == nullptr || std::strcmp(currentLabel, label) != 0) {
                 text->setString(0x40, label);
             }
+            if (destination >= 5) {
+                const JGeometry::TBox2<f32> bounds = text->getBounds();
+                text->resize(96.0f, bounds.getHeight());
+            }
+        }
+    }
+
+    // A Follow-mode Midna assignment on Right gives that direction wholly to
+    // Midna. Up then owns the combined parchment control, so the standalone
+    // Minimap label must not remain underneath her icon.
+    if (meter->mpTextI != nullptr) {
+        if (followMidnaOwnsDown) {
+            meter->mpTextI->hide();
+        } else {
+            meter->mpTextI->show();
+        }
+    }
+    if (meter->mpTextM != nullptr) {
+        const bool midnaOwnsRight =
+            controller_compatibility() == ControllerCompatibility::FollowDusklight &&
+            follow_dpad_layout().midna == DpadDirection::Right;
+        if (midnaOwnsRight) {
+            meter->mpTextM->hide();
+        } else {
+            meter->mpTextM->show();
         }
     }
 }
@@ -6836,7 +7271,7 @@ void draw_ring_z_prompt(dMenu_Ring_c* ring) {
     // The third assignment target is R.  Do not reuse the helper screen's
     // GameCube Z pane here: keeping that pane collapsed is what prevents the
     // detached white orb and standalone Z from returning.
-    if (s_ringZPrompt.buttonR != nullptr) {
+    if (s_ringZPrompt.buttonR != nullptr && !midna_uses_right_shoulder()) {
         J2DPane* rAnchor = ring->mpScreen->search(MULTI_CHAR('r_btn_n'));
         if (rAnchor != nullptr) {
             CPaneMgr rPaneMgr;
@@ -6919,35 +7354,6 @@ bool add_pane_current_global_bounds(CPaneMgr* pane, f32& left, f32& top, f32& ri
     top = std::min(top, paneTop);
     bottom = std::max(bottom, paneBottom);
     return true;
-}
-
-void pane_trans_to_global_center(CPaneMgr* pane, const f32 targetX, const f32 targetY) {
-    f32 transX = targetX - pane->getInitGlobalCenterPosX();
-    f32 transY = targetY - pane->getInitGlobalCenterPosY();
-    pane->paneTrans(transX, transY);
-
-    f32 left;
-    f32 top;
-    f32 right;
-    f32 bottom;
-    if (!pane_current_global_bounds(pane, left, top, right, bottom)) {
-        return;
-    }
-
-    const f32 centerX = (left + right) * 0.5f;
-    const f32 centerY = (top + bottom) * 0.5f;
-    const f32 localWidth = pane->getSizeX();
-    const f32 localHeight = pane->getSizeY();
-    const f32 globalScaleX = localWidth != 0.0f ? (right - left) / localWidth : 1.0f;
-    const f32 globalScaleY = localHeight != 0.0f ? (bottom - top) / localHeight : 1.0f;
-
-    if (globalScaleX != 0.0f) {
-        transX += (targetX - centerX) / globalScaleX;
-    }
-    if (globalScaleY != 0.0f) {
-        transY += (targetY - centerY) / globalScaleY;
-    }
-    pane->paneTrans(transX, transY);
 }
 
 bool is_hud_bow_combo(const u8 itemNo) {
@@ -7364,6 +7770,22 @@ void update_z_hud_item(dMeter2Draw_c* meter) {
         return;
     }
 
+    if (midna_uses_right_shoulder()) {
+        // An explicit Follow-Dusklight Call Midna assignment owns physical R.
+        // Preserve the third-slot data for any separately mapped logical Z
+        // control, but do not advertise R or draw its item as a second action.
+        J2DPane* itemParent = meter->mpScreen != nullptr ?
+            meter->mpScreen->search(MULTI_CHAR('item_r_n')) : nullptr;
+        if (itemParent != nullptr) {
+            itemParent->hide();
+        }
+        meter->mpButtonXY[2]->hide();
+        meter->mpItemR->hide();
+        meter->mpLightXY[2]->hide();
+        dMeter2Info_offUseButton(METER2_USEBUTTON_Z);
+        return;
+    }
+
     if (daPy_py_c::checkNowWolf()) {
         // The stock HUD reuses these panes while Link transforms. Reload both
         // item layers when the human HUD returns, even if the selected item did
@@ -7414,12 +7836,74 @@ void position_midna_hud(dMeter2Draw_c* meter) {
         return;
     }
 
-    // The standalone L badge does not participate reliably in the stock HUD's
-    // visibility path. Attach Midna to the D-Pad group and mirror the user's
-    // Call Midna direction when Follow Dusklight Bindings is active.
-    J2DPane* anchorPane = meter->mpScreen->search(MULTI_CHAR('juji_n'));
-    constexpr f32 positionX = 8.0f;
-    const f32 positionY = midna_uses_dpad_down() ? 25.0f : -21.0f;
+    const bool fixedTphdBindings =
+        controller_compatibility() == ControllerCompatibility::FixedTphd;
+    const int configuredButton = fixedTphdBindings ?
+        PAD_NATIVE_BUTTON_INVALID : midna_native_button();
+    // Follow mode means explicit Dusklight custom actions override the TPHD
+    // defaults. An unassigned custom action therefore keeps Call Midna on L.
+    const int nativeButton = configuredButton == PAD_NATIVE_BUTTON_INVALID ?
+        kSdlLeftShoulderButton : configuredButton;
+
+    const bool legacyFollowLayout = use_legacy_follow_dpad_layout();
+    J2DPane* anchorPane = nullptr;
+    f32 positionX = 9.0f;
+    f32 positionY = -34.0f;
+    constexpr f32 dpadVisualScale = 1.62f;
+    f32 parentScale = dpadVisualScale;
+    bool ignoreAnchorAlpha = false;
+
+    if (nativeButton == kSdlLeftShoulderButton) {
+        // Share the aspect-ratio-aware D-Pad anchor so resizing cannot move
+        // Midna independently. Disable inherited alpha below so the D-Pad's
+        // stock pulse/fade still cannot hide the fixed L prompt.
+        anchorPane = meter->mpScreen->search(MULTI_CHAR('juji_n'));
+        positionX = 9.0f;
+        positionY = -32.0f;
+        parentScale = dpadVisualScale;
+        ignoreAnchorAlpha = true;
+    } else if (nativeButton == kSdlRightShoulderButton &&
+        meter->mpButtonXY[2] != nullptr)
+    {
+        // Mount directly in the transformed native R pane. This preserves the
+        // exact v1.1.1 upper-right position at every aspect ratio and avoids
+        // translating coordinates between unrelated HUD parents.
+        anchorPane = meter->mpButtonXY[2]->getPanePtr();
+        positionX = 0.0f;
+        positionY = -30.0f;
+        parentScale = 0.45f;
+    } else {
+        anchorPane = meter->mpScreen->search(MULTI_CHAR('juji_n'));
+        if (legacyFollowLayout) {
+            // Place Midna on the direction owned by the live Dusklight action
+            // instead of collapsing every non-Down assignment onto Up.
+            switch (dpad_direction_for_native_button(nativeButton)) {
+            case DpadDirection::Up:
+                positionX = 8.0f;
+                positionY = -21.0f;
+                break;
+            case DpadDirection::Down:
+                positionX = 8.0f;
+                positionY = 25.0f;
+                break;
+            case DpadDirection::Left:
+                positionX = -19.0f;
+                positionY = 2.0f;
+                break;
+            case DpadDirection::Right:
+                positionX = 35.0f;
+                positionY = 2.0f;
+                break;
+            default:
+                positionX = 8.0f;
+                positionY = -21.0f;
+                break;
+            }
+            parentScale = 1.30f;
+        } else {
+            positionY = midna_uses_dpad_down() ? 25.0f : -34.0f;
+        }
+    }
 
     if (anchorPane == nullptr) {
         return;
@@ -7427,17 +7911,107 @@ void position_midna_hud(dMeter2Draw_c* meter) {
 
     if (midnaPane->getParentPane() != anchorPane) {
         anchorPane->appendChild(midnaPane);
-        set_pane_influenced_alpha_tree(midnaPane, true);
     }
+    set_pane_influenced_alpha_tree(midnaPane, !ignoreAnchorAlpha);
 
-    // Counter the larger D-Pad parent so Midna retains her existing visual size.
-    const f32 scale = g_drawHIO.mMidnaIconScale * (0.95f / 1.30f);
+    // Counter the selected anchor's parent scaling so Midna retains a stable
+    // visual size when HUD Size or the D-Pad scale changes.
+    const f32 midnaVisualScale = legacyFollowLayout &&
+        nativeButton != kSdlLeftShoulderButton &&
+        nativeButton != kSdlRightShoulderButton ? 0.95f : 0.72f;
+    const f32 scale = g_drawHIO.mMidnaIconScale *
+        (midnaVisualScale / parentScale);
     midnaPane->scale(scale, scale);
     midnaPane->move(positionX, positionY);
 
-    const u8 anchorAlpha = anchorPane->getAlpha();
-    set_pane_tree_alpha_visible(
-        midnaPane, anchorPane->isVisible() && anchorAlpha > 0, anchorAlpha);
+    const u8 anchorAlpha = ignoreAnchorAlpha && meter->mpLifeParent != nullptr ?
+        meter->mpLifeParent->getAlpha() : anchorPane->getAlpha();
+    set_pane_tree_alpha_visible(midnaPane,
+        anchorPane->isVisible() && anchorAlpha > 0,
+        anchorAlpha);
+}
+
+void update_midna_shoulder_badge(dMeter2Draw_c* meter) {
+    if (meter == nullptr || meter->mpScreen == nullptr) {
+        return;
+    }
+
+    constexpr u64 badgeTag = MULTI_CHAR('hd_mbtn');
+    J2DPane* existingBadge = meter->mpScreen->search(badgeTag);
+    if (!midna_unlocked() || z_item_menu_or_pause_context() ||
+        s_fileSelectScreenActive)
+    {
+        if (existingBadge != nullptr) {
+            existingBadge->hide();
+        }
+        return;
+    }
+
+    const bool fixedTphdBindings =
+        controller_compatibility() == ControllerCompatibility::FixedTphd;
+    const int configuredButton = fixedTphdBindings ?
+        PAD_NATIVE_BUTTON_INVALID : midna_native_button();
+    const int nativeButton = configuredButton == PAD_NATIVE_BUTTON_INVALID ?
+        kSdlLeftShoulderButton : configuredButton;
+    // R uses the archive-authored R picture in its native pane. The synthetic
+    // shoulder badge is needed only for the new L presentation.
+    ResTIMG const* texture = nativeButton == kSdlLeftShoulderButton ?
+        styled_l_button_texture() : nullptr;
+    J2DPane* midnaPane = meter->mpScreen->search(MULTI_CHAR('midona_n'));
+    if (texture == nullptr || midnaPane == nullptr || !midnaPane->isVisible() ||
+        midnaPane->getAlpha() == 0)
+    {
+        if (existingBadge != nullptr) {
+            existingBadge->hide();
+        }
+        return;
+    }
+
+    auto* badge = as_picture(existingBadge);
+    constexpr f32 badgeSize = 28.0f;
+    constexpr f32 effectiveMidnaScale = 0.72f;
+    const f32 localSize = badgeSize / effectiveMidnaScale;
+    // This picture is now a child of Midna's pane, whose authored visible
+    // art sits below the pane's geometric center. Compensate in local space
+    // so the cap lands beneath the face while Midna remains the top layer.
+    const f32 localOffsetY = 26.0f / effectiveMidnaScale;
+    const JGeometry::TBox2<f32> midnaBounds = midnaPane->getBounds();
+    // The visible Midna art is authored right of this pane's geometric
+    // center. Pull the shoulder cap back beneath the visible mask rather than
+    // centering it on the larger transparent pane bounds.
+    const f32 centerX = (midnaBounds.i.x + midnaBounds.f.x) * 0.5f -
+        (7.5f / effectiveMidnaScale);
+    const f32 centerY = (midnaBounds.i.y + midnaBounds.f.y) * 0.5f;
+
+    if (badge == nullptr) {
+        badge = JKR_NEW J2DPicture(badgeTag,
+            JGeometry::TBox2<f32>(
+                centerX - localSize * 0.5f,
+                centerY + localOffsetY - localSize * 0.5f,
+                centerX + localSize * 0.5f,
+                centerY + localOffsetY + localSize * 0.5f),
+            texture, nullptr);
+        if (badge == nullptr) {
+            return;
+        }
+
+        // Make the cap Midna's first child. The stock Midna picture children
+        // then draw afterward, placing her artwork above the overlapping cap.
+        if (J2DPane* firstChild = midnaPane->getFirstChildPane()) {
+            midnaPane->insertChild(firstChild, badge);
+        } else {
+            midnaPane->appendChild(badge);
+        }
+        badge->setInfluencedAlpha(true, true);
+    } else {
+        badge->changeTexture(texture, 0);
+        badge->resize(localSize, localSize);
+        badge->move(centerX - localSize * 0.5f,
+            centerY + localOffsetY - localSize * 0.5f);
+    }
+
+    badge->setAlpha(255);
+    badge->show();
 }
 
 bool z_item_menu_or_pause_context() {
@@ -7933,11 +8507,88 @@ void after_pad_read(ModContext*, void*, void*, void*) {
     const bool fixedTphdBindings =
         controller_compatibility() == ControllerCompatibility::FixedTphd;
 
+    const bool fixedMidnaAvailable = use_tphd_midna_binding() &&
+        !z_item_menu_or_pause_context();
+
+    // Capture the translated trigger bits before suppressing their GameCube
+    // behavior. Dusklight's touch-controls pass clears virtual action binds
+    // later in this frame, so the map hook consumes these canonical triggers
+    // directly instead of racing that synchronization.
+    const bool fixedMapAvailable = use_tphd_dpad_map_bindings() &&
+        !z_item_menu_or_pause_context();
+    const FollowDpadLayout followLayout = follow_dpad_layout();
+    const u32 mapMask = fixedTphdBindings ? PAD_BUTTON_UP :
+        game_button_for_dpad_direction(followLayout.map);
+    const u32 minimapMask = fixedTphdBindings ?
+        (PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT) :
+        game_button_for_dpad_direction(followLayout.minimap);
+    const u32 itemsMask = fixedTphdBindings ? PAD_BUTTON_DOWN :
+        game_button_for_dpad_direction(followLayout.items);
+    const u32 originalHeld = pad.mButtonFlags;
+    const u32 originalPressed = pad.mPressedButtonFlags;
+    const bool combinedMapAndMinimap = !fixedTphdBindings &&
+        followLayout.combinedMapAndMinimap;
+    s_combinedMapMinimapTrig = fixedMapAvailable &&
+        combinedMapAndMinimap && (originalPressed & mapMask) != 0;
+    s_fixedOpenMapTrig = fixedMapAvailable && !combinedMapAndMinimap &&
+        (originalPressed & mapMask) != 0;
+    s_fixedToggleMinimapTrig = fixedMapAvailable && !combinedMapAndMinimap &&
+        (originalPressed & minimapMask) != 0;
+
+    // The fixed TPHD actions above consume these directions during gameplay.
+    // Remove the original GameCube directions so Up cannot also open the item
+    // ring and Left/Right cannot leak into unrelated native handling.
+    // Preserve native behavior if Dusklight's virtual-action API is ever
+    // unavailable instead of leaving the physical directions inert.
+    if (fixedMapAvailable) {
+        const u32 consumedMapMask = mapMask | minimapMask;
+        pad.mButtonFlags &= ~consumedMapMask;
+        pad.mPressedButtonFlags &= ~consumedMapMask;
+
+    }
+
+    // When Midna owns Down in Follow mode, move the native Items action to
+    // the layout's free horizontal direction without changing Dusklight's
+    // controller profile. Keep that translation active while the item ring is
+    // open so the same physical direction can close it again. Other pause
+    // screens retain their native D-Pad behavior.
+    const u8 windowStatus = dMeter2Info_getWindowStatus();
+    const bool followItemsAvailable = !fixedTphdBindings &&
+        itemsMask != PAD_BUTTON_DOWN &&
+        (windowStatus == 0 || windowStatus == 2);
+    if (followItemsAvailable) {
+        pad.mButtonFlags &= ~itemsMask;
+        pad.mPressedButtonFlags &= ~itemsMask;
+        if ((originalHeld & itemsMask) != 0) {
+            pad.mButtonFlags |= PAD_BUTTON_DOWN;
+        }
+        if ((originalPressed & itemsMask) != 0) {
+            pad.mPressedButtonFlags |= PAD_BUTTON_DOWN;
+        }
+    }
+    const bool leftShoulderHeld = fixedMidnaAvailable &&
+        physical_button_held(kSdlLeftShoulderButton);
+    s_fixedMidnaTrig = leftShoulderHeld && !s_fixedMidnaHeld;
+    s_fixedMidnaHeld = leftShoulderHeld;
+
+    // Fixed mode owns physical L outright during gameplay. Remove whatever
+    // logical button the active profile assigned to that shoulder before the
+    // TPHD ZL/ZR reconstruction below restores the two physical triggers.
+    if (fixedMidnaAvailable) {
+        const u32 fixedMidnaMask =
+            game_button_mask_for_native(kSdlLeftShoulderButton);
+        pad.mButtonFlags &= ~fixedMidnaMask;
+        pad.mPressedButtonFlags &= ~fixedMidnaMask;
+    }
+
     // Read R/R1 as a physical shoulder button rather than copying all logical
     // GameCube R input into the item slot. This keeps the shoulder item and
     // the ZR trigger distinct even when a profile maps both through related
     // GameCube shoulder controls.
-    const bool rightShoulderHeld = physical_button_held(kSdlRightShoulderButton);
+    const bool physicalRightShoulderHeld =
+        physical_button_held(kSdlRightShoulderButton);
+    const bool rightShoulderHeld =
+        physicalRightShoulderHeld && !midna_uses_right_shoulder();
     s_rightShoulderTrig = rightShoulderHeld && !s_rightShoulderHeld;
     s_rightShoulderHeld = rightShoulderHeld;
 
@@ -7946,8 +8597,7 @@ void after_pad_read(ModContext*, void*, void*, void*) {
     s_fixedZlTrig = physicalZlHeld && !s_fixedZlHeld;
     s_fixedZlHeld = physicalZlHeld;
 
-    const bool physicalZrHeld = fixedTphdBindings &&
-        physical_axis_held(kSdlRightTriggerAxis);
+    const bool physicalZrHeld = physical_axis_held(kSdlRightTriggerAxis);
     s_fixedZrTrig = physicalZrHeld && !s_fixedZrHeld;
     s_fixedZrHeld = physicalZrHeld;
 
@@ -7984,10 +8634,11 @@ void after_pad_read(ModContext*, void*, void*, void*) {
         }
     }
 
-    // If the active profile maps R/R1 to logical GameCube R, reserve that
-    // particular press for the third item. A true ZR trigger remains logical
-    // R and is still visible to Dusklight's R+X/R+Y combinations.
-    if (!fixedTphdBindings && rightShoulderHeld) {
+    // In Follow mode physical R is reserved either for the mod's third-item
+    // shortcut or for an explicit Call Midna assignment. Remove any logical
+    // GameCube R translated from that same shoulder in both cases. A true ZR
+    // trigger remains logical R and is still available to combo actions.
+    if (!fixedTphdBindings && physicalRightShoulderHeld) {
         pad.mButtonFlags &= ~PAD_TRIGGER_R;
         pad.mPressedButtonFlags &= ~PAD_TRIGGER_R;
         pad.mTriggerRight = 0.0f;
@@ -7995,21 +8646,102 @@ void after_pad_read(ModContext*, void*, void*, void*) {
         pad.mTrigLockR = false;
     }
 
-    if (z_item_menu_or_pause_context() ||
-        !fixedTphdBindings)
-    {
-        s_dpadMidnaHeld = false;
-        s_dpadMidnaTrig = false;
-        return;
+    // Follow mode normally trusts the active profile's logical R state. Some
+    // SDL profiles (including the AYN's current Xbox profile) map R1 directly
+    // to logical R while ZR arrives only through the analog trigger axis. Add
+    // the physical ZR edge back after R1 isolation so bow arrow cycling and
+    // other aiming actions cannot be lost. The Fixed-mode reconstruction above
+    // is intentionally unchanged.
+    if (!fixedTphdBindings && physicalZrHeld) {
+        pad.mButtonFlags |= PAD_TRIGGER_R;
+        pad.mTriggerRight = 1.0f;
+        pad.mHoldLockR = true;
+        if (s_fixedZrTrig) {
+            pad.mPressedButtonFlags |= PAD_TRIGGER_R;
+            pad.mTrigLockR = true;
+        }
     }
 
-    s_dpadMidnaHeld = (pad.mButtonFlags & PAD_BUTTON_UP) != 0;
-    s_dpadMidnaTrig = (pad.mPressedButtonFlags & PAD_BUTTON_UP) != 0;
+}
+
+HookAction before_meter_map_ctrl_show(ModContext*, void* args, void*, void*) {
+    auto* map = mods::arg<dMeterMap_c*>(args, 0);
+    if (map == nullptr || !use_tphd_dpad_map_bindings())
+    {
+        return HOOK_CONTINUE;
+    }
+
+    // Dusklight has already sampled custom actions before this hook runs. If
+    // Follow mode assigned Midna to a D-Pad direction, consume the original
+    // map controller for that trigger frame so the same physical press cannot
+    // also fall through to the GameCube map key handler.
+    const bool followMidnaDpadTrigger =
+        controller_compatibility() == ControllerCompatibility::FollowDusklight &&
+        follow_dpad_layout().midna != DpadDirection::None &&
+        midna_action_triggered();
+
+    const bool openMap = s_fixedOpenMapTrig;
+    const bool toggleMinimap = s_fixedToggleMinimapTrig;
+    const bool combinedMapMinimap = s_combinedMapMinimapTrig;
+    s_fixedOpenMapTrig = false;
+    s_fixedToggleMinimapTrig = false;
+    s_combinedMapMinimapTrig = false;
+
+    const u8 mapStatus = dMeter2Info_getMapStatus();
+    const bool idleMapState = mapStatus == 0 || mapStatus == 1;
+    const bool resolvedOpenMap = openMap || (combinedMapMinimap && mapStatus == 1);
+    const bool resolvedToggleMinimap = toggleMinimap ||
+        (combinedMapMinimap && mapStatus == 0);
+    if (resolvedOpenMap && !map->isEventRunCheck() && idleMapState &&
+        !dMeter2Info_isSub2DStatus(1) &&
+        (dMeterMap_c::isFmapScreen() || dMeterMap_c::isDmapScreen()))
+    {
+        dMeter2Info_setMapStatus(2);
+        dMeter2Info_setMapKeyDirection(0x400);
+        Z2GetAudioMgr()->seStart(Z2SE_SY_MAP_OPEN_S, nullptr, 0, 0,
+            1.0f, 1.0f, -1.0f, -1.0f, 0);
+        dMeter2Info_set2DVibration();
+    } else if (resolvedToggleMinimap && !map->isEventRunCheck() && idleMapState &&
+        dMeterMap_c::isEnableDispMapAndMapDispSizeTypeNo())
+    {
+        if (map->isDispPosInsideFlg()) {
+            map->setDispPosOutsideFlg_SE_On();
+            Z2GetAudioMgr()->seStart(Z2SE_SY_MAP_CLOSE_S, nullptr, 0, 0,
+                1.0f, 1.0f, -1.0f, -1.0f, 0);
+            dMeter2Info_setMapStatus(0);
+        } else {
+            map->setDispPosInsideFlg_SE_On();
+            Z2GetAudioMgr()->seStart(Z2SE_SY_MAP_OPEN_S, nullptr, 0, 0,
+                1.0f, 1.0f, -1.0f, -1.0f, 0);
+            dMeter2Info_set2DVibration();
+            dMeter2Info_setMapStatus(1);
+        }
+    }
+
+    // Dusklight also evaluates its configured custom actions in the original
+    // ctrlShowMap call. If (for example) Open Map is configured on D-Pad Right,
+    // continuing here would immediately override our TPHD Right=minimap
+    // behavior with a full-map open. We have fully consumed this directional
+    // trigger, so suppress only this one original input-processing frame.
+    return (openMap || toggleMinimap || combinedMapMinimap ||
+        followMidnaDpadTrigger) ?
+        HOOK_SKIP_ORIGINAL : HOOK_CONTINUE;
 }
 
 void after_set_stick_data(ModContext*, void* args, void*, void*) {
     auto* link = mods::arg<daAlink_c*>(args, 0);
     if (link == nullptr || z_item_menu_or_pause_context()) {
+        return;
+    }
+
+    // Physical R is normally the mod's injected third-item shortcut. An
+    // explicit Follow-Dusklight Midna-on-R assignment reserves that shoulder
+    // for Midna for the full hold, not only its trigger frame.
+    if (midna_uses_right_shoulder() &&
+        physical_button_held(kSdlRightShoulderButton))
+    {
+        link->mItemTrigger &= ~daAlink_c::BTN_Z;
+        link->mItemButton &= ~daAlink_c::BTN_Z;
         return;
     }
 
@@ -8352,6 +9084,7 @@ HookAction before_option_draw_arrows(ModContext*, void* args, void*, void*) {
 
 void after_file_select_create(ModContext*, void* args, void*, void*) {
     s_activeFileSelect = mods::arg<dFile_select_c*>(args, 0);
+    s_fileSelectScreenActive = true;
     s_fileSelectYesNoLayoutReady = false;
     apply_file_select_hd_style(s_activeFileSelect);
 }
@@ -8365,6 +9098,14 @@ void after_file_select_move(ModContext*, void* args, void*, void*) {
 
 HookAction before_file_select_draw(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dFile_select_c*>(args, 0);
+    s_fileSelectScreenActive = true;
+    if (menu->mDataSelProc == dFile_select_c::DATASELPROC_NEXT_MODE_WAIT &&
+        menu->mIsSelectEnd)
+    {
+        // The next Meter draw belongs to gameplay, not File Selection.
+        s_fileSelectScreenActive = false;
+        s_activeFileSelect = nullptr;
+    }
     // Dusklight's Reset command reconstructs several archive panes without
     // constructing a new dFile_select_c. Reapply only idempotent styling here
     // so the reset path cannot restore native lines, panels, or row artwork.
@@ -8385,6 +9126,7 @@ HookAction before_file_select_draw(ModContext*, void* args, void*, void*) {
     style_file_select_dynamic_text(menu);
     style_file_select_metadata(menu);
     position_file_select_prompts(menu);
+    add_file_select_detail_frame(menu);
     style_file_select_action_buttons(menu);
     update_file_select_row_selection(menu);
     style_copy_destination_screen(menu);
@@ -8409,6 +9151,16 @@ void after_file_select_main_draw(ModContext*, void*, void*, void*) {
     if (s_descenderCorrectionDrawDepth > 0) {
         --s_descenderCorrectionDrawDepth;
     }
+}
+
+HookAction before_file_select_action_draw(ModContext*, void*, void*, void*) {
+    // File Selection queues the three-action screen after its own _draw pass.
+    // Reset can mutate visibility while assembling that queue, so make the
+    // final show/hide and collapse decision immediately before Scr3m draws.
+    if (s_activeFileSelect != nullptr) {
+        style_file_select_action_buttons(s_activeFileSelect);
+    }
+    return HOOK_CONTINUE;
 }
 
 void after_save_menu_screen_set(ModContext*, void* args, void*, void*) {
@@ -8692,6 +9444,7 @@ void apply_context_button_layout(dMeterButton_c* buttons) {
         s_contextRPictureStateCount = 0;
         s_contextRButtonUsesZr = false;
     }
+
 }
 
 void hide_ring_stock_z_prompt(dMeter2Draw_c* meter) {
@@ -8776,6 +9529,8 @@ HookAction before_meter_draw(ModContext*, void* args, void*, void*) {
         }
     }
     apply_wii_u_dpad_style(meter);
+    position_midna_hud(meter);
+    update_midna_shoulder_badge(meter);
     apply_hud_backing_visibility(meter);
     hide_ring_stock_z_prompt(meter);
     return HOOK_CONTINUE;
@@ -8790,6 +9545,7 @@ void after_meter_draw(ModContext*, void* args, void*, void*) {
         draw_uniform_rupee_digits(meter);
     }
     draw_wolf_action_icons(meter);
+    draw_tphd_map_icon(meter);
 }
 
 void after_meter_draw_button_z(ModContext*, void* args, void*, void*) {
@@ -8925,7 +9681,7 @@ HookAction before_midna_talk_trigger(ModContext*, void* args, void* retval, void
     }
 
     *static_cast<BOOL*>(retval) =
-        s_dpadMidnaTrig || midna_action_triggered() || consume_touch_midna_trigger();
+        s_fixedMidnaTrig || midna_action_triggered() || consume_touch_midna_trigger();
     return HOOK_SKIP_ORIGINAL;
 }
 
@@ -8958,9 +9714,11 @@ HookAction before_menu_window_execute(ModContext*, void*, void*, void*) {
 
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
     u32 suppressMask = 0;
-    if (controller_compatibility() == ControllerCompatibility::FixedTphd) {
-        // Fixed Bindings reserves Up for Midna.
-        suppressMask = PAD_BUTTON_UP;
+    if (use_tphd_midna_binding()) {
+        // Fixed mode and an unassigned Follow-mode Call Midna action both use
+        // the TPHD default: physical L. An explicit Dusklight action below is
+        // the only thing that replaces this default.
+        suppressMask = game_button_mask_for_native(kSdlLeftShoulderButton);
     } else if (midna_action_triggered()) {
         // Follow mode leaves the controller profile untouched. When its Call
         // Midna action fires, suppress the normal game button fed by that same
@@ -9274,6 +10032,8 @@ void initialize_wolf_action_icons() {
         s_digIconResource, s_digIconPicture);
     load_picture("hud/wolf_actions/attack.bti", "Unable to load the Attack HUD icon",
         s_attackIconResource, s_attackIconPicture);
+    load_picture("hud/tphd-map-icon.bti", "Unable to load the TPHD map HUD icon",
+        s_tphdMapIconResource, s_tphdMapIconPicture);
 }
 
 void initialize_face_button_textures() {
@@ -9337,6 +10097,16 @@ void initialize_face_button_textures() {
             }
         }
     }
+    constexpr const char* playStationL1Paths[2] = {
+        "hud/shoulder-button-ps-l1.bti",
+        "hud/shoulder-button-ps-l1-black-pro.bti",
+    };
+    for (std::size_t style = 0; style < 2; ++style) {
+        if (svc_resource->load(mod_ctx, playStationL1Paths[style],
+                &s_playStationL1ButtonResources[style]) != MOD_OK) {
+            svc_log->warn(mod_ctx, "Unable to load a PlayStation L1 button texture");
+        }
+    }
     if (svc_resource->load(mod_ctx, "hud/face-button-blank-black-pro.bti",
             &s_blackProBlankFaceButtonResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the blank Black Pro button texture");
@@ -9344,6 +10114,14 @@ void initialize_face_button_textures() {
     if (svc_resource->load(mod_ctx, "hud/shoulder-button-r-black-pro.bti",
             &s_blackProShoulderButtonResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the Black Pro R button texture");
+    }
+    if (svc_resource->load(mod_ctx, "hud/shoulder-button-l.bti",
+            &s_lShoulderButtonResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the L button texture");
+    }
+    if (svc_resource->load(mod_ctx, "hud/shoulder-button-l-black-pro.bti",
+            &s_blackProLShoulderButtonResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Black Pro L button texture");
     }
     if (svc_resource->load(mod_ctx, "hud/shoulder-button-zl.bti",
             &s_zlShoulderButtonResource) != MOD_OK) {
@@ -9438,8 +10216,13 @@ void shutdown_face_button_textures() {
             free_resource(resource);
         }
     }
+    for (ResourceBuffer& resource : s_playStationL1ButtonResources) {
+        free_resource(resource);
+    }
     free_resource(s_blackProBlankFaceButtonResource);
     free_resource(s_blackProShoulderButtonResource);
+    free_resource(s_lShoulderButtonResource);
+    free_resource(s_blackProLShoulderButtonResource);
     free_resource(s_zlShoulderButtonResource);
     free_resource(s_blackProZlShoulderButtonResource);
     free_resource(s_zrShoulderButtonResource);
@@ -9477,8 +10260,11 @@ void shutdown_item_slot_resources() {
     s_collectTitleLabel = nullptr;
     s_descenderCorrectionDrawDepth = 0;
     s_fileSelectYesNoLayoutReady = false;
-    s_dpadMidnaHeld = false;
-    s_dpadMidnaTrig = false;
+    s_fixedMidnaHeld = false;
+    s_fixedMidnaTrig = false;
+    s_fixedOpenMapTrig = false;
+    s_fixedToggleMinimapTrig = false;
+    s_combinedMapMinimapTrig = false;
     s_rightShoulderHeld = false;
     s_rightShoulderTrig = false;
     s_fixedZlHeld = false;
@@ -9489,6 +10275,13 @@ void shutdown_item_slot_resources() {
     s_menuWindowSuppressedTrig = 0;
     s_getActionBindTrig = nullptr;
     s_getActionBindButton = nullptr;
+    if (s_setVirtualActionBind != nullptr) {
+        s_setVirtualActionBind(DusklightActionBind::OpenMapScreen, PAD_1,
+            false, false);
+        s_setVirtualActionBind(DusklightActionBind::ToggleMinimap, PAD_1,
+            false, false);
+    }
+    s_setVirtualActionBind = nullptr;
     s_getSdlGamepadAxis = nullptr;
     s_getSdlGamepadButton = nullptr;
     clear_z_heavy_boots_input_lock();
@@ -9498,6 +10291,7 @@ void shutdown_wolf_action_icons() {
     free_picture(s_senseIconResource, s_senseIconPicture);
     free_picture(s_digIconResource, s_digIconPicture);
     free_picture(s_attackIconResource, s_attackIconPicture);
+    free_picture(s_tphdMapIconResource, s_tphdMapIconPicture);
 }
 
 ModResult install_item_slot_hooks(ModError* error) {
@@ -9541,6 +10335,8 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_POST(MeterMidnaAlphaHook, after_meter_midna_alpha, "Midna icon opacity");
     ADD_PRE(MeterMapDrawHook, before_meter_map_draw, "minimap draw (before)");
     ADD_POST(MeterMapDrawHook, after_meter_map_draw, "minimap draw (after)");
+    ADD_PRE(MeterMapCtrlShowHook, before_meter_map_ctrl_show,
+        "fixed TPHD map controls");
     ADD_POST(CollectCreateHook, after_collect_create, "collection menu buttons");
     ADD_POST(LetterCreateHook, after_letter_create, "letter menu buttons");
     ADD_PRE(LetterDrawHook, before_letter_draw, "letter menu responsive buttons");
@@ -9589,6 +10385,8 @@ ModResult install_item_slot_hooks(ModError* error) {
         "file selection descender scope");
     ADD_POST(FileSelectMainDrawHook, after_file_select_main_draw,
         "file selection descender cleanup");
+    ADD_PRE(FileSelectActionDrawHook, before_file_select_action_draw,
+        "file selection action panels final visibility");
     ADD_POST(SaveMenuScreenSetHook, after_save_menu_screen_set, "save menu HD style");
     ADD_PRE(SaveMenuDeleteHook, before_save_menu_delete, "save menu cleanup");
     ADD_PRE(SaveMenuDrawHook, before_save_menu_draw, "save menu HD draw");
