@@ -8,7 +8,7 @@ Dusklight builds.
 - Upper-left life, Midna and independent D-Pad grouping based on the Wii U presentation.
 - Smaller lower-left minimap placement that respects the active texture set.
 - Three item slots corresponding to X, Y and R.
-- Midna assigned to D-Pad Up for reliable portable and controller support.
+- Midna assigned to L in TPHD Fixed Bindings, or to the configured Dusklight control in Follow mode.
 - Stationary D-Pad behavior when the minimap is shown or hidden.
 - Wii U-style upper-right action and item-icon arrangement.
 - Round X/Y button presentation.
@@ -20,7 +20,7 @@ Dusklight builds.
 Twilight Princess HD uses this physical layout:
 
 - X, Y and R: equipped items
-- D-Pad Up: Midna
+- L: Midna in TPHD Fixed Bindings
 - D-Pad Down: Items
 - ZL: targeting and defending
 - ZR: Gale Boomerang multi-target lock
