@@ -1,0 +1,32 @@
+{
+  "zen": {
+    "source_file": "ZenKakuGothicNew-Bold.ttf",
+    "source_sha256": "0081cedabc4921982fcd061f845a005664ac7fb642af2dd34b4007bc63ccd235",
+    "weight": 700,
+    "raster_size": 94,
+    "cap_height": 65,
+    "glyph_count": 191,
+    "atlas_file": "zen-bold.bfn",
+    "atlas_sha256": "dd3add4f62136a6f2cea420c6acdfbe36830229d45b899813c318e6a8625c8ac"
+  },
+  "mplus": {
+    "source_file": "MPLUS2-Variable.ttf",
+    "source_sha256": "2e4f45c2391355fb03195da4854ffbe85fea49bfdff5cc51020238083af6b75c",
+    "weight": 700,
+    "raster_size": 89,
+    "cap_height": 65,
+    "glyph_count": 191,
+    "atlas_file": "mplus-bold.bfn",
+    "atlas_sha256": "3b7f992f47b9a1f2a196cc683d6f925846f6cb9d4b309e4e3f7954cec82234e5"
+  },
+  "fira": {
+    "source_file": "FiraSans-Bold.ttf",
+    "source_sha256": "a4d8e149ecdd4874a0726eb0af894488b3b31c423d6b0017c8f415ed1b795b45",
+    "weight": 700,
+    "raster_size": 82,
+    "cap_height": 57,
+    "glyph_count": 191,
+    "atlas_file": "fira-bold.bfn",
+    "atlas_sha256": "1fd585afcd3c9bcf7f1481a4ee3c1b05e7d6208b5a21c330e745e4fcf4bf1bd4"
+  }
+}

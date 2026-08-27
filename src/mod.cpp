@@ -1,4 +1,5 @@
 #include "config.hpp"
+#include "font_override.hpp"
 #include "service_imports.hpp"
 
 #include "mods/service.hpp"
@@ -42,6 +43,7 @@ MOD_EXPORT ModResult mod_initialize(ModError* error) {
 
     twilight_hd_hud::initialize_wolf_action_icons();
     twilight_hd_hud::initialize_face_button_textures();
+    twilight_hd_hud::initialize_font_override();
 
     svc_log->info(mod_ctx, "Twilight HD HUD initialized");
     return MOD_OK;
@@ -52,6 +54,7 @@ MOD_EXPORT ModResult mod_update(ModError*) {
 }
 
 MOD_EXPORT ModResult mod_shutdown(ModError*) {
+    twilight_hd_hud::shutdown_font_override();
     twilight_hd_hud::shutdown_item_slot_resources();
     twilight_hd_hud::shutdown_face_button_textures();
     twilight_hd_hud::shutdown_wolf_action_icons();

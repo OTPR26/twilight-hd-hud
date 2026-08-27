@@ -12,8 +12,12 @@ Dusklight **v1.4.1-141 or newer** is required. The mod is built and tested again
 - Three item slots using X, Y, and R
 - Independent D-Pad and minimap behavior
 - Human and wolf action artwork
-- ABXY, BAYX, PlayStation-symbol, and blank button-label options
-- HUD sizes of 75%, 100%, and 125%
+- ABXY, BAYX, BAYX Flipped, PlayStation-symbol, and blank button-label options
+- Four text fonts: Original, Zen Kaku Gothic New, M PLUS 2, and Dusklight's Fira Sans family.
+- Editable HUD sizes from 50% to 125% in 1% steps, with reset-to-100% buttons.
+  Overall HUD Size overrides all groups when it is not 100%, disabling the
+  individual controls. At 100%, saved Controller Diamond, D-Pad, and Hearts
+  percentages apply independently, without multiplication. Changes apply live.
 - *Twilight Princess HD*-style panels for shared three-choice dialogue screens
 - Native modules for Windows x64, Linux x64, macOS Apple Silicon, Android ARM64, iOS ARM64, and tvOS ARM64
 
@@ -36,7 +40,7 @@ Download the package for the device running Dusklight. The packages contain the 
 3. Restart Dusklight or reload mods from its mod manager.
 4. Open the Twilight HD HUD settings panel to choose a button-label layout and HUD size.
 
-On macOS, the active data folder is normally under `~/Library/Application Support/Dusklight`. On Android, use the `mods` folder inside the Dusklight data folder selected by the app.
+On macOS, the active data folder is normally under `~/Library/Application Support/TwilitRealm/Dusklight`. On Android, use the `mods` folder inside the Dusklight data folder selected by the app.
 
 ## Installation: iPhone and iPad
 
@@ -62,7 +66,31 @@ The transfer page is available only while Dusklight is open, and both devices mu
 
 The package does not contain game files. A compatible, legally obtained disc image is required by Dusklight.
 
-## Controls
+## Fonts and HUD size
+
+Open **Twilight HD HUD Settings** to choose a text font. **Original** keeps the
+game's font; the other three options use open-source fonts. Fully quit and
+restart Dusklight after changing fonts. Western-language message text is
+supported; decorative fonts and unsupported characters keep their original
+artwork. Text spacing and line wrapping are unchanged.
+
+The **HUD Sizing** tab accepts whole percentages from **50% to 125%**. Set
+**Overall HUD Size** to 100% to adjust the controller diamond, D-Pad, and hearts
+separately. Any other overall value overrides those controls without multiplying
+their saved percentages. Each control has a reset-to-100% button. Use
+Dusklight's **Minimal HUD** setting to hide the HUD.
+
+## Controller layouts
+
+Both **BAYX** layouts use Xbox shoulder/trigger prompts: LB, RB, LT, and RT,
+in either Silver or Black Pro style.
+
+The optional **BAYX Flipped** button layout retains Nintendo-style face-button
+prompts in menus, dialogue, and item assignment. The gameplay diamond changes:
+East B/Attack, South A/Action, North Y, West X. The complete Attack/Action
+groups move, including labels and sword/Wolf artwork. This is a presentation
+preset, not a controller-binding rewrite; standard Xbox A/B bindings already
+put Attack on East and Action on South. Custom bindings remain unchanged.
 
 - X, Y, and R: equipped items
 - L: Midna in TPHD Fixed Bindings
@@ -82,7 +110,7 @@ third item, L2 for enemy lock-on, and R2 for Gale Boomerang multi-target lock.
 
 The **Button Style** setting switches between the standard silver TPHD prompts and dark graphite
 **Black Pro** prompts. Button Style is independent of the ABXY, BAYX, Universal, and PlayStation
-layouts.
+layouts, including BAYX Flipped.
 
 The default **Follow Dusklight Bindings** controller mode leaves that profile unchanged and honors
 the configured **Call Midna** action without also triggering the control's normal game action. Its
@@ -116,6 +144,14 @@ cmake --build build
 
 The resulting package is written to `build/mods/twilight_hd_hud.dusk`.
 
+To run the native regression tests, configure with
+`-DTWILIGHT_HUD_BUILD_TESTS=ON`, build, then run:
+
+```sh
+ctest --test-dir build --output-on-failure
+python3 tests/font_manifest_test.py
+```
+
 ### iOS and tvOS builds
 
 Apple mobile targets require the iOS or tvOS CMake toolchain and the matching Dusklight link stub. The complete, reproducible commands are in the `Build iOS and tvOS` job in [the build workflow](.github/workflows/build-platforms.yml). That job builds both ARM64 modules, verifies them, and combines them into the separate `Twilight-HD-HUD-iOS-tvOS.dusk` package.
@@ -123,5 +159,9 @@ Apple mobile targets require the iOS or tvOS CMake toolchain and the matching Du
 ## Credits and licensing
 
 Project code is available under the MIT License.
+
+The optional fonts are distributed under the SIL Open Font License 1.1.
+Their copyright notices, licenses, and conversion details are included in
+[res/fonts](res/fonts/README.md). They are open-font conversions, not TPHD font dumps.
 
 Twilight Princess, its characters, and its original assets are properties of Nintendo. This is an unofficial fan project and is not affiliated with or endorsed by Nintendo or the Dusklight developers.

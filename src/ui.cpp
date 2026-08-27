@@ -43,6 +43,29 @@ ModResult add_select(ModContext* ctx, UiElementHandle pane, const char* label,
     return svc_ui->pane_add_control(ctx, pane, &desc, nullptr);
 }
 
+// Display order is independent of the saved enum values.
+constexpr ButtonLayout kLayoutOrder[] = {ButtonLayout::Nintendo, ButtonLayout::Xbox,
+    ButtonLayout::BayxFlipped, ButtonLayout::Universal, ButtonLayout::PlayStation};
+
+void get_layout(ModContext*, void*, UiControlValue* value) {
+    value->int_value = 0;
+    const auto selected = button_layout();
+    for (std::size_t i = 0; i < std::size(kLayoutOrder); ++i) {
+        if (kLayoutOrder[i] == selected) {
+            value->int_value = static_cast<int64_t>(i);
+            return;
+        }
+    }
+}
+
+void set_layout(ModContext* ctx, void*, const UiControlValue* value) {
+    if (value->int_value >= 0 &&
+        value->int_value < static_cast<int64_t>(std::size(kLayoutOrder))) {
+        svc_config->set_int(ctx, button_layout_config_var(),
+            static_cast<int64_t>(kLayoutOrder[value->int_value]));
+    }
+}
+
 ModResult build_hud_tab(
     ModContext* ctx, UiWindowHandle, UiElementHandle left, UiElementHandle, void*, ModError*) {
     if (add_section(ctx, left, "Twilight Princess HD") != MOD_OK) {
@@ -55,14 +78,19 @@ ModResult build_hud_tab(
     static constexpr const char* kButtonLayouts[] = {
         "ABXY",
         "BAYX",
+        "BAYX Flipped",
         "Universal",
         "PlayStation",
     };
-    if (add_select(ctx, left, "Button Layout", button_layout_config_var(),
-            kButtonLayouts, std::size(kButtonLayouts),
-            "Changes the prompts to match ABXY, BAYX, or PlayStation controllers. Universal "
-            "leaves face buttons blank.")
-        != MOD_OK)
+    UiControlDesc layout = UI_CONTROL_DESC_INIT;
+    layout.kind = UI_CONTROL_SELECT;
+    layout.label = "Button Layout";
+    layout.help_rml = "Changes the button prompts. Universal leaves face buttons blank.";
+    layout.options = kButtonLayouts;
+    layout.option_count = std::size(kButtonLayouts);
+    layout.get = get_layout;
+    layout.set = set_layout;
+    if (svc_ui->pane_add_control(ctx, left, &layout, nullptr) != MOD_OK)
     {
         return MOD_ERROR;
     }
@@ -91,16 +119,86 @@ ModResult build_hud_tab(
     {
         return MOD_ERROR;
     }
-    static constexpr const char* kHudSizes[] = {
-        "75%",
-        "100%",
-        "125%",
+    static constexpr const char* kTextFonts[] = {
+        "Original",
+        "Zen Kaku Gothic New",
+        "M PLUS 2",
+        "Dusklight - Fira Sans",
     };
-    if (add_select(ctx, left, "HUD Size", hud_scale_config_var(), kHudSizes,
-            std::size(kHudSizes), "Scales the complete gameplay HUD. The current size is 100%.")
-        != MOD_OK)
+    if (add_select(ctx, left, "Text Font (restart required)", text_font_config_var(),
+            kTextFonts, std::size(kTextFonts),
+            "Choose the in-game text font. Restart Dusklight to apply changes.") != MOD_OK)
     {
         return MOD_ERROR;
+    }
+    return MOD_OK;
+}
+
+HudSizeSetting size_setting(void* data) {
+    return *static_cast<HudSizeSetting*>(data);
+}
+
+bool size_disabled(ModContext*, void* data) { return hud_size_locked(size_setting(data)); }
+bool size_modified(ModContext*, void* data) {
+    return displayed_hud_size_percent(size_setting(data)) != 100;
+}
+void get_size(ModContext*, void* data, UiControlValue* value) {
+    value->int_value = displayed_hud_size_percent(size_setting(data));
+}
+void set_size(ModContext*, void* data, const UiControlValue* value) {
+    set_hud_size_percent(size_setting(data), value->int_value);
+}
+void reset_size(ModContext*, void* data) { set_hud_size_percent(size_setting(data), 100); }
+
+ModResult build_hud_sizing_tab(
+    ModContext* ctx, UiWindowHandle, UiElementHandle left, UiElementHandle, void*, ModError*) {
+    if (add_section(ctx, left, "HUD Sizing") != MOD_OK ||
+        add_text(ctx, left,
+            "Enter 50-125%, or adjust left/right in 1% steps. Changes apply live. "
+            "Overall overrides all groups unless it is 100%; returning to 100% "
+            "restores your individual values. Use Dusklight's Minimal HUD option to hide the HUD.")
+            != MOD_OK) return MOD_ERROR;
+
+    static HudSizeSetting settings[] = {HudSizeSetting::Overall,
+        HudSizeSetting::ControllerDiamond, HudSizeSetting::Dpad, HudSizeSetting::Hearts};
+    constexpr const char* labels[] = {
+        "Overall HUD Size", "Controller Diamond Size", "D-Pad Size", "Hearts Size",
+    };
+    constexpr const char* resetLabels[] = {
+        "Reset Overall to 100%", "Reset Diamond to 100%",
+        "Reset D-Pad to 100%", "Reset Hearts to 100%",
+    };
+    constexpr const char* help[] = {
+        "Any value other than 100% overrides all groups. Individual controls show that value "
+        "and are disabled. Reset Overall to restore your saved individual sizes.",
+        "Sizes the face-button/item cluster, ammo, and Wolf Link action icons. "
+        "Set Overall to 100% to edit this percentage.",
+        "Sizes the D-pad, labels, and map icon. Set Overall to 100% to edit this percentage.",
+        "Sizes gameplay hearts, not save-menu hearts. Set Overall to 100% to edit this percentage.",
+    };
+    for (std::size_t i = 0; i < std::size(settings); ++i) {
+        UiControlDesc number = UI_CONTROL_DESC_INIT;
+        number.kind = UI_CONTROL_NUMBER;
+        number.label = labels[i];
+        number.help_rml = help[i];
+        number.get = get_size;
+        number.set = set_size;
+        number.is_disabled = size_disabled;
+        number.is_modified = size_modified;
+        number.user_data = &settings[i];
+        number.min = 50;
+        number.max = 125;
+        number.step = 1;
+        number.suffix = "%";
+        if (svc_ui->pane_add_control(ctx, left, &number, nullptr) != MOD_OK) return MOD_ERROR;
+
+        UiControlDesc reset = UI_CONTROL_DESC_INIT;
+        reset.kind = UI_CONTROL_BUTTON;
+        reset.label = resetLabels[i];
+        reset.on_pressed = reset_size;
+        reset.is_disabled = size_disabled;
+        reset.user_data = &settings[i];
+        if (svc_ui->pane_add_control(ctx, left, &reset, nullptr) != MOD_OK) return MOD_ERROR;
     }
     return MOD_OK;
 }
@@ -114,10 +212,13 @@ void open_settings(ModContext* ctx, void*) {
         return;
     }
 
-    std::array<UiTabDesc, 1> tabs{};
+    std::array<UiTabDesc, 2> tabs{};
     tabs[0] = UI_TAB_DESC_INIT;
     tabs[0].title = "HUD";
     tabs[0].build = build_hud_tab;
+    tabs[1] = UI_TAB_DESC_INIT;
+    tabs[1].title = "HUD Sizing";
+    tabs[1].build = build_hud_sizing_tab;
 
     UiWindowDesc desc = UI_WINDOW_DESC_INIT;
     desc.tabs = tabs.data();

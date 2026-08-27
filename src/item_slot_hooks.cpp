@@ -1,4 +1,7 @@
 #include "config.hpp"
+#include "controller_prompts.hpp"
+#include "diamond_layout.hpp"
+#include "font_override.hpp"
 #include "hud_layout.hpp"
 #include "service_imports.hpp"
 
@@ -21,6 +24,7 @@
 #include "JSystem/J2DGraph/J2DPane.h"
 #include "JSystem/J2DGraph/J2DScreen.h"
 #include "JSystem/J2DGraph/J2DPicture.h"
+#include "JSystem/J2DGraph/J2DPrint.h"
 #include "JSystem/J2DGraph/J2DTextBox.h"
 #include "JSystem/JKernel/JKRExpHeap.h"
 #include "JSystem/JUtility/JUTFont.h"
@@ -35,6 +39,7 @@
 #include "d/d_file_select.h"
 #undef PaneCache
 #include "d/d_file_sel_info.h"
+#include "d/d_file_sel_warning.h"
 #include "d/d_menu_save.h"
 #include "d/d_menu_collect.h"
 #include "d/d_menu_letter.h"
@@ -226,6 +231,10 @@ ResourceBuffer s_playStationShoulderButtonResources[2][3] = {
 ResourceBuffer s_playStationL1ButtonResources[2] = {
     RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
 };
+ResourceBuffer s_xboxShoulderButtonResources[2][4] = {
+    {RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT},
+    {RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT},
+};
 ResourceBuffer s_blackProBlankFaceButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_blackProShoulderButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_lShoulderButtonResource = RESOURCE_BUFFER_INIT;
@@ -236,7 +245,7 @@ ResourceBuffer s_zrShoulderButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_blackProZrShoulderButtonResource = RESOURCE_BUFFER_INIT;
 J2DScreen* s_contextRButtonScreen = nullptr;
 ResTIMG const* s_contextRButtonTexture = nullptr;
-bool s_contextRButtonUsesZr = false;
+bool s_contextRButtonReplaced = false;
 struct ContextRPictureState {
     J2DPane* pane = nullptr;
     bool visible = false;
@@ -955,7 +964,15 @@ ResTIMG const* playstation_shoulder_button_texture(const int index) {
         resource_texture(s_playStationShoulderButtonResources[style][index]) : nullptr;
 }
 
+ResTIMG const* xbox_shoulder_button_texture(ShoulderPrompt button) {
+    const int style = button_style() == ButtonStyle::BlackPro ? 1 : 0;
+    return resource_texture(s_xboxShoulderButtonResources[style][static_cast<int>(button)]);
+}
+
 ResTIMG const* styled_r_button_texture() {
+    if (uses_xbox_prompts(button_layout())) {
+        return xbox_shoulder_button_texture(ShoulderPrompt::R);
+    }
     if (button_layout() == ButtonLayout::PlayStation) {
         return playstation_shoulder_button_texture(1); // R1
     }
@@ -968,6 +985,9 @@ ResTIMG const* styled_r_button_texture() {
 }
 
 ResTIMG const* styled_l_button_texture() {
+    if (uses_xbox_prompts(button_layout())) {
+        return xbox_shoulder_button_texture(ShoulderPrompt::L);
+    }
     if (button_layout() == ButtonLayout::PlayStation) {
         const int style = button_style() == ButtonStyle::BlackPro ? 1 : 0;
         return resource_texture(s_playStationL1ButtonResources[style]);
@@ -981,6 +1001,9 @@ ResTIMG const* styled_l_button_texture() {
 }
 
 ResTIMG const* styled_zl_button_texture() {
+    if (uses_xbox_prompts(button_layout())) {
+        return xbox_shoulder_button_texture(ShoulderPrompt::Zl);
+    }
     if (button_layout() == ButtonLayout::PlayStation) {
         return playstation_shoulder_button_texture(0); // L2
     }
@@ -993,6 +1016,9 @@ ResTIMG const* styled_zl_button_texture() {
 }
 
 ResTIMG const* styled_zr_button_texture() {
+    if (uses_xbox_prompts(button_layout())) {
+        return xbox_shoulder_button_texture(ShoulderPrompt::Zr);
+    }
     if (button_layout() == ButtonLayout::PlayStation) {
         return playstation_shoulder_button_texture(2); // R2
     }
@@ -1019,6 +1045,7 @@ ResTIMG const* menu_face_button_texture(const bool nativeAAction) {
 
     switch (button_layout()) {
     case ButtonLayout::Nintendo:
+    case ButtonLayout::BayxFlipped:
         return nativeAAction ? buttonA : buttonB;
     case ButtonLayout::Xbox:
         // The actions retain their original positions. Only the printed
@@ -1035,6 +1062,7 @@ ResTIMG const* menu_face_button_texture(const bool nativeAAction) {
 ResTIMG const* item_assignment_button_texture(const bool nativeXButton) {
     switch (button_layout()) {
     case ButtonLayout::Nintendo:
+    case ButtonLayout::BayxFlipped:
         return styled_face_button_texture(nativeXButton ? 'X' : 'Y');
     case ButtonLayout::Xbox:
         return styled_face_button_texture(nativeXButton ? 'Y' : 'X');
@@ -1125,12 +1153,13 @@ void apply_item_explain_button_layout(dMenu_ItemExplain_c* menu) {
 
     // Hawkeye's stock description labels the bow-combination control as R.
     // In this HUD, R is the third item slot and ZL is the combination control,
-    // so replace only this description's inline R glyph. Other item-help R
-    // glyphs must remain R because they can legitimately refer to that slot.
-    if (menu->field_0xe1 == dItemNo_HAWK_EYE_e) {
+    // so only this description uses ZL/LT/L2. Other item-help R glyphs use
+    // the third-slot shoulder: R/RB/R1, according to the selected layout.
+    {
         constexpr int kInlineRType = 4;
         J2DPicture* picture = outFont->mpPane[kInlineRType];
-        if (ResTIMG const* replacement = styled_zl_button_texture();
+        if (ResTIMG const* replacement = menu->field_0xe1 == dItemNo_HAWK_EYE_e ?
+                styled_zl_button_texture() : styled_r_button_texture();
             picture != nullptr && replacement != nullptr) {
             picture->changeTexture(replacement, 0);
             set_neutral_picture_colors(picture);
@@ -2811,6 +2840,8 @@ void add_option_prompts(dMenu_Option_c* menu) {
     if (menu->mpScreenIcon->search(MULTI_CHAR('hd_oprm')) != nullptr) {
         update_menu_face_button(menu->mpScreenIcon, MULTI_CHAR('hd_oapi'), true);
         update_menu_face_button(menu->mpScreenIcon, MULTI_CHAR('hd_obpi'), false);
+        set_menu_face_button_texture(menu->mpScreenIcon,
+            MULTI_CHAR('hd_orbt'), styled_zr_button_texture());
         return;
     }
 
@@ -2869,8 +2900,139 @@ void add_option_prompts(dMenu_Option_c* menu) {
         JUtility::TColor(244, 238, 191, 255));
     group->appendChild(displayPrompt);
     addPicture(MULTI_CHAR('hd_orbt'),
-        JGeometry::TBox2<f32>(575.0f, 414.0f, 601.0f, 433.0f),
-        styled_r_button_texture());
+        JGeometry::TBox2<f32>(575.0f, 410.5f, 601.0f, 436.5f),
+        styled_zr_button_texture());
+}
+
+bool option_confirmation_active(const dMenu_Option_c* menu) {
+    return menu != nullptr &&
+        (menu->field_0x3ef == dMenu_Option_c::PROC_CONFIRM_OPEN_MOVE_e ||
+         menu->field_0x3ef == dMenu_Option_c::PROC_CONFIRM_MOVE_MOVE_e ||
+         menu->field_0x3ef == dMenu_Option_c::PROC_CONFIRM_SELECT_MOVE_e ||
+         menu->field_0x3ef == dMenu_Option_c::PROC_CONFIRM_CLOSE_MOVE_e);
+}
+
+void fit_option_warning_frame(J2DPicture* frame, J2DTextBox* text) {
+    const char* message = text_box_string(text);
+    JUTFont* font = text != nullptr ? text->getFont() : nullptr;
+    if (frame == nullptr || font == nullptr || message == nullptr ||
+        message[0] == '\0' || font->getCellHeight() <= 0 || text->getWidth() < 1.0f)
+    {
+        return;
+    }
+
+    // Measure with the native parser (without drawing), including localized
+    // multibyte characters, control codes, and wrapping. Replacement fonts
+    // retain these native advances, so this fits all four font options.
+    J2DTextBox::TFontSize size;
+    text->getFontSize(size);
+    J2DPrint print(font, text->getCharSpace(), text->getLineSpace(),
+        JUtility::TColor(255, 255, 255, 255),
+        JUtility::TColor(255, 255, 255, 255),
+        JUtility::TColor(0, 0, 0, 0),
+        JUtility::TColor(255, 255, 255, 255));
+    print.setFontSize(size.mSizeX, size.mSizeY);
+    print.initchar();
+    print.locate(0.0f, 0.0f);
+    J2DPrint::TSize measured = {};
+    const f32 belowBaseline = print.parse(
+        reinterpret_cast<const u8*>(message), std::strlen(message),
+        static_cast<int>(text->getWidth()), nullptr, measured, 255, false);
+    const f32 textHeight = belowBaseline +
+        font->getAscent() * (size.mSizeY / font->getCellHeight());
+    const f32 width = std::ceil(measured.field_0x0) + 28.0f;
+    const f32 height = std::ceil(std::max(size.mSizeY, textHeight)) + 16.0f;
+    const auto bounds = frame->getBounds();
+    // Keep the left edge and vertical center fixed, with no changes to the
+    // native text pane or animated parent. Repeated draws cannot drift.
+    frame->resize(width, height);
+    frame->move(bounds.i.x, bounds.i.y + (bounds.getHeight() - height) * 0.5f);
+}
+
+void style_option_confirmation(dMenu_Option_c* menu) {
+    ResTIMG const* frameTexture = resource_texture(s_collectMenuButtonResource);
+    if (menu == nullptr || frameTexture == nullptr) {
+        return;
+    }
+
+    // Save and discard questions share this warning instance. Preserve its
+    // localized message, native opening/closing animation, and placement.
+    if (dFile_warning_c* warning = menu->mpWarning;
+        warning != nullptr && warning->mpRootPane != nullptr)
+    {
+        J2DPane* root = warning->mpRootPane->getPanePtr();
+        auto* frame = as_picture(root->search(MULTI_CHAR('hd_owfr')));
+        if (frame == nullptr) {
+            J2DPicture* nativeBackground = nullptr;
+            f32 largestArea = 0.0f;
+            find_largest_picture(root, nativeBackground, largestArea);
+            if (nativeBackground != nullptr &&
+                nativeBackground->getParentPane() != nullptr)
+            {
+                frame = JKR_NEW J2DPicture(MULTI_CHAR('hd_owfr'),
+                    nativeBackground->getBounds(), frameTexture, nullptr);
+                configure_hd_picture(frame);
+                nativeBackground->getParentPane()->insertChild(nativeBackground, frame);
+            }
+        }
+        if (frame != nullptr) {
+            hide_other_pictures(root, frame);
+            if (J2DTextBox* text = warning->field_0x20) {
+                text->setFontSize(18.0f, 18.0f);
+                text->setCharSpace(0.0f);
+                text->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+                    JUtility::TColor(255, 255, 255, 255));
+                text->setFontColor(JUtility::TColor(242, 242, 235, 255),
+                    JUtility::TColor(255, 255, 255, 255));
+                fit_option_warning_frame(frame, text);
+            }
+        }
+    }
+
+    // Match the compact gold-edged choices already used by Save/File Select.
+    // Keep the original parent panes and label strings so mouse targets,
+    // controller input, and save/discard semantics remain entirely native.
+    constexpr u64 frameTags[] = {
+        MULTI_CHAR('hd_ono'), MULTI_CHAR('hd_oyes'),
+    };
+    for (std::size_t index = 0; index < 2; ++index) {
+        J2DPane* group = menu->mpYesNoSelBase_c[index] != nullptr ?
+            menu->mpYesNoSelBase_c[index]->getPanePtr() : nullptr;
+        if (group == nullptr) {
+            continue;
+        }
+        auto* frame = as_picture(group->search(frameTags[index]));
+        if (frame == nullptr) {
+            frame = JKR_NEW J2DPicture(frameTags[index],
+                JGeometry::TBox2<f32>(0.0f, 0.0f, 1.0f, 1.0f),
+                frameTexture, nullptr);
+            configure_hd_picture(frame);
+            group->insertChild(group->getFirstChildPane(), frame);
+        }
+        hide_other_pictures(group, frame);
+        frame->resize(142.0f, 26.0f);
+        frame->move((group->getWidth() - 142.0f) * 0.5f,
+            (group->getHeight() - 26.0f) * 0.5f);
+        const bool selected = menu->field_0x3f9 == index;
+        frame->setBlackWhite(selected ?
+                JUtility::TColor(67, 66, 60, 255) :
+                JUtility::TColor(8, 8, 6, 255),
+            selected ? JUtility::TColor(255, 247, 154, 255) :
+                JUtility::TColor(205, 201, 116, 255));
+        if (menu->mpYesNoTxt_c[index] != nullptr) {
+            auto* text = static_cast<J2DTextBox*>(
+                menu->mpYesNoTxt_c[index]->getPanePtr());
+            text->setFontSize(16.0f, 16.0f);
+            text->setCharSpace(0.0f);
+            text->setWhite(selected ? JUtility::TColor(242, 242, 236, 255) :
+                JUtility::TColor(155, 155, 150, 255));
+        }
+        if (selected && option_confirmation_active(menu)) {
+            // Do not force cursor alpha: the native state machine controls
+            // its fades during opening, selection changes, and closing.
+            position_cursor_outside_frame(menu->mpDrawCursor, frame);
+        }
+    }
 }
 
 void style_option_rows(dMenu_Option_c* menu) {
@@ -2962,7 +3124,7 @@ void style_option_rows(dMenu_Option_c* menu) {
     }
 
     update_option_row_overlay(menu, overlay);
-    if (selected < 3 && overlay != nullptr) {
+    if (selected < 3 && overlay != nullptr && !option_confirmation_active(menu)) {
         constexpr u64 frameTags[] = {
             MULTI_CHAR('hd_orf0'), MULTI_CHAR('hd_orf1'), MULTI_CHAR('hd_orf2'),
         };
@@ -3210,6 +3372,7 @@ void apply_option_hd_style(dMenu_Option_c* menu) {
     update_option_widescreen_canvas(menu);
     add_option_prompts(menu);
     style_option_rows(menu);
+    style_option_confirmation(menu);
     style_option_tv_screen(menu);
 }
 
@@ -6134,6 +6297,7 @@ void apply_collect_menu_button_layout(dMenu_Collect2D_c* menu) {
 
     switch (button_layout()) {
     case ButtonLayout::Nintendo:
+    case ButtonLayout::BayxFlipped:
         break;
     case ButtonLayout::Xbox:
         std::swap(buttonA, buttonB);
@@ -6196,6 +6360,25 @@ void apply_collection_submenu_button_layout(J2DScreen* screen,
 
 // In-game HUD ---------------------------------------------------------------
 
+void apply_flipped_diamond_positions(dMeter2Draw_c* meter) {
+    if (button_layout() != ButtonLayout::BayxFlipped || meter == nullptr ||
+        meter->mpScreen == nullptr || meter->mpButtonA == nullptr ||
+        meter->mpButtonB == nullptr) return;
+    J2DPane* aPicture = meter->mpScreen->search(MULTI_CHAR('a_btn'));
+    J2DPane* bPicture = meter->mpScreen->search(MULTI_CHAR('b_btn'));
+    if (aPicture == nullptr || bPicture == nullptr) return;
+
+    // Read the current local-to-world transforms, not last frame's draw bounds.
+    // restore_archive_face_button_diamond has already restored both groups,
+    // so changing layouts repeatedly cannot accumulate this offset.
+    const Vec action = meter->mpButtonA->getGlobalVtxCenter(aPicture, false, 0);
+    const Vec attack = meter->mpButtonB->getGlobalVtxCenter(bPicture, false, 0);
+    offset_diamond_group<J2DPane, 3>({pane_ptr(meter->mpButtonA), pane_ptr(meter->mpTextA), nullptr},
+        attack.x - action.x, attack.y - action.y);
+    offset_diamond_group<J2DPane, 3>({pane_ptr(meter->mpButtonB), pane_ptr(meter->mpTextB),
+            pane_ptr(meter->mpItemB)}, action.x - attack.x, action.y - attack.y);
+}
+
 void apply_button_layout_preference(dMeter2Draw_c* meter) {
     if (meter == nullptr) {
         return;
@@ -6213,7 +6396,14 @@ void apply_button_layout_preference(dMeter2Draw_c* meter) {
         return;
     }
 
-    if (layout == ButtonLayout::Universal) {
+    if (layout == ButtonLayout::BayxFlipped) {
+        // A remains the Action glyph and B remains Attack, but their complete
+        // groups move to South/East below. Only the diamond swaps X/Y glyphs.
+        set_face_button_texture(meter, MULTI_CHAR('a_btn'), buttonA);
+        set_face_button_texture(meter, MULTI_CHAR('b_btn'), buttonB);
+        set_face_button_texture(meter, MULTI_CHAR('x_btn'), styled_face_button_texture('Y'));
+        set_face_button_texture(meter, MULTI_CHAR('y_btn'), styled_face_button_texture('X'));
+    } else if (layout == ButtonLayout::Universal) {
         ResTIMG const* blank = styled_blank_face_button_texture();
         set_face_button_texture(meter, MULTI_CHAR('a_btn'), blank);
         set_face_button_texture(meter, MULTI_CHAR('b_btn'), blank);
@@ -6246,11 +6436,11 @@ void restore_archive_face_button_diamond(dMeter2Draw_c* meter) {
 
     restore_archive_pane(meter->mpButtonA);
     restore_archive_pane(meter->mpTextA);
-if (meter->mpTextA != nullptr) {
-    constexpr f32 kDefaultATextOffsetX = 22.0f;
-    constexpr f32 kEnlargedATextOffsetX = 4.0f;
+    if (meter->mpTextA != nullptr) {
+        constexpr f32 kDefaultATextOffsetX = 22.0f;
+        constexpr f32 kEnlargedATextOffsetX = 4.0f;
         const f32 textOffsetX =
-            hud_scale() > 1.001f ? kEnlargedATextOffsetX : kDefaultATextOffsetX;
+            hud_scales().controllerDiamond > 1.001f ? kEnlargedATextOffsetX : kDefaultATextOffsetX;
         meter->mpTextA->paneTrans(textOffsetX, -4.0f);
         meter->mpTextA->scale(meter->mpTextA->getInitScaleX() * 1.25f,
             meter->mpTextA->getInitScaleY() * 1.25f);
@@ -6352,6 +6542,7 @@ if (meter->mpTextA != nullptr) {
     }
 
     apply_button_layout_preference(meter);
+    apply_flipped_diamond_positions(meter);
 }
 
 void apply_wii_u_item_num_layout(dMeter2Draw_c* meter) {
@@ -6360,17 +6551,20 @@ void apply_wii_u_item_num_layout(dMeter2Draw_c* meter) {
     }
 
     s_wiiUItemNumTransform.meter = meter;
+    const f32 diamondScale = hud_scales().controllerDiamond;
     for (int i = 0; i < 2; ++i) {
         s_wiiUItemNumTransform.posX[i] = meter->mItemParams[i].num_pos_x;
         s_wiiUItemNumTransform.posY[i] = meter->mItemParams[i].num_pos_y;
         s_wiiUItemNumTransform.scale[i] = meter->mItemParams[i].num_scale;
         // Both assignable item slots place their artwork and ammunition above
         // their corresponding face-button prompt.
-        meter->mItemParams[i].num_pos_x += i == 0 ? 7.0f : -1.0f;
+        meter->mItemParams[i].num_pos_x =
+            (meter->mItemParams[i].num_pos_x + (i == 0 ? 7.0f : -1.0f)) * diamondScale;
         // Wii U places the ammunition count along the lower edge of the item
         // artwork (for example, the bow count overlaps the bottom of the bow).
-        meter->mItemParams[i].num_pos_y += i == 0 ? 1.0f : 6.0f;
-        meter->mItemParams[i].num_scale *= 0.55f;
+        meter->mItemParams[i].num_pos_y =
+            (meter->mItemParams[i].num_pos_y + (i == 0 ? 1.0f : 6.0f)) * diamondScale;
+        meter->mItemParams[i].num_scale *= 0.55f * diamondScale;
     }
     s_wiiUItemNumTransform.active = true;
 }
@@ -6501,18 +6695,21 @@ void apply_wii_u_archive_layout_corrections(dMeter2Draw_c* meter) {
         return;
     }
 
-    const f32 scale = hud_scale();
+    const HudScales scales = hud_scales();
+    const f32 scale = scales.overall;
     // Scaling the D-Pad parent also enlarges the vertical distance from its
     // anchor. At 125% that pulls the top of the TPHD stack back into the life
     // meter. Compensate only for the amount above 100%, keeping the established
     // 100% positions unchanged on every platform.
-    const f32 scaleAboveOne = std::max(0.0f, scale - 1.0f);
-    const f32 scaledDpadXOffset = scaleAboveOne * -16.0f;
-    const f32 scaledDpadYOffset = scaleAboveOne * 64.0f;
+    const f32 dpadAboveOne = std::max(0.0f, scales.dpad - 1.0f);
+    const f32 scaledDpadXOffset = dpadAboveOne * -16.0f;
+    // Leave vertical room when either independently sized cluster grows.
+    const f32 scaledDpadYOffset =
+        std::max(dpadAboveOne, scales.hearts - 1.0f) * 64.0f;
 
     if (meter->mpButtonParent != nullptr) {
-        meter->mpButtonParent->scale(meter->mpButtonParent->getInitScaleX() * scale,
-            meter->mpButtonParent->getInitScaleY() * scale);
+        meter->mpButtonParent->scale(meter->mpButtonParent->getInitScaleX() * scales.controllerDiamond,
+            meter->mpButtonParent->getInitScaleY() * scales.controllerDiamond);
     }
 
     apply_hud_pane_transform(HudPaneSlot::ButtonZ, meter->mpButtonXY[2], true, 31.0f,
@@ -6529,15 +6726,15 @@ void apply_wii_u_archive_layout_corrections(dMeter2Draw_c* meter) {
         apply_hud_pane_transform(HudPaneSlot::DPad,
             meter->mpButtonCrossParent, true, -24.0f + scaledDpadXOffset,
             -307.0f + scaledDpadYOffset,
-            1.30f * scale);
+            1.30f * scales.dpad);
     } else {
         apply_hud_pane_transform(HudPaneSlot::DPad,
             meter->mpButtonCrossParent, true,
             -22.0f + scaledDpadXOffset, -282.0f + scaledDpadYOffset,
-            1.62f * scale);
+            1.62f * scales.dpad);
     }
     apply_hud_pane_transform(HudPaneSlot::Hearts, meter->mpLifeParent, true, -22.0f,
-        -19.0f, scale);
+        -19.0f, scales.hearts);
     // Keep the icon, frame, and digit layers on their common animated parent.
     // Moving the three child layers independently makes their stock animation
     // fight our transform and leaves the rupee icon behind.
@@ -6731,7 +6928,7 @@ void draw_wolf_icon(CPaneMgr* button, J2DPicture* icon, const WolfIconLayout& la
     const Vec bottomRight = pane->getGlbVtx(3);
     const f32 centerX = (topLeft.x + bottomRight.x) * 0.5f;
     const f32 centerY = (topLeft.y + bottomRight.y) * 0.5f;
-    const f32 scale = hud_scale();
+    const f32 scale = hud_scales().controllerDiamond;
 
     icon->setAlpha(static_cast<u8>(layout.opacity * alphaRate));
     icon->draw(centerX + layout.offsetX * scale, centerY + layout.offsetY * scale,
@@ -7099,6 +7296,30 @@ void style_ring_combo_prompt(dMenu_Ring_c* ring) {
     hide_picture_descendants(ring->mpScreen->search('gr_n'));
 }
 
+void style_ring_direct_select_prompt(dMenu_Ring_c* ring) {
+    if (ring == nullptr || ring->mpScreen == nullptr) {
+        return;
+    }
+    // Verified in ringres.arc: l_btn is the base, l_btn_l the shine, and
+    // l_txt the separate L glyph. Do not touch the adjacent + or stick panes.
+    auto* picture = as_picture(ring->mpScreen->search(MULTI_CHAR('l_btn')));
+    ResTIMG const* texture = styled_zl_button_texture();
+    if (picture == nullptr || texture == nullptr) {
+        return;
+    }
+    // Direct Select checks logical GameCube L, i.e. the left trigger in the
+    // TPHD layout: ZL / Xbox LT / PlayStation L2 (not the Midna shoulder).
+    const f32 width = picture->getBounds().getWidth();
+    set_menu_face_button_texture(ring->mpScreen, MULTI_CHAR('l_btn'), texture);
+    resize_pane_around_center(picture, width, width);
+    set_neutral_picture_colors(picture);
+    for (u64 tag : {MULTI_CHAR('l_btn_l'), MULTI_CHAR('l_txt')}) {
+        if (auto* layer = as_picture(ring->mpScreen->search(tag))) {
+            layer->setCornerColor(JUtility::TColor(255, 255, 255, 0));
+        }
+    }
+}
+
 void destroy_ring_z_prompt(dMenu_Ring_c* ring) {
     if (s_ringZPrompt.ring != ring) {
         return;
@@ -7174,7 +7395,7 @@ void create_ring_z_prompt(dMenu_Ring_c* ring) {
         buttonR = JKR_NEW J2DPicture(texture);
     }
 
-    const char* comboLabel = button_layout() == ButtonLayout::PlayStation ? "L2" : "ZL";
+    const char* comboLabel = item_combo_button_label(button_layout());
     auto* comboZL = JKR_NEW J2DTextBox(MULTI_CHAR('hd_czl'),
         JGeometry::TBox2<f32>(516.0f, 384.0f, 552.0f, 411.0f), nullptr,
         comboLabel, 4, HBIND_CENTER, VBIND_CENTER);
@@ -7218,11 +7439,13 @@ void draw_ring_z_prompt(dMenu_Ring_c* ring) {
     apply_item_wheel_z_offset(pos);
 
     // The native combo group still owns the localized message and controls
-    // its visibility. Draw the configured ZL/L2 badge independently so the
+    // its visibility. Draw the configured ZL/LT/L2 badge independently so the
     // original GameCube wedge can remain hidden without another layout screen.
     const bool comboVisible = ring->mpTextParent[4] != nullptr &&
         ring->mpTextParent[4]->isVisible();
     if (s_ringZPrompt.comboZL != nullptr) {
+        refresh_item_combo_label(s_ringZPrompt.comboZL,
+            text_box_string(s_ringZPrompt.comboZL), button_layout());
         s_ringZPrompt.comboZL->setAlpha(static_cast<u8>(
             std::clamp(ring->mAlphaRate, 0.0f, 1.0f) * 255.0f));
         if (comboVisible) {
@@ -7267,6 +7490,13 @@ void draw_ring_z_prompt(dMenu_Ring_c* ring) {
     };
     drawFaceButton(s_ringZPrompt.buttonX, MULTI_CHAR('x_btn_n'), -4.0f);
     drawFaceButton(s_ringZPrompt.buttonY, MULTI_CHAR('y_btn_n'), 0.0f);
+
+    // Refresh the shoulder art when layout/style changes with the ring open.
+    if (s_ringZPrompt.buttonR != nullptr) {
+        if (ResTIMG const* texture = styled_r_button_texture()) {
+            s_ringZPrompt.buttonR->changeTexture(texture, 0);
+        }
+    }
 
     // The third assignment target is R.  Do not reuse the helper screen's
     // GameCube Z pane here: keeping that pane collapsed is what prevents the
@@ -7684,7 +7914,8 @@ void draw_z_ammo(dMeter2Draw_c* meter, const u8 itemNo, const f32 itemAlphaRate)
     const HudItemLayout& buttonLayout = kRItemLayout;
     const f32 itemScale = buttonLayout.itemScale;
     const f32 ammoScale = hudTransform.scale * itemScale * buttonLayout.ammoScale;
-    const f32 digitSize = meter->mItemParams[dMeter2Draw_c::SELECT_Z_e].num_scale * 16.0f * ammoScale;
+    const f32 digitSize = meter->mItemParams[dMeter2Draw_c::SELECT_Z_e].num_scale *
+        16.0f * ammoScale * hud_scales().controllerDiamond;
 
     const JGeometry::TBox2<f32>& itemBounds = meter->mpItemR->getPanePtr()->getGlbBounds();
     const int digitCount = itemNum >= 100 ? 3 : 2;
@@ -9000,9 +9231,10 @@ void after_brightness_check_screen_set(ModContext*, void* args, void*, void*) {
 }
 
 HookAction before_option_move(ModContext*, void*, void*, void*) {
-    // The original display submenu is bound to GameCube Z. The HD layout uses
-    // logical R, so translate R only while the Options menu is
-    // processing input; gameplay's separate R-item mapping remains untouched.
+    // The original display submenu is bound to GameCube Z. after_pad_read
+    // maps the physical ZR trigger to logical GameCube R while isolating the
+    // separate R/R1 shoulder. Translate that ZR action only for Options;
+    // gameplay's R-item mapping remains untouched.
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
     if ((pad.mButtonFlags & PAD_TRIGGER_R) != 0) {
         pad.mButtonFlags |= PAD_TRIGGER_Z;
@@ -9039,7 +9271,10 @@ void after_brightness_check_draw(ModContext*, void*, void*, void*) {
     }
 }
 
-HookAction before_res_font_draw_char(ModContext*, void* args, void*, void*) {
+HookAction before_res_font_draw_char(ModContext*, void* args, void* retval, void*) {
+    if (draw_font_override(args, retval, ResFontDrawCharHook::g_orig)) {
+        return HOOK_SKIP_ORIGINAL;
+    }
     if (s_descenderCorrectionDrawDepth > 0) {
         const int glyph = mods::arg<int>(args, 5);
         if (glyph == 'g') {
@@ -9064,11 +9299,7 @@ HookAction before_option_draw_arrows(ModContext*, void* args, void*, void*) {
     };
     J2DPane* frame = selected < 3 ?
         menu->mpShadowScreen->search(frameTags[selected]) : nullptr;
-    if (frame != nullptr && menu->field_0x3f3 == 5 &&
-        menu->field_0x3ef != dMenu_Option_c::PROC_CONFIRM_OPEN_MOVE_e &&
-        menu->field_0x3ef != dMenu_Option_c::PROC_CONFIRM_MOVE_MOVE_e &&
-        menu->field_0x3ef != dMenu_Option_c::PROC_CONFIRM_SELECT_MOVE_e &&
-        menu->field_0x3ef != dMenu_Option_c::PROC_CONFIRM_CLOSE_MOVE_e) {
+    if (frame != nullptr && menu->field_0x3f3 == 5 && !option_confirmation_active(menu)) {
         const auto& bounds = frame->getGlbBounds();
         constexpr f32 arrowGap = 16.0f;
         const f32 left = bounds.i.x - arrowGap;
@@ -9278,6 +9509,11 @@ HookAction before_menu_ring_delete(ModContext*, void*, void*, void*) {
     return HOOK_CONTINUE;
 }
 
+HookAction before_ring_draw(ModContext*, void* args, void*, void*) {
+    style_ring_direct_select_prompt(mods::arg<dMenu_Ring_c*>(args, 0));
+    return HOOK_CONTINUE;
+}
+
 void after_ring_draw(ModContext*, void* args, void*, void*) {
     auto* ring = mods::arg<dMenu_Ring_c*>(args, 0);
     draw_ring_z_prompt(ring);
@@ -9350,10 +9586,65 @@ void capture_context_r_pictures(J2DPane* pane, J2DPicture* buttonBase) {
     }
 }
 
+void suppress_context_button_layers(J2DPane* pane, J2DPicture* buttonBase) {
+    if (pane == nullptr) {
+        return;
+    }
+
+    // The native Y consists of a base, a separate letter, and a glow. Only
+    // suppress picture artwork inside its button group, never the group's
+    // visibility/alpha or the separate action text. Vertex alpha also leaves
+    // a replacement nested beneath a stock picture free to fade normally.
+    if (J2DPicture* picture = as_picture(pane);
+        picture != nullptr && picture != buttonBase)
+    {
+        picture->setCornerColor(JUtility::TColor(255, 255, 255, 0));
+    }
+    for (J2DPane* child = pane->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane())
+    {
+        suppress_context_button_layers(child, buttonBase);
+    }
+}
+
+void apply_context_y_button_layout(dMeterButton_c* buttons) {
+    if (buttons == nullptr || buttons->mpButtonScreen == nullptr ||
+        buttons->mpButtonY == nullptr)
+    {
+        return;
+    }
+
+    J2DPicture* picture = as_picture(
+        buttons->mpButtonScreen->search(MULTI_CHAR('y_btn')));
+    ResTIMG const* texture = item_assignment_button_texture(false);
+    if (picture == nullptr || texture == nullptr) {
+        // Keep the native prompt intact if replacement resources are absent.
+        return;
+    }
+
+    // Wolf Link's emphasized Dig prompt is not the regular HUD's Y pane.
+    // Use its native action position: Nintendo Y, Xbox X, PlayStation square,
+    // or Universal blank, with the same Silver/Black Pro artwork selector.
+    const JGeometry::TBox2<f32> bounds = picture->getBounds();
+    set_menu_face_button_texture(
+        buttons->mpButtonScreen, MULTI_CHAR('y_btn'), texture);
+    // The GameCube button is oval; our complete icon needs a square canvas.
+    // Retain its width (used by the game's prompt spacing) and its center.
+    // This is idempotent across execute/draw hooks and layout/style changes.
+    const f32 diameter = bounds.getWidth();
+    picture->resize(diameter, diameter);
+    picture->move(bounds.i.x,
+        bounds.i.y + (bounds.getHeight() - diameter) * 0.5f);
+    set_neutral_picture_colors(picture);
+    suppress_context_button_layers(buttons->mpButtonY->getPanePtr(), picture);
+}
+
 void apply_context_button_layout(dMeterButton_c* buttons) {
     if (buttons == nullptr || buttons->mpButtonScreen == nullptr) {
         return;
     }
+
+    apply_context_y_button_layout(buttons);
 
     // Context actions (Open, Let go, Pick up, Speak, and so on) are drawn by
     // a separate emphasis-button layout instead of the regular meter HUD.
@@ -9396,7 +9687,7 @@ void apply_context_button_layout(dMeterButton_c* buttons) {
     // TPHD uses ZR for the original GameCube R actions shown while aiming:
     // adding Gale Boomerang targets and switching the bow's arrow type. The
     // same context layout still serves legitimate R prompts elsewhere, so
-    // preserve the archive's R artwork outside those ready/aiming animations.
+    // use RB outside aiming on Xbox, and preserve the archive art otherwise.
     J2DPicture* rButton = as_picture(
         buttons->mpButtonScreen->search(MULTI_CHAR('r_btn_b')));
     if (s_contextRButtonScreen != buttons->mpButtonScreen) {
@@ -9404,24 +9695,25 @@ void apply_context_button_layout(dMeterButton_c* buttons) {
         s_contextRButtonTexture =
             rButton != nullptr && rButton->getTexture(0) != nullptr ?
                 rButton->getTexture(0)->getTexInfo() : nullptr;
-        s_contextRButtonUsesZr = false;
+        s_contextRButtonReplaced = false;
         s_contextRPictureStateCount = 0;
     }
 
     daAlink_c* link = daAlink_getAlinkActorClass();
     const bool zrAimAction = link != nullptr &&
         (link->checkBoomerangReadyAnime() || link->checkBowAnime());
-    if (rButton != nullptr && zrAimAction) {
-        if (!s_contextRButtonUsesZr && buttons->mpButtonR != nullptr) {
+    if (rButton != nullptr && (zrAimAction || uses_xbox_prompts(button_layout()))) {
+        if (!s_contextRButtonReplaced && buttons->mpButtonR != nullptr) {
             s_contextRPictureStateCount = 0;
             capture_context_r_pictures(
                 buttons->mpButtonR->getPanePtr(), rButton);
         }
-        if (ResTIMG const* zrTexture = styled_zr_button_texture()) {
+        if (ResTIMG const* zrTexture = zrAimAction ?
+                styled_zr_button_texture() : styled_r_button_texture()) {
             set_menu_face_button_texture(
                 buttons->mpButtonScreen, MULTI_CHAR('r_btn_b'), zrTexture);
             set_neutral_picture_colors(rButton);
-            s_contextRButtonUsesZr = true;
+            s_contextRButtonReplaced = true;
         }
         for (std::size_t index = 0;
              index < s_contextRPictureStateCount; ++index)
@@ -9430,7 +9722,7 @@ void apply_context_button_layout(dMeterButton_c* buttons) {
                 s_contextRPictureStates[index].pane->hide();
             }
         }
-    } else if (s_contextRButtonUsesZr) {
+    } else if (s_contextRButtonReplaced) {
         set_menu_face_button_texture(buttons->mpButtonScreen,
             MULTI_CHAR('r_btn_b'), s_contextRButtonTexture);
         for (std::size_t index = 0;
@@ -9442,7 +9734,7 @@ void apply_context_button_layout(dMeterButton_c* buttons) {
             }
         }
         s_contextRPictureStateCount = 0;
-        s_contextRButtonUsesZr = false;
+        s_contextRButtonReplaced = false;
     }
 
 }
@@ -10037,6 +10329,14 @@ void initialize_wolf_action_icons() {
 }
 
 void initialize_face_button_textures() {
+    for (std::size_t style = 0; style < 2; ++style) {
+        for (std::size_t index = 0; index < 4; ++index) {
+            if (svc_resource->load(mod_ctx, kXboxShoulderPaths[style][index],
+                    &s_xboxShoulderButtonResources[style][index]) != MOD_OK) {
+                svc_log->warn(mod_ctx, "Unable to load an Xbox shoulder-button texture");
+            }
+        }
+    }
     if (svc_resource->load(mod_ctx, "hud/face-button-a.bti", &s_faceButtonAResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the smooth A button texture");
     }
@@ -10201,6 +10501,11 @@ void initialize_face_button_textures() {
 }
 
 void shutdown_face_button_textures() {
+    for (auto& styleResources : s_xboxShoulderButtonResources) {
+        for (ResourceBuffer& resource : styleResources) {
+            free_resource(resource);
+        }
+    }
     free_resource(s_faceButtonAResource);
     free_resource(s_faceButtonBResource);
     for (ResourceBuffer& resource : s_blackProFaceButtonResources) {
@@ -10314,6 +10619,7 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_POST(SetStickDataHook, after_set_stick_data, "scoped third-item input");
     ADD_POST(RingCreateHook, after_ring_create, "item ring create");
     ADD_PRE(MenuRingDeleteHook, before_menu_ring_delete, "item ring prompt cleanup");
+    ADD_PRE(RingDrawHook, before_ring_draw, "item ring direct-select prompt");
     ADD_POST(RingDrawHook, after_ring_draw, "item ring draw");
     ADD_PRE(ItemExplainDrawHook, before_item_explain_draw,
         "item description button styling");

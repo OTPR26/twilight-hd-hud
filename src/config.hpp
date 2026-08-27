@@ -1,5 +1,7 @@
 #pragma once
 
+#include "hud_scaling.hpp"
+
 #include "mods/api.h"
 #include "mods/svc/config.h"
 
@@ -10,6 +12,7 @@ enum class ButtonLayout : int {
     Xbox = 1,
     Universal = 2,
     PlayStation = 3,
+    BayxFlipped = 4,
 };
 
 enum class ButtonStyle : int {
@@ -17,20 +20,36 @@ enum class ButtonStyle : int {
     BlackPro = 1,
 };
 
+enum class TextFont : int {
+    Original = 0,
+    ZenKakuGothicNew = 1,
+    MPlus2 = 2,
+    FiraSans = 3,
+};
+
 enum class ControllerCompatibility : int {
     FollowDusklight = 0,
     FixedTphd = 1,
 };
+
+enum class HudSizeSetting { Overall, ControllerDiamond, Dpad, Hearts };
+
+int64_t hud_size_percent(HudSizeSetting setting);
+int64_t displayed_hud_size_percent(HudSizeSetting setting);
+bool hud_size_locked(HudSizeSetting setting);
+void set_hud_size_percent(HudSizeSetting setting, int64_t percent);
 
 ModResult register_config(ModError* error);
 ButtonLayout button_layout();
 ButtonStyle button_style();
 ControllerCompatibility controller_compatibility();
 float hud_scale();
+HudScales hud_scales();
+TextFont text_font();
 
 ConfigVarHandle button_layout_config_var();
 ConfigVarHandle button_style_config_var();
 ConfigVarHandle controller_compatibility_config_var();
-ConfigVarHandle hud_scale_config_var();
+ConfigVarHandle text_font_config_var();
 
 }  // namespace twilight_hd_hud

@@ -3,3 +3,8 @@
 .DS_Store
 /GameBanana/*.dusk
 /GameBanana/*.zip
+__pycache__/
+*.pyc
+/Builds/
+/Font-Trial-*/
+/FONT-TRIAL.md
