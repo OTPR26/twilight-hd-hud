@@ -4,7 +4,9 @@
 #include "font_override.hpp"
 #include "hud_layout.hpp"
 #include "input_gate.hpp"
+#include "item_help_text.hpp"
 #include "service_imports.hpp"
+#include "ui_refinements.hpp"
 
 #include "global.h"
 #include "Z2AudioLib/Z2AudioMgr.h"
@@ -22,6 +24,7 @@
 #include "d/d_menu_window.h"
 #include "d/d_pane_class.h"
 #include "d/d_msg_object.h"
+#include "d/d_msg_scrn_howl.h"
 #include "JSystem/J2DGraph/J2DPane.h"
 #include "JSystem/J2DGraph/J2DScreen.h"
 #include "JSystem/J2DGraph/J2DPicture.h"
@@ -31,6 +34,7 @@
 #include "JSystem/JUtility/JUTFont.h"
 #include "JSystem/JUtility/JUTResFont.h"
 #define private public
+#include "d/d_msg_class.h"
 #include "d/d_menu_item_explain.h"
 #include "d/d_msg_out_font.h"
 #include "d/d_msg_scrn_3select.h"
@@ -70,6 +74,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <utility>
 
 namespace twilight_hd_hud {
 namespace {
@@ -116,13 +121,15 @@ DEFINE_HOOK(&dMenu_Ring_c::setMixMessage, RingSetMixMessageHook);
 DEFINE_HOOK(&dMenu_Ring_c::isMixItemOn, RingIsMixItemOnHook);
 DEFINE_HOOK(&dMenu_Ring_c::isMixItemOff, RingIsMixItemOffHook);
 DEFINE_HOOK(&dMenu_ItemExplain_c::draw, ItemExplainDrawHook);
+DEFINE_HOOK(&JMessage::TControl::setMessageCode_inSequence_, ItemHelpMessageHook);
 DEFINE_HOOK(&dMeterButton_c::_execute, MeterButtonExecuteHook);
 DEFINE_HOOK(&dMeterButton_c::draw, MeterButtonDrawHook);
 DEFINE_HOOK(&dMeter2Draw_c::draw, MeterDrawHook);
 DEFINE_HOOK(&dMeter2Draw_c::drawButtonZ, MeterDrawButtonZHook);
 DEFINE_HOOK(&dMeter2_c::moveButtonCross, MeterMoveButtonCrossHook);
-DEFINE_HOOK(&dMeter2Draw_c::drawKantera, MeterDrawKanteraHook);
-DEFINE_HOOK(&dMeter2Draw_c::drawOxygen, MeterDrawOxygenHook);
+DEFINE_HOOK(&dMeter2Draw_c::drawKanteraScreen, MeterGaugeScreenHook);
+DEFINE_HOOK(&J2DScreen::draw, ScreenDrawHook);
+DEFINE_HOOK(&dMsgScrnBase_c::draw, MessageScreenDrawHook);
 DEFINE_HOOK(&dMeter2Draw_c::setButtonIconMidonaAlpha, MeterMidnaAlphaHook);
 DEFINE_HOOK(&dMeterMap_c::draw, MeterMapDrawHook);
 DEFINE_HOOK(&dMeterMap_c::ctrlShowMap, MeterMapCtrlShowHook);
@@ -291,6 +298,15 @@ bool s_collectCursorDiagnosticsLogged = false;
 bool s_collectLayoutReady = false;
 dMeter2Draw_c* s_wiiURButtonMeter = nullptr;
 dKantera_icon_c* s_zOilMeter = nullptr;
+struct GaugeDrawState {
+    dMeter2Draw_c* meter = nullptr;
+    J2DPane* pane = nullptr;
+    f32 x = 0.0f;
+    f32 y = 0.0f;
+    f32 scaleX = 1.0f;
+    f32 scaleY = 1.0f;
+};
+GaugeDrawState s_gaugeDraw;
 daAlink_c* s_zHeavyBootsGuardLink = nullptr;
 bool s_zHeavyBootsManualToggleOff = false;
 bool s_zHeavyBootsWaitRelease = false;
@@ -1167,46 +1183,106 @@ void replace_item_assignment_buttons(J2DPane* pane) {
     }
 }
 
+bool item_help_uses_bow_combination(u8 item) {
+    switch (item) {
+    case dItemNo_HAWK_EYE_e:
+    case dItemNo_BOW_e:
+    case dItemNo_NORMAL_BOMB_e:
+    case dItemNo_WATER_BOMB_e:
+    case dItemNo_POKE_BOMB_e:
+    case dItemNo_BOMB_ARROW_e:
+    case dItemNo_HAWK_ARROW_e:
+        return true;
+    default:
+        return false;
+    }
+}
+
+dMenu_ItemExplain_c* s_activeItemExplanation = nullptr;
+std::string s_itemHelpText;
+J2DTextBox* s_itemHelpDrawText = nullptr;
+J2DTextBox::TFontSize s_itemHelpOriginalFont;
+float s_itemHelpOriginalSpacing = 0.0f;
+dMsgString_c* s_itemHelpFitOwner = nullptr;
+u32 s_itemHelpFitMessage = 0;
+float s_itemHelpFitScale = 1.0f;
+
+void apply_item_help_fit() {
+    if (s_itemHelpDrawText == nullptr) return;
+    s_itemHelpDrawText->setFontSize(s_itemHelpOriginalFont.mSizeX * s_itemHelpFitScale,
+        s_itemHelpOriginalFont.mSizeY * s_itemHelpFitScale);
+    s_itemHelpDrawText->setCharSpace(s_itemHelpOriginalSpacing * s_itemHelpFitScale);
+}
+
+void after_item_help_message(ModContext*, void* args, void* result, void*) {
+    auto* control = mods::arg<JMessage::TControl*>(args, 0);
+    auto* menu = s_activeItemExplanation;
+    if (result == nullptr || !*static_cast<bool*>(result) || menu == nullptr ||
+        menu->mpInfoString == nullptr ||
+        menu->mpInfoText == nullptr || control != menu->mpInfoString->mpCtrl ||
+        menu->mpInfoString->mpRefer->getPanePtr() != menu->mpInfoText->getPanePtr() ||
+        control->pResourceCache_ == nullptr || control->pMessageText_begin_ == nullptr) return;
+
+    const auto* resource = control->pResourceCache_;
+    // This wording change is English-only; never reinterpret UTF-16 messages.
+    if (resource->oParse_THeader_.get_encoding() == 2 || resource->pMessageText_ == nullptr) return;
+    const JMessage::data::TParse_TBlock_messageText block(resource->pMessageText_ - 8);
+    const auto blockSize = block.get_size();
+    const auto start = reinterpret_cast<std::uintptr_t>(resource->pMessageText_);
+    const auto text = reinterpret_cast<std::uintptr_t>(control->pMessageText_begin_);
+    if (blockSize < 8 || text < start || text - start >= blockSize - 8) return;
+    auto replacement = three_button_item_help({control->pMessageText_begin_,
+        blockSize - 8 - (text - start)});
+    if (replacement.empty()) return;
+    s_itemHelpText = std::move(replacement);
+
+    // Measure with the game's font/tag parser, including dynamic item counts.
+    // Only crowded cards shrink, uniformly, retaining their authored line breaks.
+    // This separate reference cannot clear or duplicate the real inline icons.
+    if (s_itemHelpDrawText != nullptr) {
+        auto* reference = menu->mpInfoString->mpRefer;
+        jmessage_string_tReference fitReference;
+        fitReference.setResourceContainer(reference->getResourceContainer());
+        fitReference.init(s_itemHelpDrawText, nullptr, reference->getFont(), nullptr, 0);
+        jmessage_string_tMeasureProcessor measure(&fitReference);
+        measure.process_messageEntryText(control->getProcessor(), control->pEntry_, s_itemHelpText.c_str());
+        float widest = 0.0f;
+        for (int line = 0; line < fitReference.getLineMax(); ++line) {
+            widest = std::max(widest, fitReference.getLineLength(line));
+        }
+        s_itemHelpFitScale = item_help_fit_scale(s_itemHelpDrawText->getWidth() - 2.0f, widest);
+        apply_item_help_fit();
+    }
+    // Both the native measurement pass and renderer consume this private copy.
+    // The original archive and other dialogue remain unchanged.
+    control->pMessageText_begin_ = s_itemHelpText.c_str();
+    control->pMessageText_current_ = s_itemHelpText.c_str();
+}
+
 void apply_item_explain_button_layout(dMenu_ItemExplain_c* menu) {
     if (menu == nullptr) {
         return;
     }
-
     replace_item_assignment_buttons(menu->mpInfoScreen);
-
     if (menu->mpInfoString == nullptr || menu->mpInfoString->mpOutFont == nullptr) {
         return;
     }
 
-    // Item descriptions render inline X/Y controls through their own out-font
-    // instance. Types 5 and 6 are the native X and Y glyphs respectively.
     COutFont_c* outFont = menu->mpInfoString->mpOutFont;
-    const struct {
-        int type;
-        bool nativeXButton;
-    } inlineButtons[] = {
-        {5, true},
-        {6, false},
-    };
-    for (const auto& button : inlineButtons) {
-        J2DPicture* picture = outFont->mpPane[button.type];
-        ResTIMG const* replacement = item_assignment_button_texture(button.nativeXButton);
-        if (picture != nullptr && replacement != nullptr) {
-            picture->changeTexture(replacement, 0);
-            set_neutral_picture_colors(picture);
+    const bool combination = item_help_uses_bow_combination(menu->field_0xe1);
+    for (int type : {0, 1, 3, 4, 5, 6, 7}) {
+        ResTIMG const* replacement = nullptr;
+        switch (item_help_button(type, combination)) {
+        case ItemHelpButton::Action: replacement = menu_face_button_texture(true); break;
+        case ItemHelpButton::Back: replacement = menu_face_button_texture(false); break;
+        case ItemHelpButton::ItemX: replacement = item_assignment_button_texture(true); break;
+        case ItemHelpButton::ItemY: replacement = item_assignment_button_texture(false); break;
+        case ItemHelpButton::Target: replacement = styled_zl_button_texture(); break;
+        case ItemHelpButton::Shoulder: replacement = styled_r_button_texture(); break;
+        case ItemHelpButton::None: break;
         }
-    }
-
-    // Hawkeye's stock description labels the bow-combination control as R.
-    // In this HUD, R is the third item slot and ZL is the combination control,
-    // so only this description uses ZL/LT/L2. Other item-help R glyphs use
-    // the third-slot shoulder: R/RB/R1, according to the selected layout.
-    {
-        constexpr int kInlineRType = 4;
-        J2DPicture* picture = outFont->mpPane[kInlineRType];
-        if (ResTIMG const* replacement = menu->field_0xe1 == dItemNo_HAWK_EYE_e ?
-                styled_zl_button_texture() : styled_r_button_texture();
-            picture != nullptr && replacement != nullptr) {
+        J2DPicture* picture = outFont->mpPane[type];
+        if (picture != nullptr && replacement != nullptr) {
             picture->changeTexture(replacement, 0);
             set_neutral_picture_colors(picture);
         }
@@ -7468,7 +7544,9 @@ void create_ring_z_prompt(dMenu_Ring_c* ring) {
 
 void draw_ring_z_prompt(dMenu_Ring_c* ring) {
     if (s_ringZPrompt.ring != ring || s_ringZPrompt.screen == nullptr ||
-        ring == nullptr || ring->mpScreen == nullptr || ring->mPlayerIsWolf)
+        ring == nullptr || ring->mpScreen == nullptr ||
+        !show_ring_assignment_prompts(ring->mPlayerIsWolf,
+            ring->mpItemExplain != nullptr ? ring->mpItemExplain->getStatus() : 0))
     {
         return;
     }
@@ -7517,6 +7595,15 @@ void draw_ring_z_prompt(dMenu_Ring_c* ring) {
     // size.  A 52-unit square made these prompts about 100 pixels wide;
     // 24 units matches the authored face-button prompt scale.
     constexpr f32 kFaceButtonSize = 24.0f;
+    for (const auto& button : {
+             std::pair{s_ringZPrompt.buttonX, true},
+             std::pair{s_ringZPrompt.buttonY, false}}) {
+        if (button.first != nullptr) {
+            if (ResTIMG const* texture = item_assignment_button_texture(button.second)) {
+                button.first->changeTexture(texture, 0);
+            }
+        }
+    }
     const auto drawFaceButton = [&](J2DPicture* picture, const u64 anchorTag,
                                     const f32 offsetX) {
         J2DPane* faceAnchor = ring->mpScreen->search(anchorTag);
@@ -9576,8 +9663,32 @@ void after_ring_draw(ModContext*, void* args, void*, void*) {
 }
 
 HookAction before_item_explain_draw(ModContext*, void* args, void*, void*) {
-    apply_item_explain_button_layout(mods::arg<dMenu_ItemExplain_c*>(args, 0));
+    s_activeItemExplanation = mods::arg<dMenu_ItemExplain_c*>(args, 0);
+    auto* menu = s_activeItemExplanation;
+    s_itemHelpDrawText = menu != nullptr && menu->mpInfoText != nullptr ?
+        static_cast<J2DTextBox*>(menu->mpInfoText->getPanePtr()) : nullptr;
+    if (s_itemHelpDrawText != nullptr) {
+        s_itemHelpDrawText->getFontSize(s_itemHelpOriginalFont);
+        s_itemHelpOriginalSpacing = s_itemHelpDrawText->getCharSpace();
+        if (s_itemHelpFitOwner != menu->mpInfoString || s_itemHelpFitMessage != menu->field_0xc8 ||
+            menu->field_0xc8 != menu->field_0xd0) {
+            s_itemHelpFitOwner = menu->mpInfoString;
+            s_itemHelpFitMessage = menu->field_0xc8;
+            s_itemHelpFitScale = 1.0f;
+        }
+        apply_item_help_fit();
+    }
+    apply_item_explain_button_layout(s_activeItemExplanation);
     return HOOK_CONTINUE;
+}
+
+void after_item_explain_draw(ModContext*, void*, void*, void*) {
+    if (s_itemHelpDrawText != nullptr) {
+        s_itemHelpDrawText->setFontSize(s_itemHelpOriginalFont);
+        s_itemHelpDrawText->setCharSpace(s_itemHelpOriginalSpacing);
+        s_itemHelpDrawText = nullptr;
+    }
+    s_activeItemExplanation = nullptr;
 }
 
 void after_ring_set_mix_message(ModContext*, void* args, void*, void*) {
@@ -9930,13 +10041,83 @@ HookAction before_meter_draw_button_z(ModContext*, void* args, void*, void*) {
     return HOOK_CONTINUE;
 }
 
-HookAction before_meter_draw_kantera(ModContext*, void* args, void*, void*) {
-    mods::arg_ref<f32>(args, 3) += 100.0f;
+HookAction before_meter_gauge_screen(ModContext*, void* args, void*, void*) {
+    const u8 type = mods::arg<u8>(args, 1);
+    s_gaugeDraw = {};
+    if (type == 1 || type == 2) {
+        s_gaugeDraw.meter = mods::arg<dMeter2Draw_c*>(args, 0);
+    }
     return HOOK_CONTINUE;
 }
 
-HookAction before_meter_draw_oxygen(ModContext*, void* args, void*, void*) {
-    mods::arg_ref<f32>(args, 3) += 100.0f;
+HookAction before_gauge_screen_draw(ModContext*, void* args, void*, void*) {
+    auto* screen = mods::arg<J2DScreen*>(args, 0);
+    auto* meter = s_gaugeDraw.meter;
+    if (meter == nullptr || screen != meter->mpKanteraScreen ||
+        meter->mpMagicParent == nullptr || s_gaugeDraw.pane != nullptr) {
+        return HOOK_CONTINUE;
+    }
+
+    // The native pass has now applied the correct oil/oxygen fill, animation,
+    // opacity and user HUD scale. Adjust only the parent at its final draw.
+    J2DPane* pane = meter->mpMagicParent->getPanePtr();
+    if (pane == nullptr) return HOOK_CONTINUE;
+    s_gaugeDraw.pane = pane;
+    s_gaugeDraw.x = pane->getTranslateX();
+    s_gaugeDraw.y = pane->getTranslateY();
+    s_gaugeDraw.scaleX = pane->getScaleX();
+    s_gaugeDraw.scaleY = pane->getScaleY();
+    const f32 scale = hud_scales().overall;
+    pane->scale(s_gaugeDraw.scaleX * scale, s_gaugeDraw.scaleY * scale);
+
+    f32 left = 0.0f, top = 0.0f, right = 0.0f, bottom = 0.0f;
+    bool hasBounds = false;
+    for (CPaneMgr* frame : {meter->mpMagicFrameL, meter->mpMagicBase, meter->mpMagicFrameR}) {
+        add_pane_current_global_bounds(frame, left, top, right, bottom, hasBounds);
+    }
+    if (hasBounds) {
+        const MeterOffset delta = top_meter_offset(
+            mDoGph_gInf_c::getSafeMinXF(), mDoGph_gInf_c::getSafeMaxXF(),
+            mDoGph_gInf_c::getSafeMinYF(), left, top, right, bottom);
+        offset_diamond_group(std::array<J2DPane*, 1>{pane}, delta.x, delta.y);
+    }
+    return HOOK_CONTINUE;
+}
+
+void after_meter_gauge_screen(ModContext*, void*, void*, void*) {
+    // Oil and oxygen share this screen. Restore its native pose between
+    // passes, so they cannot inherit each other's transforms or drift.
+    if (s_gaugeDraw.pane != nullptr) {
+        s_gaugeDraw.pane->scale(s_gaugeDraw.scaleX, s_gaugeDraw.scaleY);
+        s_gaugeDraw.pane->translate(s_gaugeDraw.x, s_gaugeDraw.y);
+    }
+    s_gaugeDraw = {};
+}
+
+void hide_other_howl_pictures(J2DPane* pane, J2DPicture* button) {
+    if (pane == nullptr) return;
+    if (J2DPicture* picture = as_picture(pane); picture != nullptr && picture != button) {
+        picture->hide();
+    }
+    for (J2DPane* child = pane->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane()) {
+        hide_other_howl_pictures(child, button);
+    }
+}
+
+HookAction before_message_screen_draw(ModContext*, void* args, void*, void*) {
+    auto* howl = dynamic_cast<dMsgScrnHowl_c*>(mods::arg<dMsgScrnBase_c*>(args, 0));
+    if (howl == nullptr || howl->mpButtonIcon[1] == nullptr) return HOOK_CONTINUE;
+    J2DPane* group = howl->mpButtonIcon[1]->getPanePtr();
+    J2DPicture* button = first_picture_pane(group);
+    ResTIMG const* texture = menu_face_button_texture(true);
+    if (button != nullptr && texture != nullptr) {
+        button->changeTexture(texture, 0);
+        button->setTexCoord(button->getTexture(0), BIND15, MIRROR0, false);
+        set_neutral_picture_colors(button);
+        hide_other_howl_pictures(group, button);
+        button->show();
+    }
     return HOOK_CONTINUE;
 }
 
@@ -10607,6 +10788,12 @@ void shutdown_face_button_textures() {
 }
 
 void shutdown_item_slot_resources() {
+    s_activeItemExplanation = nullptr;
+    s_itemHelpText.clear();
+    s_itemHelpFitOwner = nullptr;
+    s_itemHelpDrawText = nullptr;
+    s_itemHelpFitScale = 1.0f;
+    s_gaugeDraw = {};
     s_inputGate = {};
     destroy_ring_z_prompt(s_ringZPrompt.ring);
     s_pendingAssign = {};
@@ -10681,6 +10868,8 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_POST(RingDrawHook, after_ring_draw, "item ring draw");
     ADD_PRE(ItemExplainDrawHook, before_item_explain_draw,
         "item description button styling");
+    ADD_POST(ItemExplainDrawHook, after_item_explain_draw, "item description scope cleanup");
+    ADD_POST(ItemHelpMessageHook, after_item_help_message, "three-button item instructions");
     ADD_PRE(MeterButtonExecuteHook, before_meter_button_execute,
         "disable legacy item-ring Z overlay");
     ADD_POST(MeterButtonExecuteHook, after_meter_button_execute,
@@ -10694,8 +10883,10 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_POST(MeterDrawButtonZHook, after_meter_draw_button_z,
         "replace item-ring Z prompt with R");
     ADD_POST(MeterMoveButtonCrossHook, after_meter_move_button_cross, "D-pad update");
-    ADD_PRE(MeterDrawKanteraHook, before_meter_draw_kantera, "lantern meter draw");
-    ADD_PRE(MeterDrawOxygenHook, before_meter_draw_oxygen, "oxygen meter draw");
+    ADD_PRE(MeterGaugeScreenHook, before_meter_gauge_screen, "oil and oxygen meter setup");
+    ADD_PRE(ScreenDrawHook, before_gauge_screen_draw, "top-center oil and oxygen meters");
+    ADD_POST(MeterGaugeScreenHook, after_meter_gauge_screen, "oil and oxygen meter restore");
+    ADD_PRE(MessageScreenDrawHook, before_message_screen_draw, "Howl button prompt");
     ADD_POST(MeterMidnaAlphaHook, after_meter_midna_alpha, "Midna icon opacity");
     ADD_PRE(MeterMapDrawHook, before_meter_map_draw, "minimap draw (before)");
     ADD_POST(MeterMapDrawHook, after_meter_map_draw, "minimap draw (after)");

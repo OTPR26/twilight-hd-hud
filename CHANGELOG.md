@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.3.5 - 2026-08-27
+
+- Top-centered oil/oxygen meters.
+- Howl button matching the selected layout/style.
+- Updated item-help icons, including ZL/LT/L2 for bomb-arrow combinations.
+- Assignment icons hidden while item descriptions are open.
+
 ## v1.3.1 - 2026-08-27
 
 - Fix L, R, ZL, and ZR gameplay actions leaking through while Dusklight's
