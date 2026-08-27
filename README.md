@@ -19,6 +19,8 @@ Dusklight **v1.4.1-141 or newer** is required. The mod is built and tested again
   individual controls. At 100%, saved Controller Diamond, D-Pad, and Hearts
   percentages apply independently, without multiplication. Changes apply live.
 - *Twilight Princess HD*-style panels for shared three-choice dialogue screens
+- TPHD-style Collection screen with parchment descriptions, decorated equipment
+  frames, and a forward-facing Link model that retains Dusklight's rotation controls
 - Native modules for Windows x64, Linux x64, macOS Apple Silicon, Android ARM64, iOS ARM64, and tvOS ARM64
 
 Planned improvements are tracked in [ROADMAP.md](ROADMAP.md).

@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.3.6 - 2026-08-27
+
+- TPHD-style Collection screen with parchment descriptions.
+- Updated Collection banner, equipped-item frames, and decorative details.
+- Link starts facing forward while keeping Dusklight's model rotation.
+- Corrected and aligned controller icons in Collection descriptions.
+
 ## v1.3.5 - 2026-08-27
 
 - Top-centered oil/oxygen meters.

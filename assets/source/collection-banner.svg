@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="940" height="152" viewBox="0 0 940 152">
+  <defs>
+    <linearGradient id="strip" x2="0" y2="1">
+      <stop stop-color="#85856b"/>
+      <stop offset="1" stop-color="#65674e"/>
+    </linearGradient>
+    <filter id="grain" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency=".65" numOctaves="2" seed="19"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer><feFuncA type="linear" slope=".18"/></feComponentTransfer>
+      <feComposite in2="SourceGraphic" operator="in"/>
+    </filter>
+  </defs>
+  <!-- Inset bottom corners echo the Collection panel, rather than a button. -->
+  <path d="M12 4 H928 Q936 4 936 12 V121 Q915 124 906 148 H34 Q25 124 4 121 V12 Q4 4 12 4Z"
+        fill="#1e220d" stroke="#535640" stroke-width="8"/>
+  <path d="M12 4 H928 Q936 4 936 12 V121 Q915 124 906 148 H34 Q25 124 4 121 V12 Q4 4 12 4Z"
+        fill="none" stroke="#e6e6b7" stroke-width="2.5"/>
+  <path d="M12 10 H928 V116 Q910 121 902 142 H38 Q30 121 12 116Z"
+        fill="none" stroke="#a8ad81" stroke-width="2"/>
+  <rect x="14" y="12" width="912" height="25" fill="url(#strip)"/>
+  <rect x="14" y="12" width="912" height="25" fill="#888870" filter="url(#grain)"/>
+  <path d="M13 38 H927" stroke="#d5d9a7" stroke-width="2"/>
+</svg>

@@ -1,6 +1,10 @@
-Twilight HD HUD v0.7.5
+Twilight HD HUD v1.3.6
 
-Requires official Dusklight v1.4.1-129 or newer.
+Requires official Dusklight v1.4.1-141 or newer.
+
+Updating: remove the previous Twilight HD HUD .dusk file before adding this
+version. Keep only one version in the mods folder. Saves and settings are
+preserved. Fully restart Dusklight after updating.
 
 Supported platforms:
 - iPhone and iPad ARM64
@@ -20,7 +24,7 @@ Apple TV installation:
 
 Controller compatibility:
 - Follow Dusklight Bindings respects the active controller profile and honors its Call Midna action without also triggering the control's normal game action.
-- TPHD Fixed Bindings ignores the separate Dusklight Call Midna binding and keeps Midna on D-Pad Up.
+- TPHD Fixed Bindings ignores the separate Dusklight Call Midna binding and keeps Midna on L/LB/L1.
 - In both modes, the control mapped to logical R operates the third item and related menu actions.
 
 This package contains no game files. A compatible, legally obtained disc image is required by Dusklight.

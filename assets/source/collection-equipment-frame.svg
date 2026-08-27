@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- White mask: native equip state supplies ivory or muted olive at runtime. -->
+  <path d="M32 8 H224 Q224 32 248 32 V224 Q224 224 224 248 H32 Q32 224 8 224 V32 Q32 32 32 8Z"
+        fill="none" stroke="white" stroke-width="8"/>
+</svg>
