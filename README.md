@@ -21,6 +21,10 @@ Dusklight **v1.4.1-141 or newer** is required. The mod is built and tested again
 - *Twilight Princess HD*-style panels for shared three-choice dialogue screens
 - TPHD-style Collection screen with parchment descriptions, decorated equipment
   frames, and a forward-facing Link model that retains Dusklight's rotation controls
+- TPHD-style Items bank with fixed inventory cells, dark patterned backings,
+  soft shadows, and Ooccoo's circular bottom-right slot; the original wheel
+  remains selectable in settings
+- Collection/Save on D-Pad Down and Items on Start / +, with aligned HUD labels
 - Native modules for Windows x64, Linux x64, macOS Apple Silicon, Android ARM64, iOS ARM64, and tvOS ARM64
 
 Planned improvements are tracked in [ROADMAP.md](ROADMAP.md).
@@ -28,7 +32,7 @@ Release history is recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## Downloads
 
-The release provides two `.dusk` packages:
+The release provides two `.dusk` packages, also available in ZIPs with installation notes:
 
 - **Desktop and Android:** Windows, Linux, Steam Deck, macOS Apple Silicon, and Android ARM64
 - **iOS and tvOS:** iPhone, iPad, and Apple TV
@@ -43,6 +47,22 @@ Download the package for the device running Dusklight. The packages contain the 
 4. Open the Twilight HD HUD settings panel to choose a button-label layout and HUD size.
 
 On macOS, the active data folder is normally under `~/Library/Application Support/TwilitRealm/Dusklight`. On Android, use the `mods` folder inside the Dusklight data folder selected by the app.
+
+If you download a ZIP, extract it first and install the `.dusk` file inside.
+When updating, remove the previous Twilight HD HUD package and keep only one
+version in `mods`. Do not remove your saves, settings, or controller profiles.
+
+## Items screen
+
+The new **TPHD Bank** is the default. Select **Items Screen > Original Wheel**
+in Twilight HD HUD Settings to use the original layout instead; close and reopen
+Items to apply the change. X, Y, and R item assignment and supported combinations
+retain the game's inventory behavior.
+
+**Start / +** opens Items and closes it again; **B** also closes it.
+**D-Pad Down** opens Collection/Save. Inside menus, D-Pad directions remain
+navigation controls. In Follow mode, if Call Midna is assigned to Down,
+Collection/Save moves to Right and Minimap to Left. No controller profile is rewritten.
 
 ## Installation: iPhone and iPad
 
@@ -96,7 +116,8 @@ put Attack on East and Action on South. Custom bindings remain unchanged.
 
 - X, Y, and R: equipped items
 - L: Midna in TPHD Fixed Bindings
-- D-Pad Down: Items
+- D-Pad Down: Collection/Save
+- Start / +: Items (press again, or B, to close)
 - D-Pad Left/Right: minimap toggle
 - ZL: enemy lock-on/defend and paused item combinations
 - ZR: Gale Boomerang multi-target lock

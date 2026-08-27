@@ -46,10 +46,12 @@ ControllerCompatibility controller_compatibility();
 float hud_scale();
 HudScales hud_scales();
 TextFont text_font();
+bool item_bank_enabled();
 
 ConfigVarHandle button_layout_config_var();
 ConfigVarHandle button_style_config_var();
 ConfigVarHandle controller_compatibility_config_var();
 ConfigVarHandle text_font_config_var();
+ConfigVarHandle items_screen_config_var();
 
 }  // namespace twilight_hd_hud

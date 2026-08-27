@@ -26,6 +26,22 @@ constexpr bool show_ring_assignment_prompts(bool wolf, int explanationStatus) {
 
 struct MeterOffset { float x; float y; };
 
+// These are optical offsets for the authored HUD panes, not visible ink gaps.
+// The cross texture and text cell both contain padding. Screenshot comparison
+// with TPHD requires pulling Collection upward by 24% of the cross pane width
+// from preview 6's +14% pane gap, while retaining its horizontal anchor.
+constexpr MeterOffset collection_dpad_offset(float crossLeft, float crossRight,
+    float crossBottom, float textLeft, float textRight, float textTop) {
+    return {(crossLeft + crossRight - textLeft - textRight) * 0.5f,
+        crossBottom - (crossRight - crossLeft) * 0.10f - textTop};
+}
+
+// The authored Minimap row is above the cross's optical center. Applied after
+// restoring its canonical position each frame; X and all outline offsets stay.
+constexpr float minimap_dpad_optical_offset(float crossWidth) {
+    return crossWidth * 0.12f;
+}
+
 constexpr MeterOffset top_meter_offset(float safeLeft, float safeRight, float safeTop,
     float frameLeft, float frameTop, float frameRight, float frameBottom) {
     // Anchor the full frame, not the shrinking fill, so consumption cannot

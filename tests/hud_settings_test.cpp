@@ -74,6 +74,10 @@ static ModResult window(ModContext*, const UiWindowDesc* desc, UiWindowHandle* h
     saved["button-layout"] = 0;
     assert(std::string(controls[3].help_rml) ==
         "Choose the in-game text font. Restart Dusklight to apply changes.");
+    assert(std::string(controls[4].label) == "Items Screen");
+    assert(controls[4].option_count == 2);
+    assert(std::string(controls[4].options[0]) == "TPHD Bank");
+    assert(std::string(controls[4].options[1]) == "Original Wheel");
     controls.clear();
     *handle = 1;
     return desc->tabs[1].build(nullptr, 1, 2, 3, nullptr, nullptr);
@@ -98,6 +102,12 @@ int main() {
     saved = {{"hud-size", 2}, {"controller-diamond-size", 0},
         {"dpad-size", 1}, {"hearts-size", 2}};
     assert(register_config(nullptr) == MOD_OK);
+    assert(item_bank_enabled());
+    saved["items-screen"] = 1;
+    assert(!item_bank_enabled());
+    saved["items-screen"] = 19;
+    assert(!item_bank_enabled());
+    saved["items-screen"] = 0;
     saved["button-layout"] = 4;
     assert(button_layout() == ButtonLayout::BayxFlipped);
     saved["button-layout"] = 5;

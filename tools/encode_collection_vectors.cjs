@@ -1,4 +1,4 @@
-// Compile the editable Collection SVG decorations into tiled GameCube RGBA8.
+// Compile the editable menu SVG decorations into tiled GameCube RGBA8.
 // Requires sharp; no game assets are copied into these generated resources.
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -31,7 +31,8 @@ function encodeRGBA8(pixels, width, height) {
 }
 
 (async () => {
-    for (const name of ['collection-banner', 'collection-equipment-frame']) {
+    for (const name of ['collection-banner', 'collection-equipment-frame', 'item-bank-cell',
+        'item-bank-circle', 'item-bank-shadow']) {
         const source = path.join(root, 'assets/source', name + '.svg');
         const {data, info} = await sharp(source).ensureAlpha().raw().toBuffer({resolveWithObject: true});
         await fs.writeFile(path.join(root, 'res/menu', name + '.bti'), encodeRGBA8(data, info.width, info.height));

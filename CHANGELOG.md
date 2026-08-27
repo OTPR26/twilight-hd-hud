@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.4.0 - 2026-08-27
+
+- Add the TPHD-style Items bank with fixed item positions, a patterned title
+  banner, darker cells, soft shadows, and Ooccoo's circular bottom-right slot.
+- Keep the original item wheel available through the new Items Screen setting.
+- Move Collection/Save to D-Pad Down and Items to Start / +; Start or B closes
+  Items, while D-Pad navigation inside menus remains unchanged.
+- Center Collection/Save beneath the D-Pad and refine Minimap's vertical alignment.
+- Preserve custom Call Midna bindings and existing controller profiles.
+- Add regression coverage for bank layout, navigation, settings, menu shortcuts,
+  artwork, and D-Pad label spacing.
+
 ## v1.3.6 - 2026-08-27
 
 - TPHD-style Collection screen with parchment descriptions.

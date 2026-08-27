@@ -17,6 +17,7 @@ ConfigVarHandle s_controllerDiamondSize = 0;
 ConfigVarHandle s_dpadSize = 0;
 ConfigVarHandle s_heartsSize = 0;
 ConfigVarHandle s_textFont = 0;
+ConfigVarHandle s_itemsScreen = 0;
 
 ModResult register_int(const char* name, int64_t defaultValue, ConfigVarHandle& handle) {
     ConfigVarDesc desc = CONFIG_VAR_DESC_INIT;
@@ -84,7 +85,8 @@ ModResult register_config(ModError* error) {
             static_cast<int64_t>(ControllerCompatibility::FollowDusklight),
             s_controllerCompatibility) != MOD_OK ||
         register_hud_sizes() != MOD_OK ||
-        register_int("text-font", 0, s_textFont) != MOD_OK)
+        register_int("text-font", 0, s_textFont) != MOD_OK ||
+        register_int("items-screen", 0, s_itemsScreen) != MOD_OK)
     {
         return mods::set_error(
             error, MOD_ERROR, "failed to register Twilight HD HUD settings");
@@ -175,6 +177,14 @@ TextFont text_font() {
 
 ConfigVarHandle text_font_config_var() {
     return s_textFont;
+}
+
+bool item_bank_enabled() {
+    return get_int(s_itemsScreen, 0) == 0;
+}
+
+ConfigVarHandle items_screen_config_var() {
+    return s_itemsScreen;
 }
 
 }  // namespace twilight_hd_hud

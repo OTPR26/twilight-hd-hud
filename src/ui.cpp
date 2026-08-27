@@ -131,6 +131,11 @@ ModResult build_hud_tab(
     {
         return MOD_ERROR;
     }
+    static constexpr const char* kItemsScreens[] = {"TPHD Bank", "Original Wheel"};
+    if (add_select(ctx, left, "Items Screen", items_screen_config_var(),
+            kItemsScreens, std::size(kItemsScreens),
+            "Choose a fixed item bank or the original wheel. Close and reopen Items to apply.") != MOD_OK)
+        return MOD_ERROR;
     return MOD_OK;
 }
 

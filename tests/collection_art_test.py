@@ -28,4 +28,24 @@ assert frame(128, 128)[3] == 0
 assert frame(0, 0)[3] == 0
 assert frame(128, 8) == (255, 255, 255, 255)
 assert frame(8, 128) == (255, 255, 255, 255)
-print('PASS: Collection banner/frame dimensions, tiled RGBA8, transparency, and palette')
+cell = load('item-bank-cell', (256, 256))
+assert cell(0, 0)[3] == 0
+assert cell(12, 12)[3] == 0
+assert cell(128, 128)[3] == 255
+assert cell(128, 32)[3] == 255
+assert sum(cell(128, 128)[:3]) > sum(cell(128, 12)[:3])
+assert 30 < cell(128, 128)[0] < 70 # Preview 4's darker charcoal center.
+assert cell(128, 128)[0] >= cell(128, 128)[2] # Warm charcoal, not blue-gray.
+assert len({cell(x, y)[:3] for x in range(100, 120) for y in range(100, 120)}) > 10
+circle = load('item-bank-circle', (256, 256))
+assert circle(128, 128)[3] == 255
+assert circle(32, 32)[3] == 0 # A round slot, not a square with a circle over it.
+assert circle(0, 0)[3] == 0
+assert sum(circle(128, 11)[:3]) > sum(circle(128, 128)[:3])
+assert 20 < circle(128, 128)[0] < 70
+shadow = load('item-bank-shadow', (256, 256))
+assert shadow(0, 0)[3] == 0
+assert shadow(128, 128)[:3] == (0, 0, 0)
+assert 0 < shadow(128, 8)[3] < shadow(128, 18)[3] < shadow(128, 30)[3] < 160
+assert len({shadow(128, y)[3] for y in range(4, 35)}) > 15
+print('PASS: menu art dimensions, tiled RGBA8, transparency, texture, and palette')

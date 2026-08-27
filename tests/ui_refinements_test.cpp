@@ -8,6 +8,36 @@
 using namespace twilight_hd_hud;
 
 int main() {
+    // The visible cross, not the legacy Items pane origin, owns this anchor.
+    // Test differing text widths, screen offsets, HUD scales and repeated draws.
+    for (float screenX : {-200.0f, 0.0f, 180.0f}) {
+        for (float scale : {0.5f, 0.75f, 1.0f, 1.25f, 2.0f}) {
+            for (float textWidth : {90.0f, 120.0f, 180.0f}) {
+                const float crossLeft = screenX + 40.0f * scale;
+                const float crossRight = crossLeft + 48.0f * scale;
+                const float crossBottom = 130.0f * scale;
+                const float textLeft = screenX - 20.0f * scale;
+                const float textRight = textLeft + textWidth * scale;
+                const float textTop = 125.0f * scale;
+                const auto offset = collection_dpad_offset(crossLeft, crossRight,
+                    crossBottom, textLeft, textRight, textTop);
+                assert(std::fabs((textLeft + textRight) * 0.5f + offset.x -
+                    (crossLeft + crossRight) * 0.5f) < 0.001f);
+                assert(std::fabs(textTop + offset.y - crossBottom + 4.8f * scale) < 0.001f);
+                // Compared with preview 6, tighten the Collection gap and
+                // lower Minimap without changing either horizontal position.
+                const float previousTop = crossBottom + 6.72f * scale;
+                assert(std::fabs(previousTop - (textTop + offset.y) - 11.52f * scale) < 0.001f);
+                assert(std::fabs(minimap_dpad_optical_offset(crossRight - crossLeft) -
+                    5.76f * scale) < 0.001f);
+                const auto repeat = collection_dpad_offset(crossLeft, crossRight,
+                    crossBottom, textLeft + offset.x, textRight + offset.x, textTop + offset.y);
+                assert(std::fabs(repeat.x) < 0.001f && std::fabs(repeat.y) < 0.001f);
+            }
+        }
+    }
+    assert(minimap_dpad_optical_offset(0.0f) == 0.0f);
+
     const auto icon = [](unsigned char id) {
         std::string tag("\x1a\x05\0\0", 4);
         tag += static_cast<char>(id);

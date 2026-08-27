@@ -1,4 +1,4 @@
-Twilight HD HUD v1.3.6
+Twilight HD HUD v1.4.0
 
 Requires official Dusklight v1.4.1-141 or newer.
 
@@ -12,8 +12,14 @@ Supported platforms:
 - macOS Apple Silicon
 - Android ARM64
 
+New in v1.4.0:
+- TPHD-style Items bank with fixed cells, patterned banner, soft shadows, and Ooccoo's circular slot.
+- D-Pad Down opens Collection/Save; Start / + opens Items. Start or B closes Items.
+- Items Screen in the mod settings lets you switch back to Original Wheel.
+- Follow mode keeps custom Midna bindings: when Midna uses Down, Collection/Save uses Right.
+
 Installation:
-1. Place the included .dusk file in the mods folder inside the active Dusklight data folder.
+1. Extract this ZIP and place the included .dusk file in the mods folder inside the active Dusklight data folder.
 2. Restart Dusklight or reload mods from the mod manager.
 3. Enable Twilight HD HUD and open its settings to choose a button-label layout, controller compatibility mode, and HUD size.
 

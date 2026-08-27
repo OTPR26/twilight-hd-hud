@@ -5,7 +5,9 @@
 #include "font_override.hpp"
 #include "hud_layout.hpp"
 #include "input_gate.hpp"
+#include "menu_shortcuts.hpp"
 #include "item_help_text.hpp"
+#include "item_bank_layout.hpp"
 #include "service_imports.hpp"
 #include "ui_refinements.hpp"
 
@@ -31,6 +33,7 @@
 #include "JSystem/J2DGraph/J2DScreen.h"
 #include "JSystem/J2DGraph/J2DPicture.h"
 #include "JSystem/J2DGraph/J2DTextBox.h"
+#include "JSystem/J2DGraph/J2DOrthoGraph.h"
 #include "JSystem/JKernel/JKRExpHeap.h"
 #include "JSystem/JUtility/JUTFont.h"
 #include "JSystem/JUtility/JUTResFont.h"
@@ -118,6 +121,11 @@ DEFINE_HOOK(&dComIfGp_setSelectItem, SetSelectItemHook);
 DEFINE_HOOK(&dMenu_Ring_c::_create, RingCreateHook);
 DEFINE_HOOK(&dMw_c::dMw_ring_delete, MenuRingDeleteHook);
 DEFINE_HOOK(&dMenu_Ring_c::_draw, RingDrawHook);
+DEFINE_HOOK(&dMenu_Ring_c::_move, RingMoveHook);
+DEFINE_HOOK(&dMenu_Ring_c::setRotate, RingRotateHook);
+DEFINE_HOOK(&dMenu_Ring_c::getStickInfo, RingStickHook);
+DEFINE_HOOK(&dMenu_Ring_c::stick_wait_init, RingWaitInitHook);
+DEFINE_HOOK(&dMenu_Ring_c::isMoveEnd, RingMoveEndHook);
 DEFINE_HOOK(&dMenu_Ring_c::setActiveCursor, RingSetActiveCursorHook);
 DEFINE_HOOK(&dMenu_Ring_c::setMixMessage, RingSetMixMessageHook);
 DEFINE_HOOK(&dMenu_Ring_c::isMixItemOn, RingIsMixItemOnHook);
@@ -276,6 +284,9 @@ ResourceBuffer s_collectBackgroundResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_collectParchmentResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_collectBannerResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_collectEquipmentFrameResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_itemBankCellResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_itemBankCircleResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_itemBankShadowResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_collectMenuButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectBackgroundResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectRowResource = RESOURCE_BUFFER_INIT;
@@ -339,6 +350,7 @@ bool s_fixedZrHeld = false;
 bool s_fixedZrTrig = false;
 u32 s_menuWindowSuppressedHeld = 0;
 u32 s_menuWindowSuppressedTrig = 0;
+u32 s_menuWindowRestoreMask = 0;
 InputGate s_inputGate;
 constexpr u32 kInputL = 1 << 0;
 constexpr u32 kInputR = 1 << 1;
@@ -539,7 +551,7 @@ struct FollowDpadLayout {
     DpadDirection midna = DpadDirection::None;
     DpadDirection map = DpadDirection::Up;
     DpadDirection minimap = DpadDirection::Right;
-    DpadDirection items = DpadDirection::Down;
+    DpadDirection collection = DpadDirection::Down;
     bool combinedMapAndMinimap = false;
 };
 
@@ -561,9 +573,9 @@ FollowDpadLayout follow_dpad_layout() {
         layout.combinedMapAndMinimap = true;
         break;
     case DpadDirection::Down:
-        // Down normally owns Items. Move Items to Right and Minimap to Left so
+        // Down normally owns Collection. Move it to Right and Minimap to Left so
         // all four D-Pad roles remain distinct.
-        layout.items = DpadDirection::Right;
+        layout.collection = DpadDirection::Right;
         layout.minimap = DpadDirection::Left;
         break;
     default:
@@ -7171,6 +7183,53 @@ void draw_tphd_map_icon(dMeter2Draw_c* meter) {
 }
 
 
+void align_dpad_labels(dMeter2Draw_c* meter) {
+    if (meter == nullptr || meter->mpScreen == nullptr || meter->mpTextI == nullptr) return;
+    // Follow mode moves this action to Right when Down is reserved for Midna.
+    // Leave that separate right-side label alone.
+    if (controller_compatibility() == ControllerCompatibility::FollowDusklight &&
+        follow_dpad_layout().midna == DpadDirection::Down) return;
+
+    auto* text = meter->mpScreen->search(MULTI_CHAR('cont_ju4'));
+    if (text == nullptr) return;
+    constexpr u64 crossTags[] = {MULTI_CHAR('juji_001'), MULTI_CHAR('juji_002'),
+        MULTI_CHAR('juji_003'), MULTI_CHAR('juji_004')};
+    f32 left = 0, right = 0, bottom = 0;
+    bool haveBounds = false;
+    Mtx matrix;
+    for (const auto tag : crossTags) {
+        auto* piece = meter->mpScreen->search(tag);
+        if (piece == nullptr) continue;
+        for (u8 corner = 0; corner < 4; ++corner) {
+            // Recompose from this frame's local transforms. getGlbVtx() on
+            // the J2D pane itself still contains last frame's draw transform.
+            const Vec point = meter->mpTextI->getGlobalVtx(piece, &matrix, corner, false, 0);
+            if (!std::isfinite(point.x) || !std::isfinite(point.y)) return;
+            if (!haveBounds) { left = right = point.x; bottom = point.y; haveBounds = true; }
+            else { left = std::min(left, point.x); right = std::max(right, point.x);
+                bottom = std::max(bottom, point.y); }
+        }
+    }
+    if (!haveBounds || right <= left) return;
+    const Vec textTopLeft = meter->mpTextI->getGlobalVtx(text, &matrix, 0, false, 0);
+    const Vec textTopRight = meter->mpTextI->getGlobalVtx(text, &matrix, 1, false, 0);
+    const auto delta = collection_dpad_offset(left, right, bottom,
+        textTopLeft.x, textTopRight.x, textTopLeft.y);
+    if (!std::isfinite(delta.x) || !std::isfinite(delta.y)) return;
+    // Move the complete text subtree once, preserving both centered lines and
+    // all four outline copies. The helper converts to parent-local units.
+    offset_diamond_group(std::array<J2DPane*, 1>{meter->mpTextI->getPanePtr()}, delta.x, delta.y);
+    // Keep the horizontal clearance beside the cross, but lower the complete
+    // Minimap row to its optical center. Its canonical transform is restored
+    // by apply_wii_u_dpad_style before every application, preventing drift.
+    if (meter->mpTextM != nullptr &&
+        !(controller_compatibility() == ControllerCompatibility::FollowDusklight &&
+          follow_dpad_layout().midna == DpadDirection::Right)) {
+        offset_diamond_group(std::array<J2DPane*, 1>{meter->mpTextM->getPanePtr()},
+            0.0f, minimap_dpad_optical_offset(right - left));
+    }
+}
+
 void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
     if (meter == nullptr || meter->mpScreen == nullptr) {
         return;
@@ -7249,7 +7308,7 @@ void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
     if (meter->mpTextI != nullptr) {
         meter->mpTextI->scale(textScale, textScale);
         // In Follow mode, mirror the user's Call Midna assignment. The stock
-        // Items row is above the cross; move it below only while Midna is not
+        // Collection/Save row is above the cross; move it below only while Midna is not
         // assigned to D-Pad Down.
         const f32 upperRowOffsetY = legacyFollowLayout ? 15.0f : 8.0f;
         const f32 lowerRowOffsetY = legacyFollowLayout ? 46.0f : 42.0f;
@@ -7297,19 +7356,46 @@ void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
             text->setCharSpace(actionText->getCharSpace());
             text->setLineSpace(actionText->getLineSpace());
             // With Midna on Down, Left remains a deliberately unlabeled
-            // minimap toggle and the existing right-side group labels Items.
-            const char* label = destination < 5 || followMidnaOwnsDown ?
-                "Items" : "Minimap";
+            // minimap toggle and the existing right-side group labels Collection.
+            const bool collectionLabel = destination < 5 || followMidnaOwnsDown;
+            const char* label = collectionLabel ? "Collection/\nSave" : "Minimap";
             const char* currentLabel = text_box_string(text);
             if (currentLabel == nullptr || std::strcmp(currentLabel, label) != 0) {
                 text->setString(0x40, label);
             }
-            if (destination >= 5) {
-                const JGeometry::TBox2<f32> bounds = text->getBounds();
-                text->resize(96.0f, bounds.getHeight());
+            if (!collectionLabel) {
+                // Restore the unchanged Minimap row after a live Follow-mode
+                // binding change moves Collection/Save back below the cross.
+                constexpr f32 originalX[] = {2, 2, 1, 1, 3};
+                constexpr f32 originalY[] = {-10, -11, -9, -11, -9};
+                text->resize(96.0f, 22.0f);
+                text->mFlags = static_cast<u8>((text->mFlags & ~0x0f) |
+                    (HBIND_LEFT << 2) | VBIND_CENTER);
+                text->move(originalX[layer], originalY[layer]);
+                continue;
             }
+            // Lay out every outline copy identically, retaining its authored
+            // one-unit offset. Top binding keeps the first line in the old
+            // Items position; the second line extends down, away from the cross.
+            constexpr f32 outlineX[] = {1, -1, -1, 1, 0};
+            constexpr f32 outlineY[] = {1, -1, 1, -1, 0};
+            const f32 lineSpace = actionFontSize.mSizeY * 1.25f;
+            const f32 width = std::max(120.0f, copy_title_text_width(text->getFont(),
+                "Collection/", actionFontSize.mSizeX, text->getCharSpace()) + 8.0f);
+            text->setLineSpace(lineSpace);
+            text->resize(width, lineSpace + actionFontSize.mSizeY + 4.0f);
+            text->mFlags = static_cast<u8>((text->mFlags & ~0x0f) |
+                (HBIND_CENTER << 2) | VBIND_TOP);
+            // Canonical local placement before aligning the entire label group
+            // to the cross. The legacy group's own center is not the cross center.
+            const f32 parentWidth = text->getParentPane() != nullptr ?
+                text->getParentPane()->getWidth() : 44.0f;
+            text->move((destination < 5 ? (parentWidth - width) * 0.5f : 3.0f) + outlineX[layer],
+                -10.0f + outlineY[layer]);
         }
     }
+
+    align_dpad_labels(meter);
 
     // A Follow-mode Midna assignment on Right gives that direction wholly to
     // Midna. Up then owns the combined parchment control, so the standalone
@@ -8928,9 +9014,6 @@ void after_pad_read(ModContext*, void*, void*, void*) {
     const u32 minimapMask = fixedTphdBindings ?
         (PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT) :
         game_button_for_dpad_direction(followLayout.minimap);
-    const u32 itemsMask = fixedTphdBindings ? PAD_BUTTON_DOWN :
-        game_button_for_dpad_direction(followLayout.items);
-    const u32 originalHeld = pad.mButtonFlags;
     const u32 originalPressed = pad.mPressedButtonFlags;
     const bool combinedMapAndMinimap = !fixedTphdBindings &&
         followLayout.combinedMapAndMinimap;
@@ -8953,25 +9036,6 @@ void after_pad_read(ModContext*, void*, void*, void*) {
 
     }
 
-    // When Midna owns Down in Follow mode, move the native Items action to
-    // the layout's free horizontal direction without changing Dusklight's
-    // controller profile. Keep that translation active while the item ring is
-    // open so the same physical direction can close it again. Other pause
-    // screens retain their native D-Pad behavior.
-    const u8 windowStatus = dMeter2Info_getWindowStatus();
-    const bool followItemsAvailable = !fixedTphdBindings &&
-        itemsMask != PAD_BUTTON_DOWN &&
-        (windowStatus == 0 || windowStatus == 2);
-    if (followItemsAvailable) {
-        pad.mButtonFlags &= ~itemsMask;
-        pad.mPressedButtonFlags &= ~itemsMask;
-        if ((originalHeld & itemsMask) != 0) {
-            pad.mButtonFlags |= PAD_BUTTON_DOWN;
-        }
-        if ((originalPressed & itemsMask) != 0) {
-            pad.mPressedButtonFlags |= PAD_BUTTON_DOWN;
-        }
-    }
     const bool leftShoulderHeld = fixedMidnaAvailable &&
         physical_button_held(kSdlLeftShoulderButton);
     s_fixedMidnaTrig = leftShoulderHeld && !s_fixedMidnaHeld;
@@ -9361,8 +9425,11 @@ HookAction before_three_select_draw(ModContext*, void* args, void*, void*) {
     return HOOK_CONTINUE;
 }
 
+void refresh_item_bank_cursor(dSelect_cursor_c* cursor);
+
 void after_select_cursor_update(ModContext*, void* args, void*, void*) {
     auto* cursor = mods::arg<dSelect_cursor_c*>(args, 0);
+    refresh_item_bank_cursor(cursor);
     if (s_activeCollectMenu != nullptr &&
         cursor == s_activeCollectMenu->mpDrawCursor) {
         if (s_collectionScreen.root != nullptr) {
@@ -9704,22 +9771,32 @@ void after_meter_move_button_cross(ModContext*, void* args, void*, void*) {
     meter->getMeterDrawPtr()->drawButtonCross(g_drawHIO.mButtonCrossOFFPosX, 0.0f);
 }
 
+#include "item_bank_screen.inc"
+
 void after_ring_create(ModContext*, void* args, void*, void*) {
     create_ring_z_prompt(mods::arg<dMenu_Ring_c*>(args, 0));
+    create_item_bank(mods::arg<dMenu_Ring_c*>(args, 0));
 }
 
 HookAction before_menu_ring_delete(ModContext*, void*, void*, void*) {
+    destroy_item_bank();
     destroy_ring_z_prompt(s_ringZPrompt.ring);
     return HOOK_CONTINUE;
 }
 
 HookAction before_ring_draw(ModContext*, void* args, void*, void*) {
+    auto* ring = mods::arg<dMenu_Ring_c*>(args, 0);
+    if (uses_item_bank(ring)) {
+        draw_item_bank(ring);
+        return HOOK_SKIP_ORIGINAL;
+    }
     style_ring_direct_select_prompt(mods::arg<dMenu_Ring_c*>(args, 0));
     return HOOK_CONTINUE;
 }
 
 void after_ring_draw(ModContext*, void* args, void*, void*) {
     auto* ring = mods::arg<dMenu_Ring_c*>(args, 0);
+    if (uses_item_bank(ring)) return;
     draw_ring_z_prompt(ring);
 }
 
@@ -10301,11 +10378,11 @@ HookAction before_item_action_trigger(ModContext*, void* args, void* retval, voi
 HookAction before_menu_window_execute(ModContext*, void*, void*, void*) {
     s_menuWindowSuppressedHeld = 0;
     s_menuWindowSuppressedTrig = 0;
+    s_menuWindowRestoreMask = 0;
 
-    // Only hide Midna's control from the no-menu dispatcher, where the same
-    // input could otherwise open the item wheel. Once a menu is active, Up is
-    // navigation input and must remain available to that screen.
-    if (dMeter2Info_getWindowStatus() != 0) {
+    // Swap only menu-opening shortcuts. Inside Collection, Save, Items and
+    // other overlays, D-Pad directions must remain navigation controls.
+    if (!menu_shortcuts_active(dMeter2Info_getWindowStatus(), s_inputGate.blocked())) {
         return HOOK_CONTINUE;
     }
 
@@ -10323,19 +10400,27 @@ HookAction before_menu_window_execute(ModContext*, void*, void*, void*) {
         suppressMask = midna_game_button_mask();
     }
 
-    s_menuWindowSuppressedHeld = pad.mButtonFlags & suppressMask;
-    s_menuWindowSuppressedTrig = pad.mPressedButtonFlags & suppressMask;
-    pad.mButtonFlags &= ~suppressMask;
-    pad.mPressedButtonFlags &= ~suppressMask;
+    const u32 collectionMask = controller_compatibility() == ControllerCompatibility::FixedTphd ?
+        PAD_BUTTON_DOWN : game_button_for_dpad_direction(follow_dpad_layout().collection);
+    s_menuWindowRestoreMask = suppressMask | collectionMask | PAD_BUTTON_DOWN | PAD_BUTTON_START;
+    s_menuWindowSuppressedHeld = pad.mButtonFlags;
+    s_menuWindowSuppressedTrig = pad.mPressedButtonFlags;
+    pad.mButtonFlags = menu_shortcut_buttons(pad.mButtonFlags, collectionMask,
+        PAD_BUTTON_DOWN, PAD_BUTTON_START, suppressMask);
+    pad.mPressedButtonFlags = menu_shortcut_buttons(pad.mPressedButtonFlags, collectionMask,
+        PAD_BUTTON_DOWN, PAD_BUTTON_START, suppressMask);
     return HOOK_CONTINUE;
 }
 
 void after_menu_window_execute(ModContext*, void*, void*, void*) {
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
-    pad.mButtonFlags |= s_menuWindowSuppressedHeld;
-    pad.mPressedButtonFlags |= s_menuWindowSuppressedTrig;
+    pad.mButtonFlags = restore_menu_shortcut_buttons(pad.mButtonFlags,
+        s_menuWindowSuppressedHeld, s_menuWindowRestoreMask);
+    pad.mPressedButtonFlags = restore_menu_shortcut_buttons(pad.mPressedButtonFlags,
+        s_menuWindowSuppressedTrig, s_menuWindowRestoreMask);
     s_menuWindowSuppressedHeld = 0;
     s_menuWindowSuppressedTrig = 0;
+    s_menuWindowRestoreMask = 0;
 }
 
 HookAction before_check_item_button_change(ModContext*, void* args, void*, void*) {
@@ -10760,6 +10845,16 @@ void initialize_face_button_textures() {
             &s_collectEquipmentFrameResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the Collection equipment frame");
     }
+    if (svc_resource->load(mod_ctx, "menu/item-bank-cell.bti",
+            &s_itemBankCellResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Items bank cell backing");
+    }
+    if (svc_resource->load(mod_ctx, "menu/item-bank-circle.bti", &s_itemBankCircleResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Items bank circular frame");
+    }
+    if (svc_resource->load(mod_ctx, "menu/item-bank-shadow.bti", &s_itemBankShadowResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Items bank frame shadow");
+    }
     if (svc_resource->load(mod_ctx, "menu/menu-button-frame.bti",
             &s_collectMenuButtonResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the Collection menu button frame");
@@ -10853,6 +10948,9 @@ void shutdown_face_button_textures() {
     free_resource(s_collectParchmentResource);
     free_resource(s_collectBannerResource);
     free_resource(s_collectEquipmentFrameResource);
+    free_resource(s_itemBankCellResource);
+    free_resource(s_itemBankCircleResource);
+    free_resource(s_itemBankShadowResource);
     free_resource(s_collectMenuButtonResource);
     free_resource(s_fileSelectBackgroundResource);
     free_resource(s_fileSelectRowResource);
@@ -10870,6 +10968,7 @@ void shutdown_face_button_textures() {
 }
 
 void shutdown_item_slot_resources() {
+    destroy_item_bank();
     s_activeItemExplanation = nullptr;
     s_itemHelpText.clear();
     s_itemHelpFitOwner = nullptr;
@@ -10907,6 +11006,7 @@ void shutdown_item_slot_resources() {
     s_fixedZrTrig = false;
     s_menuWindowSuppressedHeld = 0;
     s_menuWindowSuppressedTrig = 0;
+    s_menuWindowRestoreMask = 0;
     s_getActionBindTrig = nullptr;
     s_getActionBindButton = nullptr;
     if (s_setVirtualActionBind != nullptr) {
@@ -10947,6 +11047,11 @@ ModResult install_item_slot_hooks(ModError* error) {
         "boomerang ZR multi-target input");
     ADD_POST(SetStickDataHook, after_set_stick_data, "scoped third-item input");
     ADD_POST(RingCreateHook, after_ring_create, "item ring create");
+    ADD_PRE(RingMoveHook, before_item_bank_move, "item bank positions");
+    ADD_POST(RingRotateHook, after_item_bank_rotate, "item bank fixed positions");
+    ADD_PRE(RingStickHook, before_item_bank_stick, "item bank navigation");
+    ADD_POST(RingWaitInitHook, after_item_bank_wait_init, "item bank repeat timing");
+    ADD_PRE(RingMoveEndHook, before_item_bank_move_end, "item bank close controls");
     ADD_PRE(MenuRingDeleteHook, before_menu_ring_delete, "item ring prompt cleanup");
     ADD_PRE(RingDrawHook, before_ring_draw, "item ring direct-select prompt");
     ADD_POST(RingDrawHook, after_ring_draw, "item ring draw");
@@ -11046,8 +11151,8 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_PRE(SaveMenuDrawHook, before_save_menu_draw, "save menu HD draw");
     ADD_POST(SaveMenuWideHook, after_save_menu_wide, "save menu HD wide layout");
     ADD_PRE(SaveDlstDrawHook, before_save_dlst_draw, "save menu HD final draw");
-    ADD_PRE(MenuWindowExecuteHook, before_menu_window_execute, "Midna pause-menu input");
-    ADD_POST(MenuWindowExecuteHook, after_menu_window_execute, "Midna input restore");
+    ADD_PRE(MenuWindowExecuteHook, before_menu_window_execute, "Collection and Items shortcuts");
+    ADD_POST(MenuWindowExecuteHook, after_menu_window_execute, "Menu shortcut input restore");
     ADD_PRE(RingSetActiveCursorHook, before_ring_set_active_cursor, "item ring cursor (before)");
     ADD_POST(RingSetActiveCursorHook, after_ring_set_active_cursor, "item ring cursor (after)");
     ADD_POST(RingSetMixMessageHook, after_ring_set_mix_message,
