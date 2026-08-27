@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <path id="cell" d="M32 8 H224 Q224 32 248 32 V224 Q224 224 224 248 H32 Q32 224 8 224 V32 Q32 32 32 8Z"/>
+    <clipPath id="outline"><use href="#cell"/></clipPath>
+    <radialGradient id="charcoal">
+      <stop offset="0" stop-color="#302d20"/>
+      <stop offset=".55" stop-color="#242217"/>
+      <stop offset="1" stop-color="#090a07"/>
+    </radialGradient>
+    <filter id="grain" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency=".16" numOctaves="3" seed="17"/>
+      <feColorMatrix type="matrix" values=".35 0 0 0 0  0 .32 0 0 0  0 0 .24 0 0  0 0 0 1 0"/>
+    </filter>
+  </defs>
+  <!-- The backing follows the frame's concave corners, leaving the outside transparent. -->
+  <use href="#cell" fill="url(#charcoal)"/>
+  <g clip-path="url(#outline)">
+    <rect width="256" height="256" filter="url(#grain)" opacity=".24"/>
+  </g>
+</svg>

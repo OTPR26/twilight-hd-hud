@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <radialGradient id="well">
+      <stop stop-color="#393526"/>
+      <stop offset=".65" stop-color="#27251b"/>
+      <stop offset="1" stop-color="#090a07"/>
+    </radialGradient>
+    <linearGradient id="rim" x2="0" y2="1">
+      <stop stop-color="#b2ae88"/>
+      <stop offset="1" stop-color="#706f52"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4"/>
+    </filter>
+  </defs>
+  <!-- Ooccoo's separate round well; no square backing or corner frame. -->
+  <circle cx="128" cy="132" r="117" fill="#000" opacity=".5" filter="url(#soft)"/>
+  <circle cx="128" cy="128" r="117" fill="url(#well)" stroke="url(#rim)" stroke-width="4"/>
+  <circle cx="128" cy="128" r="111" fill="none" stroke="#6b6a4d" stroke-width="1.5"/>
+</svg>
