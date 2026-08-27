@@ -3,6 +3,7 @@
 #include "diamond_layout.hpp"
 #include "font_override.hpp"
 #include "hud_layout.hpp"
+#include "input_gate.hpp"
 #include "service_imports.hpp"
 
 #include "global.h"
@@ -307,6 +308,11 @@ bool s_fixedZrHeld = false;
 bool s_fixedZrTrig = false;
 u32 s_menuWindowSuppressedHeld = 0;
 u32 s_menuWindowSuppressedTrig = 0;
+InputGate s_inputGate;
+constexpr u32 kInputL = 1 << 0;
+constexpr u32 kInputR = 1 << 1;
+constexpr u32 kInputZl = 1 << 2;
+constexpr u32 kInputZr = 1 << 3;
 
 enum class DusklightActionBind {
     FirstPersonCamera,
@@ -331,7 +337,7 @@ SDL_Gamepad* primary_sdl_gamepad() {
     return index < 0 ? nullptr : PADGetSDLGamepadForIndex(static_cast<u32>(index));
 }
 
-bool physical_axis_held(s32 axis) {
+bool raw_physical_axis_held(s32 axis) {
     if (SDL_Gamepad* gamepad = primary_sdl_gamepad();
         gamepad != nullptr && s_getSdlGamepadAxis != nullptr)
     {
@@ -342,13 +348,38 @@ bool physical_axis_held(s32 axis) {
     return pulled.nativeAxis == axis && pulled.sign == AXIS_SIGN_POSITIVE;
 }
 
-bool physical_button_held(s32 button) {
+bool raw_physical_button_held(s32 button) {
     if (SDL_Gamepad* gamepad = primary_sdl_gamepad();
         gamepad != nullptr && s_getSdlGamepadButton != nullptr)
     {
         return s_getSdlGamepadButton(gamepad, button);
     }
     return PADGetNativeButtonPressed(PAD_1) == button;
+}
+
+void update_input_gate() {
+    // This is the same visibility check used by Dusklight's PADBlockInput.
+    // If the query fails, do not inject input into an unknown UI context.
+    bool visible = true;
+    const bool blocked = svc_ui == nullptr ||
+        svc_ui->is_any_document_visible == nullptr ||
+        svc_ui->is_any_document_visible(mod_ctx, &visible) != MOD_OK || visible;
+    const u32 held =
+        (raw_physical_button_held(kSdlLeftShoulderButton) ? kInputL : 0) |
+        (raw_physical_button_held(kSdlRightShoulderButton) ? kInputR : 0) |
+        (raw_physical_axis_held(kSdlLeftTriggerAxis) ? kInputZl : 0) |
+        (raw_physical_axis_held(kSdlRightTriggerAxis) ? kInputZr : 0);
+    s_inputGate.update(blocked, held);
+}
+
+bool physical_button_held(s32 button) {
+    return s_inputGate.held(button == kSdlLeftShoulderButton ? kInputL :
+        button == kSdlRightShoulderButton ? kInputR : 0);
+}
+
+bool physical_axis_held(s32 axis) {
+    return s_inputGate.held(axis == kSdlLeftTriggerAxis ? kInputZl :
+        axis == kSdlRightTriggerAxis ? kInputZr : 0);
 }
 
 int midna_native_button() {
@@ -399,6 +430,21 @@ u32 game_button_mask_for_native(const int nativeButton) {
 }
 
 bool midna_action_triggered() {
+    if (s_inputGate.blocked()) {
+        return false;
+    }
+    // Dusklight's custom actions can report a fresh edge when a menu closes.
+    // Apply the same release requirement to a custom Midna shoulder binding,
+    // without treating keyboard scancodes as physical controller buttons.
+    u32 keyBindingCount = 0;
+    if (PADGetKeyButtonBindings(PAD_1, &keyBindingCount) == nullptr) {
+        const int button = midna_native_button();
+        const u32 mask = button == kSdlLeftShoulderButton ? kInputL :
+            button == kSdlRightShoulderButton ? kInputR : 0;
+        if (s_inputGate.suppressed(mask)) {
+            return false;
+        }
+    }
     return controller_compatibility() == ControllerCompatibility::FollowDusklight &&
         s_getActionBindTrig != nullptr &&
         s_getActionBindTrig(DusklightActionBind::CallMidna, PAD_1);
@@ -8733,6 +8779,16 @@ void after_set_select_item(ModContext*, void* args, void*, void*) {
 }
 
 void after_pad_read(ModContext*, void*, void*, void*) {
+    update_input_gate();
+    if (s_inputGate.blocked()) {
+        s_fixedMidnaHeld = s_fixedMidnaTrig = false;
+        s_rightShoulderHeld = s_rightShoulderTrig = false;
+        s_fixedZlHeld = s_fixedZlTrig = false;
+        s_fixedZrHeld = s_fixedZrTrig = false;
+        s_fixedOpenMapTrig = s_fixedToggleMinimapTrig = false;
+        s_combinedMapMinimapTrig = false;
+        return;
+    }
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
 
     const bool fixedTphdBindings =
@@ -8961,7 +9017,7 @@ HookAction before_meter_map_ctrl_show(ModContext*, void* args, void*, void*) {
 
 void after_set_stick_data(ModContext*, void* args, void*, void*) {
     auto* link = mods::arg<daAlink_c*>(args, 0);
-    if (link == nullptr || z_item_menu_or_pause_context()) {
+    if (link == nullptr || s_inputGate.blocked() || z_item_menu_or_pause_context()) {
         return;
     }
 
@@ -9973,7 +10029,8 @@ HookAction before_midna_talk_trigger(ModContext*, void* args, void* retval, void
     }
 
     *static_cast<BOOL*>(retval) =
-        s_fixedMidnaTrig || midna_action_triggered() || consume_touch_midna_trigger();
+        !s_inputGate.blocked() &&
+        (s_fixedMidnaTrig || midna_action_triggered() || consume_touch_midna_trigger());
     return HOOK_SKIP_ORIGINAL;
 }
 
@@ -10550,6 +10607,7 @@ void shutdown_face_button_textures() {
 }
 
 void shutdown_item_slot_resources() {
+    s_inputGate = {};
     destroy_ring_z_prompt(s_ringZPrompt.ring);
     s_pendingAssign = {};
     s_activeFileSelect = nullptr;

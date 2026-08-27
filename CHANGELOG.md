@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.3.1 - 2026-08-27
+
+- Fix L, R, ZL, and ZR gameplay actions leaking through while Dusklight's
+  menu is open. Held shoulders and triggers must be released before they
+  can activate gameplay again after closing the menu.
+- No other gameplay, layout, font, or settings changes.
+
 ## v1.3.0 - 2026-08-26
 
 - Add four text-font choices: Original, Zen Kaku Gothic New, M PLUS 2, and
