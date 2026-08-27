@@ -25,6 +25,8 @@ Dusklight **v1.4.1-141 or newer** is required. The mod is built and tested again
   soft shadows, and Ooccoo's circular bottom-right slot; the original wheel
   remains selectable in settings
 - Collection/Save on D-Pad Down and Items on Start / +, with aligned HUD labels
+- Collection wallet descriptions automatically reflect Dusklight's Bigger Wallets
+  setting; no additional toggle or game-image patch is needed
 - Native modules for Windows x64, Linux x64, macOS Apple Silicon, Android ARM64, iOS ARM64, and tvOS ARM64
 
 Planned improvements are tracked in [ROADMAP.md](ROADMAP.md).

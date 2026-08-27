@@ -2,6 +2,9 @@
 
 ## v1.4.0 - 2026-08-27
 
+- Wallet description hotfix: Collection now reads the live wallet capacity,
+  automatically matching Dusklight's Bigger Wallets setting without an extra
+  toggle or ISO edits. Existing v1.4.0 downloads were refreshed in place.
 - Add the TPHD-style Items bank with fixed item positions, a patterned title
   banner, darker cells, soft shadows, and Ooccoo's circular bottom-right slot.
 - Keep the original item wheel available through the new Items Screen setting.

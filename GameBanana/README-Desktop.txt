@@ -1,5 +1,9 @@
 Twilight HD HUD v1.4.0
 
+Wallet description hotfix: Collection automatically follows Dusklight's Bigger
+Wallets setting. No extra toggle or ISO edits are required. Reinstall this
+updated package even if your existing download also says v1.4.0.
+
 Requires official Dusklight v1.4.1-141 or newer.
 
 Updating: remove the previous Twilight HD HUD .dusk file before adding this

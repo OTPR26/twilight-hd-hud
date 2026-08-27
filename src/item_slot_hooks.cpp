@@ -7,6 +7,7 @@
 #include "input_gate.hpp"
 #include "menu_shortcuts.hpp"
 #include "item_help_text.hpp"
+#include "wallet_description.hpp"
 #include "item_bank_layout.hpp"
 #include "service_imports.hpp"
 #include "ui_refinements.hpp"
@@ -11059,6 +11060,7 @@ ModResult install_item_slot_hooks(ModError* error) {
         "item description button styling");
     ADD_POST(ItemExplainDrawHook, after_item_explain_draw, "item description scope cleanup");
     ADD_POST(ItemHelpMessageHook, after_item_help_message, "three-button item instructions");
+    ADD_POST(ItemHelpMessageHook, after_collection_wallet_message, "live wallet capacity description");
     ADD_PRE(MeterButtonExecuteHook, before_meter_button_execute,
         "disable legacy item-ring Z overlay");
     ADD_POST(MeterButtonExecuteHook, after_meter_button_execute,

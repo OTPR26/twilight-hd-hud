@@ -10,6 +10,7 @@ struct CollectionScreen {
     std::array<J2DTextBox*, 2> promptLabels{};
     std::array<J2DPicture*, 2> promptIcons{};
     J2DTextBox* description = nullptr;
+    std::string walletDescription;
     bool japanese = false;
     J2DTextBox::TFontSize measuredIconFont{};
     J2DTextBox::TFontSize renderedIconFont{};
@@ -352,6 +353,34 @@ void create_collection_screen(dMenu_Collect2D_c* menu) {
 bool collection_description_reference(jmessage_string_tReference* reference) {
     return s_collectionScreen.description != nullptr && reference != nullptr &&
         reference->getPanePtr() == s_collectionScreen.description;
+}
+
+void after_collection_wallet_message(ModContext*, void* args, void* result, void*) {
+    auto* control = mods::arg<JMessage::TControl*>(args, 0);
+    auto* menu = s_activeCollectMenu;
+    if (result == nullptr || !*static_cast<bool*>(result) || menu == nullptr ||
+        menu->mCursorX != 0 || menu->mCursorY != 3 || menu->mpString == nullptr ||
+        control == nullptr || control != menu->mpString->mpCtrl ||
+        !collection_description_reference(menu->mpString->mpRefer) ||
+        control->pResourceCache_ == nullptr || control->pMessageText_begin_ == nullptr) return;
+
+    const auto* resource = control->pResourceCache_;
+    // Byte-oriented BMG text only. Never reinterpret UTF-16 or write into the
+    // shared message archive (including any separately patched game image).
+    if (resource->oParse_THeader_.get_encoding() == 2 || resource->pMessageText_ == nullptr) return;
+    const JMessage::data::TParse_TBlock_messageText block(resource->pMessageText_ - 8);
+    const auto blockSize = block.get_size();
+    const auto start = reinterpret_cast<std::uintptr_t>(resource->pMessageText_);
+    const auto text = reinterpret_cast<std::uintptr_t>(control->pMessageText_begin_);
+    if (blockSize < 8 || text < start || text - start >= blockSize - 8) return;
+    auto replacement = wallet_description_capacity({control->pMessageText_begin_,
+        blockSize - 8 - (text - start)}, dComIfGs_getRupeeMax());
+    if (replacement.empty()) return;
+    s_collectionScreen.walletDescription = std::move(replacement);
+    // getString runs on every Collection draw, so toggling Bigger Wallets is
+    // reflected on the next draw. Both measuring and rendering use this copy.
+    control->pMessageText_begin_ = s_collectionScreen.walletDescription.c_str();
+    control->pMessageText_current_ = s_collectionScreen.walletDescription.c_str();
 }
 
 HookAction before_collection_icon_measure(ModContext*, void* args, void*, void*) {
