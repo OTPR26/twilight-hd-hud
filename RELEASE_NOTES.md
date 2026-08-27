@@ -1,6 +1,6 @@
 Updates:
 
-- Top-centered oil/oxygen meters.
-- Howl button matching the selected layout/style.
-- Updated item-help icons, including ZL/LT/L2 for bomb-arrow combinations.
-- Assignment icons hidden while item descriptions are open.
+- TPHD-style Collection screen with parchment descriptions.
+- Updated Collection banner, equipped-item frames, and decorative details.
+- Link starts facing forward while keeping Dusklight's model rotation.
+- Corrected and aligned controller icons in Collection descriptions.

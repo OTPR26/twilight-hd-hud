@@ -39,6 +39,8 @@ jobs:
 
       - name: Verify font checksums
         run: python3 tests/font_manifest_test.py
+      - name: Check Collection artwork
+        run: python3 tests/collection_art_test.py
 
       - name: Upload Linux package
         uses: actions/upload-artifact@v4

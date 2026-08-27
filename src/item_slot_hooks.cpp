@@ -1,4 +1,5 @@
 #include "config.hpp"
+#include "collection_layout.hpp"
 #include "controller_prompts.hpp"
 #include "diamond_layout.hpp"
 #include "font_override.hpp"
@@ -17,6 +18,7 @@
 #include "d/d_kantera_icon_meter.h"
 #include "d/d_item.h"
 #include "d/d_item_data.h"
+#include "d/d_lib.h"
 #include "d/d_meter_HIO.h"
 #include "d/d_meter_haihai.h"
 #include "d/d_meter2.h"
@@ -28,12 +30,12 @@
 #include "JSystem/J2DGraph/J2DPane.h"
 #include "JSystem/J2DGraph/J2DScreen.h"
 #include "JSystem/J2DGraph/J2DPicture.h"
-#include "JSystem/J2DGraph/J2DPrint.h"
 #include "JSystem/J2DGraph/J2DTextBox.h"
 #include "JSystem/JKernel/JKRExpHeap.h"
 #include "JSystem/JUtility/JUTFont.h"
 #include "JSystem/JUtility/JUTResFont.h"
 #define private public
+#include "JSystem/J2DGraph/J2DPrint.h"
 #include "d/d_msg_class.h"
 #include "d/d_menu_item_explain.h"
 #include "d/d_msg_out_font.h"
@@ -137,6 +139,16 @@ DEFINE_HOOK(&dMenu_Collect2D_c::_create, CollectCreateHook);
 DEFINE_HOOK(&dMenu_Collect2D_c::_move, CollectMoveHook);
 DEFINE_HOOK(&dMenu_Collect2D_c::_draw, CollectDrawHook);
 DEFINE_HOOK(&dMenu_Collect2D_c::_delete, CollectDeleteHook);
+DEFINE_HOOK(&dMenu_Collect2D_c::cursorMove, CollectCursorHook);
+DEFINE_HOOK(&dMenu_Collect3D_c::_move, CollectModelMoveHook);
+DEFINE_HOOK(&daAlink_c::statusWindowExecute, CollectLinkPoseHook);
+DEFINE_HOOK(&dMenu_Collect3D_c::setupItem3D, CollectProjectionHook);
+DEFINE_HOOK(&dMenu_Collect3D_c::toItem3Dpos, CollectPositionHook);
+DEFINE_HOOK(&jmessage_string_tMeasureProcessor::do_tag, CollectIconMeasureHook);
+DEFINE_HOOK(&jmessage_string_tRenderingProcessor::do_outfont, CollectIconRenderHook);
+DEFINE_HOOK(&J2DPrint::parse, CollectTextParseHook);
+DEFINE_HOOK(&J2DPrint::doEscapeCode, CollectTextEscapeHook);
+DEFINE_HOOK(&dMsgString_c::drawOutFontLocal, CollectOutFontDrawHook);
 #if defined(_WIN32)
 DEFINE_HOOK(&dMenu_Collect2D_c::menuCollectWide, CollectWideHook);
 #endif
@@ -261,6 +273,9 @@ struct ContextRPictureState {
 std::array<ContextRPictureState, 8> s_contextRPictureStates = {};
 std::size_t s_contextRPictureStateCount = 0;
 ResourceBuffer s_collectBackgroundResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_collectParchmentResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_collectBannerResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_collectEquipmentFrameResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_collectMenuButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectBackgroundResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectRowResource = RESOURCE_BUFFER_INIT;
@@ -6446,6 +6461,23 @@ void apply_collect_menu_button_layout(dMenu_Collect2D_c* menu) {
     apply_collect_menu_typography(menu);
 }
 
+void apply_collection_target_button(dMenu_Collect2D_c* menu) {
+    if (menu == nullptr || menu->mpString == nullptr || menu->mpString->mpOutFont == nullptr) {
+        return;
+    }
+    // Collection has a separate inline-icon renderer from the item wheel.
+    // Native L is target/defend, so shield descriptions need ZL/LT/L2 here too.
+    constexpr int kTargetButtonType = 3;
+    J2DPicture* picture = menu->mpString->mpOutFont->mpPane[kTargetButtonType];
+    ResTIMG const* texture = styled_zl_button_texture();
+    if (picture != nullptr && texture != nullptr) {
+        picture->changeTexture(texture, 0);
+        set_neutral_picture_colors(picture);
+    }
+}
+
+#include "collection_screen.inc"
+
 ResTIMG const* collection_submenu_texture(JKRArchive* archive,
     const char* textureName) {
     return archive != nullptr && textureName != nullptr ?
@@ -9152,6 +9184,11 @@ void after_collect_create(ModContext*, void* args, void*, void*) {
     s_collectCursorDiagnosticsLogged = false;
     s_collectLayoutReady = false;
     apply_collect_menu_button_layout(s_activeCollectMenu);
+    create_collection_screen(s_activeCollectMenu);
+    if (s_collectionScreen.root != nullptr) {
+        apply_collection_screen(s_activeCollectMenu);
+        return;
+    }
     // The native desktop widescreen pass can still rewrite the title
     // container once immediately after creation. Keep the replacement hidden
     // until before_collect_draw has anchored its final rendered bounds, so the
@@ -9198,6 +9235,10 @@ void after_insect_create(ModContext*, void* args, void*, void*) {
 
 void after_collect_move(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Collect2D_c*>(args, 0);
+    if (s_collectionScreen.root != nullptr) {
+        apply_collection_screen(menu);
+        return;
+    }
     refresh_collect_menu_frames(menu);
     if (menu != nullptr && menu->mpScreen != nullptr &&
         !s_collectRailDiagnosticsLogged) {
@@ -9209,6 +9250,10 @@ void after_collect_move(ModContext*, void* args, void*, void*) {
 #if defined(_WIN32)
 void after_collect_wide(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Collect2D_c*>(args, 0);
+    if (s_collectionScreen.root != nullptr) {
+        apply_collection_screen(menu);
+        return;
+    }
     if (menu == nullptr || menu != s_activeCollectMenu ||
         menu->mpScreen == nullptr) {
         return;
@@ -9230,6 +9275,12 @@ void after_collect_wide(ModContext*, void* args, void*, void*) {
 
 HookAction before_collect_draw(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Collect2D_c*>(args, 0);
+    apply_collection_target_button(menu);
+    if (s_collectionScreen.root != nullptr) {
+        apply_collection_screen(menu);
+        refresh_collect_prompt_width(menu->getIconScreen());
+        return HOOK_CONTINUE;
+    }
     if (menu != nullptr && menu->mpScreen != nullptr) {
         // Native Collection animation restores the stone rails after _move.
         // Reassert the exact replacement immediately before it is rendered.
@@ -9293,6 +9344,10 @@ HookAction before_select_cursor_draw(ModContext*, void* args, void*, void*) {
     }
     if (s_activeCollectMenu != nullptr &&
         cursor == s_activeCollectMenu->mpDrawCursor) {
+        if (s_collectionScreen.root != nullptr) {
+            position_collection_cursor(s_activeCollectMenu);
+            return HOOK_CONTINUE;
+        }
         // This is the final point before the cursor's four panes render;
         // Collection's animation has already finished moving them here.
         position_collect_footer_cursor(s_activeCollectMenu);
@@ -9310,6 +9365,10 @@ void after_select_cursor_update(ModContext*, void* args, void*, void*) {
     auto* cursor = mods::arg<dSelect_cursor_c*>(args, 0);
     if (s_activeCollectMenu != nullptr &&
         cursor == s_activeCollectMenu->mpDrawCursor) {
+        if (s_collectionScreen.root != nullptr) {
+            position_collection_cursor(s_activeCollectMenu);
+            return;
+        }
         // update() is the last operation that applies the cursor animation
         // and rewrites its corner transforms. Correct the footer geometry
         // only after that work is complete.
@@ -9352,6 +9411,8 @@ HookAction before_dmap_draw(ModContext*, void* args, void*, void*) {
 HookAction before_collect_delete(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Collect2D_c*>(args, 0);
     if (s_activeCollectMenu == menu) {
+        s_collectionScreen = {};
+        s_collectionModelScope = nullptr;
         s_activeCollectMenu = nullptr;
         s_collectTitleFrame = nullptr;
         s_collectSaveFrame = nullptr;
@@ -10052,6 +10113,12 @@ HookAction before_meter_gauge_screen(ModContext*, void* args, void*, void*) {
 
 HookAction before_gauge_screen_draw(ModContext*, void* args, void*, void*) {
     auto* screen = mods::arg<J2DScreen*>(args, 0);
+    if (s_activeCollectMenu != nullptr && screen == s_activeCollectMenu->mpScreen) {
+        apply_collection_screen(s_activeCollectMenu);
+    }
+    if (s_activeCollectMenu != nullptr && screen == s_activeCollectMenu->getIconScreen()) {
+        apply_collection_prompts(s_activeCollectMenu);
+    }
     auto* meter = s_gaugeDraw.meter;
     if (meter == nullptr || screen != meter->mpKanteraScreen ||
         meter->mpMagicParent == nullptr || s_gaugeDraw.pane != nullptr) {
@@ -10681,6 +10748,18 @@ void initialize_face_button_textures() {
             &s_collectBackgroundResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the Collection menu background");
     }
+    if (svc_resource->load(mod_ctx, "menu/collection-parchment.bti",
+            &s_collectParchmentResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Collection parchment texture");
+    }
+    if (svc_resource->load(mod_ctx, "menu/collection-banner.bti",
+            &s_collectBannerResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Collection banner texture");
+    }
+    if (svc_resource->load(mod_ctx, "menu/collection-equipment-frame.bti",
+            &s_collectEquipmentFrameResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Collection equipment frame");
+    }
     if (svc_resource->load(mod_ctx, "menu/menu-button-frame.bti",
             &s_collectMenuButtonResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the Collection menu button frame");
@@ -10771,6 +10850,9 @@ void shutdown_face_button_textures() {
     free_resource(s_zrShoulderButtonResource);
     free_resource(s_blackProZrShoulderButtonResource);
     free_resource(s_collectBackgroundResource);
+    free_resource(s_collectParchmentResource);
+    free_resource(s_collectBannerResource);
+    free_resource(s_collectEquipmentFrameResource);
     free_resource(s_collectMenuButtonResource);
     free_resource(s_fileSelectBackgroundResource);
     free_resource(s_fileSelectRowResource);
@@ -10800,6 +10882,8 @@ void shutdown_item_slot_resources() {
     s_activeFileSelect = nullptr;
     s_activeSaveMenu = nullptr;
     s_activeCollectMenu = nullptr;
+    s_collectionScreen = {};
+    s_collectionModelScope = nullptr;
     s_collectTitleFrame = nullptr;
     s_collectSaveFrame = nullptr;
     s_collectOptionsFrame = nullptr;
@@ -10893,6 +10977,21 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_PRE(MeterMapCtrlShowHook, before_meter_map_ctrl_show,
         "fixed TPHD map controls");
     ADD_POST(CollectCreateHook, after_collect_create, "collection menu buttons");
+    ADD_PRE(CollectCursorHook, before_collection_cursor, "collection spatial navigation");
+    ADD_PRE(CollectModelMoveHook, before_collection_model_move, "collection model scope");
+    ADD_POST(CollectModelMoveHook, after_collection_model_move, "collection model scope cleanup");
+    ADD_PRE(CollectLinkPoseHook, before_collection_link_pose, "collection model placement");
+    ADD_PRE(CollectProjectionHook, before_collection_projection, "collection full-height viewport");
+    ADD_PRE(CollectPositionHook, before_collection_position, "collection projection coordinates");
+    ADD_PRE(CollectIconMeasureHook, before_collection_icon_measure, "collection icon measurement");
+    ADD_POST(CollectIconMeasureHook, after_collection_icon_measure, "collection icon measurement restore");
+    ADD_PRE(CollectIconRenderHook, before_collection_icon_render, "collection inline icon size");
+    ADD_POST(CollectIconRenderHook, after_collection_icon_render, "collection inline icon restore");
+    ADD_PRE(CollectTextParseHook, before_collection_text_parse, "collection rendered text slots");
+    ADD_POST(CollectTextParseHook, after_collection_text_parse, "collection rendered text scope cleanup");
+    ADD_PRE(CollectTextEscapeHook, before_collection_text_escape, "collection inline slot start");
+    ADD_POST(CollectTextEscapeHook, after_collection_text_escape, "collection inline slot end");
+    ADD_PRE(CollectOutFontDrawHook, before_collection_out_font_draw, "collection final inline alignment");
     ADD_POST(LetterCreateHook, after_letter_create, "letter menu buttons");
     ADD_PRE(LetterDrawHook, before_letter_draw, "letter menu responsive buttons");
     ADD_POST(FishingCreateHook, after_fishing_create, "fish journal buttons");
