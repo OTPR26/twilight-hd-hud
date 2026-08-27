@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.3.0 - 2026-08-26
+
+- Add four text-font choices: Original, Zen Kaku Gothic New, M PLUS 2, and
+  Dusklight's Fira Sans family. Font changes require a restart and preserve
+  the game's text spacing and line wrapping.
+- Add separate controller-diamond, D-Pad, and heart sizes, with whole-percent
+  values from 50% to 125% and reset-to-100% buttons. Overall sizing overrides
+  individual values instead of multiplying them.
+- Add **BAYX Flipped**, with Attack/B on the east and Action/A on the south
+  of the diamond. Existing controller bindings are unchanged.
+- Use **LB, RB, LT, and RT** prompts on both Xbox layouts, in Silver and
+  Black Pro styles.
+- Restyle the Options save/discard confirmation and fit its question box to
+  the text. Correct the Brightness / Screen Ratio trigger prompt.
+- Replace Wolf Link's separate Dig prompt with the selected button artwork.
+- Correct the item-ring Direct Select icon and Bow & Arrow Combo label.
+- Simplify the settings descriptions and preserve existing saved selections.
+- Add regression tests for fonts, HUD sizing, settings migration, and prompts.
+
 ## v1.2.0 - 2026-08-25
 
 - Redesign the Quest Log screen with *Twilight Princess HD*-inspired panels.

@@ -29,9 +29,16 @@ jobs:
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
           -DDUSK_DIR="${GITHUB_WORKSPACE}/dusklight"
+          -DTWILIGHT_HUD_BUILD_TESTS=ON
 
       - name: Build package
         run: cmake --build build
+
+      - name: Run HUD regression tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Verify font checksums
+        run: python3 tests/font_manifest_test.py
 
       - name: Upload Linux package
         uses: actions/upload-artifact@v4

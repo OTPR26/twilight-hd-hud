@@ -297,24 +297,25 @@ def save_asset(name: str, image: Image.Image) -> None:
     (OUTPUT_DIR / f"{name}.bti").write_bytes(encode_rgba8_bti(image))
 
 
-for black, suffix in ((False, ""), (True, "-black-pro")):
-    for symbol in ("cross", "circle", "square", "triangle"):
-        save_asset(
-            f"face-button-ps-{symbol}{suffix}",
-            make_face_button(symbol, black),
-        )
-    for label in ("L1", "L2", "R1", "R2"):
-        save_asset(
-            f"shoulder-button-ps-{label.lower()}{suffix}",
-            make_shoulder_button(label, black),
-        )
+if __name__ == "__main__":
+    for black, suffix in ((False, ""), (True, "-black-pro")):
+        for symbol in ("cross", "circle", "square", "triangle"):
+            save_asset(
+                f"face-button-ps-{symbol}{suffix}",
+                make_face_button(symbol, black),
+            )
+        for label in ("L1", "L2", "R1", "R2"):
+            save_asset(
+                f"shoulder-button-ps-{label.lower()}{suffix}",
+                make_shoulder_button(label, black),
+            )
 
-for label in ("L",):
-    save_asset(
-        f"shoulder-button-{label.lower()}",
-        make_wii_u_l_from_archive_r(),
-    )
-    save_asset(
-        f"shoulder-button-{label.lower()}-black-pro",
-        make_wii_u_shoulder_button(label, True),
-    )
+    for label in ("L",):
+        save_asset(
+            f"shoulder-button-{label.lower()}",
+            make_wii_u_l_from_archive_r(),
+        )
+        save_asset(
+            f"shoulder-button-{label.lower()}-black-pro",
+            make_wii_u_shoulder_button(label, True),
+        )
