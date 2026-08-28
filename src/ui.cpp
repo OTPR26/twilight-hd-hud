@@ -136,7 +136,14 @@ ModResult build_hud_tab(
             kItemsScreens, std::size(kItemsScreens),
             "Choose a fixed item bank or the original wheel. Close and reopen Items to apply.") != MOD_OK)
         return MOD_ERROR;
-    return MOD_OK;
+    UiControlDesc swap = UI_CONTROL_DESC_INIT;
+    swap.kind = UI_CONTROL_TOGGLE;
+    swap.label = "TPD  Items / Collection Buttons";
+    swap.help_rml = "On: D-Pad Down opens Collection/Save; Start / + opens Items.<br/>"
+        "Off: D-Pad Down opens Items; Start / + opens Collection/Save.";
+    swap.binding = UI_BINDING_CONFIG_VAR;
+    swap.config_var = swap_menu_buttons_config_var();
+    return svc_ui->pane_add_control(ctx, left, &swap, nullptr);
 }
 
 HudSizeSetting size_setting(void* data) {

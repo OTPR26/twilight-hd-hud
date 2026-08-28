@@ -1,4 +1,4 @@
-Twilight HD HUD v1.4.1
+Twilight HD HUD v1.4.2
 
 Wallet description hotfix: Collection automatically follows Dusklight's Bigger
 Wallets setting. No extra toggle or ISO edits are required.
@@ -15,7 +15,7 @@ Supported platforms:
 
 Extract this ZIP before installing; upload or copy the .dusk file inside it.
 
-New in v1.4.1:
+New in v1.4.2:
 minor fixes and adjustments
 
 iPhone and iPad installation:

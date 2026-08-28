@@ -1,4 +1,4 @@
-Twilight HD HUD v1.4.1
+Twilight HD HUD v1.4.2
 
 Wallet description hotfix: Collection automatically follows Dusklight's Bigger
 Wallets setting. No extra toggle or ISO edits are required.
@@ -15,7 +15,7 @@ Supported platforms:
 - macOS Apple Silicon
 - Android ARM64
 
-New in v1.4.1:
+New in v1.4.2:
 minor fixes and adjustments
 
 Installation:

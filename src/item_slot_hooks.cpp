@@ -7390,9 +7390,10 @@ void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
             text->setCharSpace(actionText->getCharSpace());
             text->setLineSpace(actionText->getLineSpace());
             // With Midna on Down, Left remains a deliberately unlabeled
-            // minimap toggle and the existing right-side group labels Collection.
+            // minimap toggle and the existing right-side group labels the menu.
             const bool collectionLabel = destination < 5 || followMidnaOwnsDown;
-            const char* label = collectionLabel ? "Collection/\nSave" : "Minimap";
+            const bool swappedMenus = swap_menu_buttons();
+            const char* label = collectionLabel ? dpad_menu_label(swappedMenus) : "Minimap";
             const char* currentLabel = text_box_string(text);
             if (currentLabel == nullptr || std::strcmp(currentLabel, label) != 0) {
                 text->setString(0x40, label);
@@ -7415,9 +7416,10 @@ void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
             constexpr f32 outlineY[] = {1, -1, 1, -1, 0};
             const f32 lineSpace = actionFontSize.mSizeY * 1.25f;
             const f32 width = std::max(120.0f, copy_title_text_width(text->getFont(),
-                "Collection/", actionFontSize.mSizeX, text->getCharSpace()) + 8.0f);
+                swappedMenus ? "Collection/" : "Items",
+                actionFontSize.mSizeX, text->getCharSpace()) + 8.0f);
             text->setLineSpace(lineSpace);
-            text->resize(width, lineSpace + actionFontSize.mSizeY + 4.0f);
+            text->resize(width, (swappedMenus ? lineSpace : 0.0f) + actionFontSize.mSizeY + 4.0f);
             text->mFlags = static_cast<u8>((text->mFlags & ~0x0f) |
                 (HBIND_CENTER << 2) | VBIND_TOP);
             // Canonical local placement before aligning the entire label group
@@ -10429,15 +10431,16 @@ HookAction before_menu_window_execute(ModContext*, void*, void*, void*) {
         suppressMask = midna_game_button_mask();
     }
 
-    const u32 collectionMask = controller_compatibility() == ControllerCompatibility::FixedTphd ?
+    const u32 dpadMenuMask = controller_compatibility() == ControllerCompatibility::FixedTphd ?
         PAD_BUTTON_DOWN : game_button_for_dpad_direction(follow_dpad_layout().collection);
-    s_menuWindowRestoreMask = suppressMask | collectionMask | PAD_BUTTON_DOWN | PAD_BUTTON_START;
+    s_menuWindowRestoreMask = suppressMask | dpadMenuMask | PAD_BUTTON_DOWN | PAD_BUTTON_START;
     s_menuWindowSuppressedHeld = pad.mButtonFlags;
     s_menuWindowSuppressedTrig = pad.mPressedButtonFlags;
-    pad.mButtonFlags = menu_shortcut_buttons(pad.mButtonFlags, collectionMask,
-        PAD_BUTTON_DOWN, PAD_BUTTON_START, suppressMask);
-    pad.mPressedButtonFlags = menu_shortcut_buttons(pad.mPressedButtonFlags, collectionMask,
-        PAD_BUTTON_DOWN, PAD_BUTTON_START, suppressMask);
+    const bool swappedMenus = swap_menu_buttons();
+    pad.mButtonFlags = menu_shortcut_buttons(pad.mButtonFlags, dpadMenuMask,
+        PAD_BUTTON_DOWN, PAD_BUTTON_START, suppressMask, swappedMenus);
+    pad.mPressedButtonFlags = menu_shortcut_buttons(pad.mPressedButtonFlags, dpadMenuMask,
+        PAD_BUTTON_DOWN, PAD_BUTTON_START, suppressMask, swappedMenus);
     return HOOK_CONTINUE;
 }
 

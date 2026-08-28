@@ -18,6 +18,15 @@ ConfigVarHandle s_dpadSize = 0;
 ConfigVarHandle s_heartsSize = 0;
 ConfigVarHandle s_textFont = 0;
 ConfigVarHandle s_itemsScreen = 0;
+ConfigVarHandle s_swapMenuButtons = 0;
+
+ModResult register_menu_swap() {
+    ConfigVarDesc desc = CONFIG_VAR_DESC_INIT;
+    desc.name = "swap-menu-buttons";
+    desc.type = CONFIG_VAR_BOOL;
+    desc.default_bool = true;
+    return svc_config->register_var(mod_ctx, &desc, &s_swapMenuButtons);
+}
 
 ModResult register_int(const char* name, int64_t defaultValue, ConfigVarHandle& handle) {
     ConfigVarDesc desc = CONFIG_VAR_DESC_INIT;
@@ -86,7 +95,8 @@ ModResult register_config(ModError* error) {
             s_controllerCompatibility) != MOD_OK ||
         register_hud_sizes() != MOD_OK ||
         register_int("text-font", 0, s_textFont) != MOD_OK ||
-        register_int("items-screen", 0, s_itemsScreen) != MOD_OK)
+        register_int("items-screen", 0, s_itemsScreen) != MOD_OK ||
+        register_menu_swap() != MOD_OK)
     {
         return mods::set_error(
             error, MOD_ERROR, "failed to register Twilight HD HUD settings");
@@ -185,6 +195,18 @@ bool item_bank_enabled() {
 
 ConfigVarHandle items_screen_config_var() {
     return s_itemsScreen;
+}
+
+bool swap_menu_buttons() {
+    bool value = true;
+    if (s_swapMenuButtons != 0) {
+        svc_config->get_bool(mod_ctx, s_swapMenuButtons, &value);
+    }
+    return value;
+}
+
+ConfigVarHandle swap_menu_buttons_config_var() {
+    return s_swapMenuButtons;
 }
 
 }  // namespace twilight_hd_hud

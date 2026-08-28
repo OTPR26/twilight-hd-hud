@@ -14,21 +14,36 @@ using namespace twilight_hd_hud;
 
 static std::map<std::string, int64_t> saved;
 static std::vector<std::string> names;
+static std::map<std::string, ConfigVarType> types;
 static std::vector<UiControlDesc> controls;
 static UiMenuTabDesc menuTab{};
 
 static ModResult register_var(ModContext*, const ConfigVarDesc* desc, ConfigVarHandle* handle) {
-    assert(desc->type == CONFIG_VAR_INT);
+    assert(desc->type == CONFIG_VAR_INT || desc->type == CONFIG_VAR_BOOL);
+    types[desc->name] = desc->type;
     names.emplace_back(desc->name);
     *handle = names.size();
-    saved.try_emplace(desc->name, desc->default_int);
+    saved.try_emplace(desc->name, desc->type == CONFIG_VAR_BOOL ?
+        desc->default_bool : desc->default_int);
     return MOD_OK;
 }
 static ModResult get_int(ModContext*, ConfigVarHandle handle, int64_t* value) {
+    assert(types.at(names.at(handle - 1)) == CONFIG_VAR_INT);
     *value = saved.at(names.at(handle - 1));
     return MOD_OK;
 }
 static ModResult set_int(ModContext*, ConfigVarHandle handle, int64_t value) {
+    assert(types.at(names.at(handle - 1)) == CONFIG_VAR_INT);
+    saved[names.at(handle - 1)] = value;
+    return MOD_OK;
+}
+static ModResult get_bool(ModContext*, ConfigVarHandle handle, bool* value) {
+    assert(types.at(names.at(handle - 1)) == CONFIG_VAR_BOOL);
+    *value = saved.at(names.at(handle - 1)) != 0;
+    return MOD_OK;
+}
+static ModResult set_bool(ModContext*, ConfigVarHandle handle, bool value) {
+    assert(types.at(names.at(handle - 1)) == CONFIG_VAR_BOOL);
     saved[names.at(handle - 1)] = value;
     return MOD_OK;
 }
@@ -78,6 +93,25 @@ static ModResult window(ModContext*, const UiWindowDesc* desc, UiWindowHandle* h
     assert(controls[4].option_count == 2);
     assert(std::string(controls[4].options[0]) == "TPHD Bank");
     assert(std::string(controls[4].options[1]) == "Original Wheel");
+    assert(controls.size() == 6);
+    const auto& swap = controls[5];
+    assert(swap.kind == UI_CONTROL_TOGGLE);
+    assert(std::string(swap.label) == "TPD  Items / Collection Buttons");
+    assert(swap.binding == UI_BINDING_CONFIG_VAR);
+    assert(swap.config_var == swap_menu_buttons_config_var());
+    assert(std::string(swap.help_rml) ==
+        "On: D-Pad Down opens Collection/Save; Start / + opens Items.<br/>"
+        "Off: D-Pad Down opens Items; Start / + opens Collection/Save.");
+    assert(!swap_menu_buttons()); // saved Off survives reopening Settings
+    for (int64_t screen : {0, 1}) {
+        saved["items-screen"] = screen;
+        for (bool enabled : {true, false}) {
+            assert(svc_config->set_bool(nullptr, swap.config_var, enabled) == MOD_OK);
+            assert(swap_menu_buttons() == enabled);
+            assert(item_bank_enabled() == (screen == 0));
+        }
+    }
+    saved["items-screen"] = 0;
     controls.clear();
     *handle = 1;
     return desc->tabs[1].build(nullptr, 1, 2, 3, nullptr, nullptr);
@@ -98,10 +132,15 @@ int main() {
     config.register_var = register_var;
     config.get_int = get_int;
     config.set_int = set_int;
+    config.get_bool = get_bool;
+    config.set_bool = set_bool;
     svc_config = &config;
     saved = {{"hud-size", 2}, {"controller-diamond-size", 0},
         {"dpad-size", 1}, {"hearts-size", 2}};
     assert(register_config(nullptr) == MOD_OK);
+    assert(swap_menu_buttons()); // upgrades preserve the previous mapping by default
+    assert(set_bool(nullptr, swap_menu_buttons_config_var(), false) == MOD_OK);
+    assert(!swap_menu_buttons());
     assert(item_bank_enabled());
     saved["items-screen"] = 1;
     assert(!item_bank_enabled());
@@ -124,6 +163,7 @@ int main() {
     set_hud_size_percent(HudSizeSetting::ControllerDiamond, 83);
     names.clear();
     assert(register_config(nullptr) == MOD_OK);
+    assert(!swap_menu_buttons()); // reload must not overwrite saved Off
     assert(hud_size_percent(HudSizeSetting::Overall) == 100);
     assert(hud_size_percent(HudSizeSetting::ControllerDiamond) == 83);
 
@@ -169,6 +209,7 @@ int main() {
     saved.clear();
     names.clear();
     assert(register_config(nullptr) == MOD_OK);
+    assert(swap_menu_buttons());
     for (auto setting : {HudSizeSetting::Overall, HudSizeSetting::ControllerDiamond,
              HudSizeSetting::Dpad, HudSizeSetting::Hearts}) {
         assert(hud_size_percent(setting) == 100 && !hud_size_locked(setting));

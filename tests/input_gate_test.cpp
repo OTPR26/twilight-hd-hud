@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <string_view>
 
 using twilight_hd_hud::InputGate;
 
@@ -25,10 +26,33 @@ int main() {
     assert(menu_shortcut_buttons(start, right, down, start, down) == down);
     assert(menu_shortcut_buttons(start, down, down, start, start) == 0);
     assert(menu_shortcut_buttons(a | down, down, down, start, a) == start);
+    assert(std::string_view(dpad_menu_label(true)) == "Collection/\nSave");
+    assert(std::string_view(dpad_menu_label(false)) == "Items");
+    assert(menu_shortcut_buttons(down, down, down, start, 0, false) == down);
+    assert(menu_shortcut_buttons(start, down, down, start, 0, false) == start);
+    assert(menu_shortcut_buttons(start | down, down, down, start, 0, false) == (start | down));
+    // Custom Midna retains its own button in either mode; Right opens Items
+    // when swapping is off. Suppression applies before either translation.
+    assert(menu_shortcut_buttons(right, right, down, start, down, false) == down);
+    assert(menu_shortcut_buttons(down, right, down, start, down, false) == 0);
+    assert(menu_shortcut_buttons(start, right, down, start, down, false) == start);
+    assert(menu_shortcut_buttons(start, down, down, start, start, false) == 0);
+    assert(menu_shortcut_buttons(a | down, down, down, start, a, false) == down);
     // Exhaust combinations of unrelated buttons, held state, and trigger
     // state. Restore exactly the touched bits without resurrecting unrelated
     // input that the native menu may have consumed.
     for (std::uint32_t original = 0; original < 0x2000; ++original) {
+        assert(menu_shortcut_buttons(original, down, down, start, 0, false) == original);
+        for (bool swap : {false, true}) {
+            const auto custom = menu_shortcut_buttons(original, right, down, start, down, swap);
+            assert((custom & ~(right | down | start)) == (original & ~(right | down | start)));
+            assert((custom & right) == 0);
+            assert(bool(custom & (swap ? start : down)) == bool(original & right));
+            assert(bool(custom & (swap ? down : start)) == bool(original & start));
+            assert(restore_menu_shortcut_buttons(custom, original, right | down | start) == original);
+            assert(restore_menu_shortcut_buttons(custom & ~a, original, right | down | start) ==
+                (original & ~a));
+        }
         const auto mapped = menu_shortcut_buttons(original, down, down, start);
         assert((mapped & ~(down | start)) == (original & ~(down | start)));
         assert(menu_shortcut_buttons(mapped, down, down, start) == original);

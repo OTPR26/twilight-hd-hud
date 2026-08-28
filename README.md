@@ -61,10 +61,16 @@ in Twilight HD HUD Settings to use the original layout instead; close and reopen
 Items to apply the change. X, Y, and R item assignment and supported combinations
 retain the game's inventory behavior.
 
-**Start / +** opens Items and closes it again; **B** also closes it.
-**D-Pad Down** opens Collection/Save. Inside menus, D-Pad directions remain
-navigation controls. In Follow mode, if Call Midna is assigned to Down,
-Collection/Save moves to Right and Minimap to Left. No controller profile is rewritten.
+By default, **Start / +** opens Items and **D-Pad Down** opens Collection/Save.
+Turn **TPD  Items / Collection Buttons** off in Twilight HD HUD Settings to
+restore **D-Pad Down → Items** and **Start / + → Collection/Save** while keeping
+the TPHD Bank layout. The preference is saved and the HUD label updates when
+you return to gameplay; no restart is needed.
+
+Inside menus, D-Pad directions remain navigation controls; **Start / +** or
+**B** closes Items. In Follow mode, if Call Midna is assigned to Down, the
+D-Pad menu shortcut moves to Right and Minimap to Left in either setting.
+No controller profile is rewritten.
 
 ## Installation: iPhone and iPad
 
@@ -118,8 +124,8 @@ put Attack on East and Action on South. Custom bindings remain unchanged.
 
 - X, Y, and R: equipped items
 - L: Midna in TPHD Fixed Bindings
-- D-Pad Down: Collection/Save
-- Start / +: Items (press again, or B, to close)
+- D-Pad Down: Collection/Save (Items with the menu swap off)
+- Start / +: Items (Collection/Save with the menu swap off)
 - D-Pad Left/Right: minimap toggle
 - ZL: enemy lock-on/defend and paused item combinations
 - ZR: Gale Boomerang multi-target lock
