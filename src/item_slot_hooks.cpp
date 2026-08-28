@@ -1,12 +1,18 @@
 #include "config.hpp"
+#include "action_prompt_layout.hpp"
 #include "collection_layout.hpp"
 #include "controller_prompts.hpp"
 #include "diamond_layout.hpp"
+#include "dungeon_map_layout.hpp"
+#include "overworld_map_layout.hpp"
+#include "map_responsive_layout.hpp"
+#include "dialogue_text_layout.hpp"
 #include "font_override.hpp"
 #include "hud_layout.hpp"
 #include "hud_visibility.hpp"
 #include "input_gate.hpp"
 #include "menu_shortcuts.hpp"
+#include "dungeon_map_input.hpp"
 #include "item_help_text.hpp"
 #include "wallet_description.hpp"
 #include "item_bank_layout.hpp"
@@ -27,10 +33,10 @@
 #include "d/d_meter_haihai.h"
 #include "d/d_meter2.h"
 #include "d/d_meter2_info.h"
-#include "d/d_menu_window.h"
 #include "d/d_pane_class.h"
 #include "d/d_msg_object.h"
 #include "d/d_msg_scrn_howl.h"
+#include "d/d_msg_scrn_talk.h"
 #include "JSystem/J2DGraph/J2DPane.h"
 #include "JSystem/J2DGraph/J2DScreen.h"
 #include "JSystem/J2DGraph/J2DPicture.h"
@@ -40,6 +46,7 @@
 #include "JSystem/JUtility/JUTFont.h"
 #include "JSystem/JUtility/JUTResFont.h"
 #define private public
+#include "d/d_menu_window.h"
 #include "JSystem/J2DGraph/J2DPrint.h"
 #include "d/d_msg_class.h"
 #include "d/d_menu_item_explain.h"
@@ -175,7 +182,14 @@ DEFINE_HOOK(&dSelect_cursor_c::update, SelectCursorUpdateHook);
 DEFINE_HOOK(&dMsgScrn3Select_c::draw, ThreeSelectDrawHook);
 DEFINE_HOOK(&dMenu_Fmap_c::_move, FmapMoveHook);
 DEFINE_HOOK(&dMenu_Fmap_c::_draw, FmapDrawHook);
+DEFINE_HOOK(&dMenu_Fmap_c::getNextStatus, FmapNextStatusHook);
+DEFINE_HOOK(&dMenu_Fmap2DTop_c::draw, FmapTopDrawHook);
 DEFINE_HOOK(&dMenu_Dmap_c::_draw, DmapDrawHook);
+DEFINE_HOOK(&dMenu_Dmap_c::getNextStatus, DmapNextStatusHook);
+DEFINE_HOOK(&dMenu_DmapBg_c::draw, DmapBgDrawHook);
+DEFINE_HOOK(&dMenu_DmapBg_c::dMapBgWide, DmapWideHook);
+DEFINE_HOOK((static_cast<void (J2DPicture::*)(f32, f32, f32, f32, bool, bool, bool)>(&J2DPicture::draw)), DmapPoeIconDrawHook);
+DEFINE_HOOK((static_cast<void (J2DTextBox::*)(f32, f32, f32, J2DTextBoxHBinding)>(&J2DTextBox::draw)), DmapPoeTextDrawHook);
 DEFINE_HOOK(&dMenu_Option_c::_create, OptionCreateHook);
 DEFINE_HOOK(&dMenu_Option_c::_move, OptionMoveHook);
 DEFINE_HOOK(&dMenu_Option_c::_draw, OptionDrawHook);
@@ -286,6 +300,10 @@ ResourceBuffer s_collectBackgroundResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_collectParchmentResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_collectBannerResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_collectEquipmentFrameResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_dmapFrameResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_fmapFrameResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_fmapBannerPatternResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_dmapBackDpadResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_itemBankCellResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_itemBankCircleResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_itemBankShadowResource = RESOURCE_BUFFER_INIT;
@@ -353,6 +371,12 @@ bool s_fixedZrTrig = false;
 u32 s_menuWindowSuppressedHeld = 0;
 u32 s_menuWindowSuppressedTrig = 0;
 u32 s_menuWindowRestoreMask = 0;
+dMenu_Dmap_c* s_dmapInputScope = nullptr;
+bool s_dmapBackTriggered = false;
+dMenu_Fmap_c* s_fmapInputScope = nullptr;
+bool s_fmapBackTriggered = false;
+bool s_fmapCloseInjected = false;
+u32 s_fmapCloseOriginalTrig = 0;
 InputGate s_inputGate;
 constexpr u32 kInputL = 1 << 0;
 constexpr u32 kInputR = 1 << 1;
@@ -2401,6 +2425,62 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
 
 // Dungeon map ---------------------------------------------------------------
 
+constexpr f32 kDmapMapOffsetX = -124.0f;
+constexpr f32 kDmapMapOffsetY = 16.0f;
+constexpr f32 kDmapFloorScaleX = 1.20f;
+constexpr f32 kDmapFloorOffsetX = -215.0f;
+constexpr f32 kDmapFloorOffsetY = 13.0f;
+
+// Only relocate native draws. The game retains ownership of the enhanced-map
+// setting, event checks, counts, colors, and menu lifecycle.
+dMenu_DmapBg_c* s_dmapDrawing = nullptr;
+
+void position_dmap_global_center(J2DPane* pane, f32 x, f32 y) {
+    if (pane == nullptr || pane->getParentPane() == nullptr) return;
+    CPaneMgr manager;
+    const Vec center = manager.getGlobalVtxCenter(pane, false, 0);
+    Mtx parent;
+    manager.getGlobalVtx(pane->getParentPane(), &parent, 0, false, 0);
+    const f32 determinant = parent[0][0] * parent[1][1] -
+        parent[0][1] * parent[1][0];
+    if (std::abs(determinant) < 0.0001f) return;
+    const f32 dx = x - center.x;
+    const f32 dy = y - center.y;
+    pane->translate(pane->getTranslateX() +
+            (parent[1][1] * dx - parent[0][1] * dy) / determinant,
+        pane->getTranslateY() +
+            (parent[0][0] * dy - parent[1][0] * dx) / determinant);
+}
+
+#include "map_responsive_screen.inc"
+
+void position_dmap_floor_cursor(dSelect_cursor_c* cursor) {
+    if (s_dmapDrawing == nullptr || cursor == nullptr ||
+        cursor != s_dmapDrawing->mpDrawCursor || cursor->mpPane == nullptr ||
+        cursor->mpScreen == nullptr) return;
+    bool floorTarget = false;
+    for (auto* pane = cursor->mpPane; pane != nullptr; pane = pane->getParentPane()) {
+        if (pane == s_dmapDrawing->mFloorScreen) floorTarget = true;
+    }
+    if (!floorTarget) return; // Never change dungeon-item or other menu cursors.
+    CPaneMgr manager;
+    Mtx matrix;
+    const Vec tl = manager.getGlobalVtx(cursor->mpPane, &matrix, 0, false, 0);
+    const Vec br = manager.getGlobalVtx(cursor->mpPane, &matrix, 3, false, 0);
+    const dungeon_map_layout::Rect row{tl.x, tl.y, br.x - tl.x, br.y - tl.y};
+    constexpr u64 tags[] = {MULTI_CHAR('l_u_null'), MULTI_CHAR('l_d_null'),
+        MULTI_CHAR('r_u_null'), MULTI_CHAR('r_d_null')};
+    for (int i = 0; i < 4; ++i) {
+        const auto point = dungeon_map_layout::cursor_corner(row, i);
+        auto* corner = cursor->mpScreen->search(tags[i]);
+        if (s_compactDmap.active && corner != nullptr) {
+            auto& saved = remember_compact_pane(corner);
+            corner->scale(saved.scaleX * s_compactDmap.scale, saved.scaleY * s_compactDmap.scale);
+        }
+        position_dmap_global_center(corner, point.x, point.y);
+    }
+}
+
 void hide_large_dmap_base_art(J2DPane* pane, J2DPane* keep) {
     if (pane == nullptr) {
         return;
@@ -2432,6 +2512,231 @@ void hide_dmap_picture_tree(J2DPane* pane) {
     }
 }
 
+void style_dmap_floor_rows(dMenu_DmapBg_c* map) {
+    if (map == nullptr || map->mFloorScreen == nullptr) {
+        return;
+    }
+    constexpr u64 floorTags[] = {
+        MULTI_CHAR('floor7_n'), MULTI_CHAR('floor0_n'), MULTI_CHAR('floor1_n'),
+        MULTI_CHAR('floor2_n'), MULTI_CHAR('floor3_n'), MULTI_CHAR('floor4_n'),
+        MULTI_CHAR('floor5_n'), MULTI_CHAR('floor6_n'),
+    };
+    ResTIMG const* frameTexture = resource_texture(s_collectMenuButtonResource);
+    if (frameTexture == nullptr) {
+        return;
+    }
+    for (std::size_t index = 0; index < std::size(floorTags); ++index) {
+        J2DPane* row = map->mFloorScreen->search(floorTags[index]);
+        if (row == nullptr) {
+            continue;
+        }
+        const u64 number = index == 0 ? 7 : index - 1;
+        auto* frame = as_picture(row->search(MULTI_CHAR('f_base_0') + number));
+        if (frame == nullptr || (frame->getTexture(0) != nullptr &&
+            frame->getTexture(0)->getTexInfo() == frameTexture)) continue;
+        if (auto* labelGroup = row->search(MULTI_CHAR('f_tex_0n') | (number << 8))) {
+            labelGroup->translate(21.0f, 0.0f);
+        }
+        for (u64 prefix : {MULTI_CHAR('floor0_0'), MULTI_CHAR('ffoor0_0')}) {
+            for (u64 layer = 1; layer <= 3; ++layer) {
+                if (auto* text = static_cast<J2DTextBox*>(
+                        row->search(prefix | (number << 16) | layer))) {
+                    text->setFont(mDoExt_getMesgFont());
+                    text->setFontSize(17.0f, 17.0f);
+                }
+            }
+        }
+        // Preserve the native child count and order: floor alpha/size animation
+        // caches are allocated before this draw hook runs.
+        frame->changeTexture(frameTexture, 0);
+        frame->setTexCoord(frame->getTexture(0), BIND15, MIRROR0, false);
+        set_neutral_picture_colors(frame);
+    }
+}
+
+void style_dmap_frame(dMenu_DmapBg_c* map) {
+    const auto* texture = resource_texture(s_dmapFrameResource);
+    if (map == nullptr || map->mMapScreen[0] == nullptr || texture == nullptr) return;
+    auto* center = map->mMapScreen[0]->search(MULTI_CHAR('center_n'));
+    auto* parent = center != nullptr ? center->getParentPane() : nullptr;
+    auto* frame = as_picture(map->mMapScreen[0]->search(MULTI_CHAR('bs_00_0')));
+    if (parent == nullptr || frame == nullptr || frame->getParentPane() != parent) return;
+    if (frame->getTexture(0) == nullptr || frame->getTexture(0)->getTexInfo() != texture) {
+        const auto bounds = center->getBounds();
+        const auto box = dungeon_map_layout::frame_around(
+            {bounds.i.x, bounds.i.y, bounds.getWidth(), bounds.getHeight()});
+        frame->changeTexture(texture, 0);
+        frame->resize(box.width, box.height);
+        frame->move(box.x, box.y);
+        frame->setTexCoord(frame->getTexture(0), BIND15, MIRROR0, false);
+        set_neutral_picture_colors(frame);
+        // Reuse a sibling of center_n without changing the cached native
+        // hierarchy. Neither center/scissor bounds nor map geometry changes.
+    }
+    for (auto* screen : {map->mMapScreen[0], map->mMapScreen[1]}) {
+        if (screen == nullptr) continue;
+        const auto hide = [screen](u64 tag) {
+            if (auto* pane = screen->search(tag)) pane->hide();
+        };
+        for (u64 tag : {MULTI_CHAR('gold00_0'), MULTI_CHAR('gold00_1'),
+                 MULTI_CHAR('bs_00_1')}) hide(tag);
+        for (u64 i = 0; i < 12; ++i)
+            hide(MULTI_CHAR('mam_k000') + ((i / 10) << 8) + i % 10);
+        for (u64 i = 0; i < 8; ++i) {
+            hide(MULTI_CHAR('hl_00') + i);
+            hide(MULTI_CHAR('sha_00') + i);
+        }
+    }
+}
+
+void add_dmap_edge_rules(dMenu_DmapBg_c* map) {
+    // Outside ROOT: its native fade cache has a fixed, preallocated child
+    // count. New children there can read past that cache and get wrong alpha.
+    auto* root = map->mBaseScreen;
+    const auto* texture = resource_texture(s_collectMenuButtonResource);
+    if (root == nullptr || texture == nullptr) return;
+    using namespace dungeon_map_layout;
+    for (int band = 0; band < 2; ++band) {
+        const f32 y[] = {band_top[band], band_top[band] + band_edge,
+            band_top[band] + band_height - band_edge};
+        const f32 heights[] = {band_edge, band_height - 2 * band_edge, band_edge};
+        for (int part = 0; part < 3; ++part) {
+            const u64 tag = MULTI_CHAR('hd_drl0') + band * 3 + part;
+            auto* rule = as_picture(root->search(tag));
+            if (rule == nullptr) {
+                rule = JKR_NEW J2DPicture(tag,
+                    JGeometry::TBox2<f32>(0, y[part], 608, y[part] + heights[part]), texture, nullptr);
+                configure_hd_picture(rule);
+                const auto color = part == 1 ? JUtility::TColor(105, 107, 74, 255) :
+                    JUtility::TColor(197, 196, 145, 255);
+                rule->setBlackWhite(color, color);
+                root->appendChild(rule);
+            }
+            rule->setAlpha(static_cast<u8>(255 * std::clamp(map->field_0xd9c, 0.0f, 1.0f)));
+        }
+    }
+}
+
+void position_dmap_native_groups(dMenu_DmapBg_c* map) {
+    if (map == nullptr) {
+        return;
+    }
+    for (J2DScreen* screen : {map->mMapScreen[0], map->mMapScreen[1]}) {
+        if (screen != nullptr) {
+            if (J2DPane* root = screen->search(MULTI_CHAR('ROOT'))) {
+                root->translate(kDmapMapOffsetX, kDmapMapOffsetY);
+            }
+        }
+    }
+    if (map->mFloorScreen != nullptr) {
+        if (J2DPane* root = map->mFloorScreen->search(MULTI_CHAR('ROOT'))) {
+            root->scale(kDmapFloorScaleX, 1.0f);
+            root->translate(kDmapFloorOffsetX, kDmapFloorOffsetY);
+        }
+        for (u64 tag : {MULTI_CHAR('rink'), MULTI_CHAR('wolf')}) {
+            if (auto* icon = map->mFloorScreen->search(tag)) icon->scale(0.55f, 0.55f);
+        }
+        auto* menu = dMenu_Dmap_c::myclass;
+        if (menu != nullptr && menu->mpDrawBg == map) {
+            // Native iconMoveCalc feeds a global delta into a local transform.
+            // Re-anchor after the new floor-root transform, retaining native
+            // ownership/visibility and the actual player/boss floor indices.
+            const int floors[] = {menu->field_0x172, menu->field_0x173};
+            CPaneMgr manager;
+            for (int i = 0; i < 2; ++i) {
+                const int index = floors[i] - menu->mBottomFloor;
+                if (index < 0 || index >= 8 || menu->mStayIcon[i] == nullptr) continue;
+                auto* target = i == 0 ? menu->mIconLinkPos[index] : menu->mIconBossPos[index];
+                if (target == nullptr) continue;
+                const Vec position = manager.getGlobalVtxCenter(target->getPanePtr(), false, 0);
+                position_dmap_global_center(menu->mStayIcon[i]->getPanePtr(), position.x, position.y);
+            }
+        }
+    }
+    if (map->mBaseScreen != nullptr) {
+        // Establish the same widescreen transforms that native draw applies.
+        // item_s_n is a selection marker, NOT the parent of these three cells.
+        map->dMapBgWide();
+        constexpr u64 items[] = {MULTI_CHAR('map_n'), MULTI_CHAR('con_n'), MULTI_CHAR('key_n')};
+        for (std::size_t i = 0; i < std::size(items); ++i) {
+            position_dmap_global_center(map->mBaseScreen->search(items[i]),
+                mDoGph_gInf_c::getSafeMinXF() +
+                    608.0f * mDoGph_gInf_c::hudAspectScaleUp * 0.872f,
+                156.0f + i * 87.0f);
+        }
+        for (u64 tag : {MULTI_CHAR('gray_map'), MULTI_CHAR('gray_con'),
+                 MULTI_CHAR('gray_key')}) {
+            if (auto* frame = as_picture(map->mBaseScreen->search(tag))) {
+                if (ResTIMG const* texture =
+                        resource_texture(s_collectEquipmentFrameResource)) {
+                    // Do not call configure_hd_picture on native panes: it
+                    // forces show()/alpha=255, exposing unowned items.
+                    if (frame->getTexture(0) == nullptr ||
+                        frame->getTexture(0)->getTexInfo() != texture) {
+                        frame->changeTexture(texture, 0);
+                        frame->setTexCoord(frame->getTexture(0), BIND15, MIRROR0, false);
+                        frame->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+                            JUtility::TColor(153, 149, 112, 255));
+                        frame->setCornerColor(JUtility::TColor(255, 255, 255, 255));
+                    }
+                }
+            }
+        }
+        for (u64 tag : {MULTI_CHAR('c_btn2'), MULTI_CHAR('w_3dbas1'),
+                 MULTI_CHAR('kazari01'), MULTI_CHAR('kazari02'), MULTI_CHAR('spork'),
+                 MULTI_CHAR('w_sen01'), MULTI_CHAR('w_sen02'), MULTI_CHAR('w_sen03')}) {
+            if (J2DPane* pane = map->mBaseScreen->search(tag)) {
+                pane->hide();
+            }
+        }
+    }
+    if (map->mButtonScreen != nullptr) {
+        for (u64 tag : {MULTI_CHAR('c_btn'), MULTI_CHAR('c_n'),
+                 MULTI_CHAR('c_text_s'), MULTI_CHAR('c_text'),
+                 MULTI_CHAR('f_text_s'), MULTI_CHAR('f_text')}) {
+            if (J2DPane* pane = map->mButtonScreen->search(tag)) {
+                pane->hide();
+            }
+        }
+    }
+}
+
+void add_dmap_back_hint(dMenu_DmapBg_c* map, float size = 1.0f) {
+    auto* root = map->mBaseScreen; // Outside native fixed-size alpha caches.
+    auto* group = root->search(MULTI_CHAR('hd_dbak'));
+    if (group == nullptr) {
+        const auto* texture = resource_texture(s_dmapBackDpadResource);
+        if (texture == nullptr) return;
+        group = JKR_NEW J2DPane(MULTI_CHAR('hd_dbak'), JGeometry::TBox2<f32>(0, 0, 110, 24));
+        root->appendChild(group);
+        auto* icon = JKR_NEW J2DPicture(MULTI_CHAR('hd_ddup'),
+            JGeometry::TBox2<f32>(0, 0, 24, 24), texture, nullptr);
+        configure_hd_picture(icon);
+        group->appendChild(icon);
+        auto* text = JKR_NEW J2DTextBox(MULTI_CHAR('hd_dbtx2'),
+            JGeometry::TBox2<f32>(31, 0, 110, 24), nullptr, "Back", 32, HBIND_LEFT, VBIND_CENTER);
+        text->setFont(mDoExt_getMesgFont());
+        text->setFontSize(12.5f, 12.5f);
+        text->setFontColor(JUtility::TColor(238, 238, 232, 255),
+            JUtility::TColor(255, 255, 255, 255));
+        group->appendChild(text);
+    }
+    auto* frame = map->mMapScreen[0]->search(MULTI_CHAR('bs_00_0'));
+    if (frame == nullptr) { group->hide(); return; }
+    CPaneMgr manager;
+    Mtx matrix;
+    const Vec tl = manager.getGlobalVtx(frame, &matrix, 0, false, 0);
+    const Vec br = manager.getGlobalVtx(frame, &matrix, 3, false, 0);
+    const auto hint = dungeon_map_layout::back_hint({tl.x, tl.y, br.x - tl.x, br.y - tl.y}, size);
+    group->scale(mDoGph_gInf_c::hudAspectScaleDown * size, size);
+    position_dmap_global_center(group, hint.x + hint.width / 2, hint.y + hint.height / 2);
+    // Match the map fade; dim the shortcut while native loading/dialogue locks input.
+    auto* menu = dMenu_Dmap_c::myclass;
+    const bool locked = menu != nullptr && menu->isKeyCheck();
+    group->setAlpha(static_cast<u8>((locked ? 100 : 255) * std::clamp(map->field_0xd9c, 0.0f, 1.0f)));
+    group->show();
+}
+
 void apply_dmap_hd_layout(dMenu_DmapBg_c* map) {
     if (map == nullptr || map->mBaseScreen == nullptr ||
         map->mButtonScreen == nullptr) {
@@ -2457,6 +2762,11 @@ void apply_dmap_hd_layout(dMenu_DmapBg_c* map) {
         }
     }
     hide_large_dmap_base_art(map->mBaseScreen, backgroundPane);
+    style_dmap_frame(map);
+    add_dmap_edge_rules(map);
+    style_dmap_floor_rows(map);
+    position_dmap_native_groups(map);
+    add_dmap_back_hint(map);
 
     if (map->mDecorateScreen != nullptr) {
         map->mDecorateScreen->hide();
@@ -2495,15 +2805,37 @@ void apply_dmap_hd_layout(dMenu_DmapBg_c* map) {
             JGeometry::TBox2<f32>(0.0f, 0.0f, 270.0f, 58.0f));
         map->mBaseScreen->appendChild(titleGroup);
         if (ResTIMG const* frameTexture =
-                resource_texture(s_collectMenuButtonResource)) {
+                resource_texture(s_collectBannerResource)) {
             auto* frame = JKR_NEW J2DPicture(MULTI_CHAR('hd_ddfr'),
-                JGeometry::TBox2<f32>(18.0f, 14.0f, 250.0f, 50.0f),
+                JGeometry::TBox2<f32>(dungeon_map_layout::banner.x, dungeon_map_layout::banner.y,
+                    dungeon_map_layout::banner.x + dungeon_map_layout::banner.width,
+                    dungeon_map_layout::banner.y + dungeon_map_layout::banner.height),
                 frameTexture, nullptr);
             configure_hd_picture(frame);
             titleGroup->appendChild(frame);
+            // The same crest used by Collection is also in the dungeon-map
+            // archive. Resolve it here so opening Collection first is unnecessary.
+            // The old moyou pane supplies a different, streak-like background.
+            auto* archive = dComIfGp_getDmapResArchive();
+            const auto* pattern = archive != nullptr ? static_cast<ResTIMG const*>(
+                archive->getResource('TIMG', "tt_kazari_kani_00.bti")) : nullptr;
+            if (pattern != nullptr) {
+                for (int tile = 0; tile < dungeon_map_layout::banner_motif_count; ++tile) {
+                    const auto bounds = dungeon_map_layout::banner_motif(tile);
+                    auto* decoration = JKR_NEW J2DPicture(MULTI_CHAR('hd_ddpa0') + tile,
+                        JGeometry::TBox2<f32>(bounds.x, bounds.y,
+                            bounds.x + bounds.width, bounds.y + bounds.height), pattern, nullptr);
+                    configure_hd_picture(decoration);
+                    // White texture background matches the banner's olive fill;
+                    // tile edges blend into it rather than forming a second panel.
+                    decoration->setBlackWhite(JUtility::TColor(58, 63, 30, 255),
+                        JUtility::TColor(30, 34, 13, 255));
+                    titleGroup->appendChild(decoration);
+                }
+            }
         }
         auto* title = JKR_NEW J2DTextBox(MULTI_CHAR('hd_ddtx'),
-            JGeometry::TBox2<f32>(30.0f, 15.0f, 238.0f, 49.0f), nullptr,
+            JGeometry::TBox2<f32>(30.0f, 23.0f, 238.0f, 49.0f), nullptr,
             "", 64, HBIND_CENTER, VBIND_CENTER);
         title->setFont(mDoExt_getMesgFont());
         title->setFontSize(17.0f, 17.0f);
@@ -2524,25 +2856,25 @@ void apply_dmap_hd_layout(dMenu_DmapBg_c* map) {
         constexpr u64 iconTags[] = {
             MULTI_CHAR('hd_daic'), MULTI_CHAR('hd_dbic'),
         };
-        constexpr f32 rowY[] = {10.0f, 28.0f};
         ResTIMG const* icons[] = {
             menu_face_button_texture(true),
             menu_face_button_texture(false),
         };
         for (std::size_t index = 0; index < 2; ++index) {
+            const auto anchor = dungeon_map_layout::prompt_icon(index);
             auto* text = JKR_NEW J2DTextBox(textTags[index],
-                JGeometry::TBox2<f32>(0.0f, rowY[index] - 11.0f,
-                    132.0f, rowY[index] + 11.0f), nullptr, labels[index], 32,
+                JGeometry::TBox2<f32>(0.0f, anchor.y - 11.0f,
+                    anchor.x - 15.0f, anchor.y + 11.0f), nullptr, labels[index], 32,
                 HBIND_RIGHT, VBIND_CENTER);
             text->setFont(mDoExt_getMesgFont());
-            text->setFontSize(11.0f, 11.0f);
+            text->setFontSize(12.5f, 12.5f);
             text->setFontColor(JUtility::TColor(238, 238, 232, 255),
                 JUtility::TColor(255, 255, 255, 255));
             promptGroup->appendChild(text);
             if (icons[index] != nullptr) {
                 auto* icon = JKR_NEW J2DPicture(iconTags[index],
-                    JGeometry::TBox2<f32>(138.0f, rowY[index] - 9.0f,
-                        156.0f, rowY[index] + 9.0f), icons[index], nullptr);
+                    JGeometry::TBox2<f32>(anchor.x - 10.0f, anchor.y - 10.0f,
+                        anchor.x + 10.0f, anchor.y + 10.0f), icons[index], nullptr);
                 configure_hd_picture(icon);
                 promptGroup->appendChild(icon);
             }
@@ -2557,13 +2889,39 @@ void apply_dmap_hd_layout(dMenu_DmapBg_c* map) {
         titleSource->hide();
     }
     if (titleGroup != nullptr) {
+        titleGroup->move(20.0f, 6.5f);
         titleGroup->scale(mDoGph_gInf_c::hudAspectScaleDown, 1.0f);
+        titleGroup->setAlpha(static_cast<u8>(255 * std::clamp(map->field_0xd9c, 0.0f, 1.0f)));
     }
     if (promptGroup != nullptr) {
         update_menu_face_button(map->mButtonScreen, MULTI_CHAR('hd_daic'), true);
         update_menu_face_button(map->mButtonScreen, MULTI_CHAR('hd_dbic'), false);
-        promptGroup->move(438.0f, 4.0f);
+        // Follow native zoom/info/back text, including a blank disabled
+        // action, instead of leaving a hard-coded Zoom in prompt in every mode.
+        constexpr u64 promptTags[] = {MULTI_CHAR('hd_datx'), MULTI_CHAR('hd_dbtx')};
+        constexpr u64 iconTags[] = {MULTI_CHAR('hd_daic'), MULTI_CHAR('hd_dbic')};
+        constexpr u64 nativeTags[][2] = {
+            {MULTI_CHAR('font_at'), MULTI_CHAR('cont_at')},
+            {MULTI_CHAR('font_bt'), MULTI_CHAR('cont_bt')},
+        };
+        for (std::size_t i = 0; i < 2; ++i) {
+            for (u64 tag : nativeTags[i]) {
+                auto* source = static_cast<J2DTextBox*>(map->mButtonScreen->search(tag));
+                if (source == nullptr || !source->isVisible()) continue;
+                const char* label = text_box_string(source);
+                if (auto* text = static_cast<J2DTextBox*>(promptGroup->search(promptTags[i]))) {
+                    text->setString(32, label != nullptr ? label : "");
+                }
+                if (auto* icon = promptGroup->search(iconTags[i])) {
+                    if (label != nullptr && label[0] != '\0') icon->show();
+                    else icon->hide();
+                }
+                break;
+            }
+        }
+        promptGroup->move(dungeon_map_layout::prompt_group_x, dungeon_map_layout::prompt_group_y);
         promptGroup->scale(mDoGph_gInf_c::hudAspectScaleDown, 1.0f);
+        promptGroup->setAlpha(static_cast<u8>(255 * std::clamp(map->field_0xd9c, 0.0f, 1.0f)));
     }
 }
 
@@ -2593,12 +2951,23 @@ void apply_fmap_background(dMenu_Fmap2DBack_c* map) {
         return;
     }
 
-    // The field-map back screen contains only the original tiled stone wall.
-    // Keep it out of the draw and reuse the already full-viewport back picture
-    // for the circular TPHD backdrop. This naturally covers ultrawide output.
-    map->mpBackScreen->hide();
-    map->mpBackTex->changeTexture(background, 0);
-    configure_hd_picture(map->mpBackTex);
+    // mpBackTex is also the native transition dimmer; its draw overrides the
+    // texture colours with black. Give the patterned backdrop its own pane.
+    auto* screen = map->mpBackScreen;
+    if (auto* native = screen->search(MULTI_CHAR('ROOT'))) native->hide();
+    auto* picture = as_picture(screen->search(MULTI_CHAR('hd_fbg')));
+    if (picture == nullptr) {
+        picture = JKR_NEW J2DPicture(MULTI_CHAR('hd_fbg'),
+            JGeometry::TBox2<f32>(0, 0, 608, 448), background, nullptr);
+        configure_hd_picture(picture);
+        screen->appendChild(picture); // Outside the native fixed-size caches.
+    }
+    const float scale = mDoGph_gInf_c::hudAspectScaleUp;
+    picture->resize(mDoGph_gInf_c::getWidthF() / scale, mDoGph_gInf_c::getHeightF());
+    picture->move((mDoGph_gInf_c::getMinXF() - mDoGph_gInf_c::getSafeMinXF()) / scale,
+        mDoGph_gInf_c::getMinYF());
+    picture->setAlpha(static_cast<u8>(255 * std::clamp(map->mAlphaRate, 0.0f, 1.0f)));
+    screen->show();
 
     // The original field map was placed for the narrow GameCube frame. The
     // widened frame exposes more empty space on its right, so move the map's
@@ -2635,7 +3004,7 @@ void add_fmap_top_overlay(dMenu_Fmap2DTop_c* map) {
         JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f, 448.0f));
     map->mpTitleScreen->appendChild(group);
 
-    if (ResTIMG const* frameTexture = resource_texture(s_collectMenuButtonResource)) {
+    if (ResTIMG const* frameTexture = resource_texture(s_collectBannerResource)) {
         auto* frame = JKR_NEW J2DPicture(MULTI_CHAR('hd_ftfr'),
             JGeometry::TBox2<f32>(18.0f, 16.0f, 246.0f, 51.0f),
             frameTexture, nullptr);
@@ -2698,7 +3067,7 @@ void add_fmap_top_overlay(dMenu_Fmap2DTop_c* map) {
         auto* text = JKR_NEW J2DTextBox(textTags[index],
             JGeometry::TBox2<f32>(0.0f, centers[index] - 9.0f,
                 railX - 12.0f, centers[index] + 9.0f), nullptr, "", 48,
-            HBIND_RIGHT, VBIND_CENTER);
+            index == 0 ? HBIND_LEFT : HBIND_RIGHT, VBIND_CENTER);
         text->setFont(promptSource->getFont());
         text->setFontSize(fontSizes[index], fontSizes[index]);
         text->setCharSpace(-0.25f);
@@ -2813,6 +3182,8 @@ void apply_fmap_top(dMenu_Fmap2DTop_c* map) {
     map->mpSubPane->hide();
     map->mpContPane->hide();
 }
+
+#include "overworld_map_screen.inc"
 
 void hide_option_row_residue(J2DPane* pane, J2DPicture* keep) {
     if (pane == nullptr) {
@@ -7087,11 +7458,12 @@ void draw_uniform_rupee_digits(dMeter2Draw_c* meter) {
     JUtility::TColor cornerWhite;
     cornerWhite.set(255, 255, 255, 255);
 
-    constexpr f32 digitSize = 11.0f;
-    constexpr f32 digitStep = 13.0f;
+    const f32 scale = hud_scales().rupees;
+    const f32 digitSize = rupee_digit_size(scale);
+    const f32 digitStep = rupee_digit_step(scale);
     const Vec iconTopLeft = icon->getGlbVtx(0);
     const Vec iconBottomRight = icon->getGlbVtx(3);
-    const f32 startX = iconBottomRight.x + 5.0f;
+    const f32 startX = iconBottomRight.x + rupee_digit_gap(scale);
     const f32 startY = (iconTopLeft.y + iconBottomRight.y - digitSize) * 0.5f;
 
     int remainder = value;
@@ -7483,7 +7855,7 @@ void apply_wii_u_minimap_layout(dMeterMap_c* map) {
     };
 
     const f32 originalHeight = map->mSizeH;
-    const f32 scale = 0.70f * hud_scale();
+    const f32 scale = minimap_multiplier(hud_scales().minimap);
     map->mSizeW *= scale;
     map->mSizeH *= scale;
     // Preserve the original bottom-left anchor while shrinking the minimap.
@@ -9468,6 +9840,8 @@ void refresh_item_bank_cursor(dSelect_cursor_c* cursor);
 void after_select_cursor_update(ModContext*, void* args, void*, void*) {
     auto* cursor = mods::arg<dSelect_cursor_c*>(args, 0);
     refresh_item_bank_cursor(cursor);
+    // draw() calls update() internally; adjusting before draw would be undone.
+    position_dmap_floor_cursor(cursor);
     if (s_activeCollectMenu != nullptr &&
         cursor == s_activeCollectMenu->mpDrawCursor) {
         if (s_collectionScreen.root != nullptr) {
@@ -9481,7 +9855,9 @@ void after_select_cursor_update(ModContext*, void* args, void*, void*) {
     }
 }
 
-HookAction before_fmap_move(ModContext*, void*, void*, void*) {
+HookAction before_fmap_move(ModContext*, void* args, void*, void*) {
+    auto* map = mods::arg<dMenu_Fmap_c*>(args, 0);
+    if (map != nullptr) position_fmap_viewport(map->mpDraw2DBack);
     // The map's Portals action is still wired to GameCube Z internally.
     // Translate the displayed logical R only while this map processes input.
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
@@ -9499,8 +9875,49 @@ HookAction before_fmap_draw(ModContext*, void* args, void*, void*) {
     // current values immediately before every field-map draw.
     auto* map = mods::arg<dMenu_Fmap_c*>(args, 0);
     if (map != nullptr) {
+        JKRHeap* previous = map->mpDraw2DTop != nullptr && map->mpDraw2DTop->mpHeap != nullptr ?
+            mDoExt_setCurrentHeap(map->mpDraw2DTop->mpHeap) : nullptr;
         apply_fmap_background(map->mpDraw2DBack);
+        style_fmap_frame(map->mpDraw2DBack);
         apply_fmap_top(map->mpDraw2DTop);
+        refine_fmap_top(map->mpDraw2DTop);
+        if (previous != nullptr) mDoExt_setCurrentHeap(previous);
+    }
+    return HOOK_CONTINUE;
+}
+
+HookAction before_fmap_next_status(ModContext*, void* args, void*, void*) {
+    s_fmapCloseInjected = false;
+    auto* map = mods::arg<dMenu_Fmap_c*>(args, 0);
+    if (map == s_fmapInputScope && s_fmapBackTriggered &&
+        !s_inputGate.blocked() && fmap_accepts_back(map)) {
+        auto& pad = mDoCPd_c::getCpadInfo(PAD_1);
+        s_fmapCloseOriginalTrig = pad.mPressedButtonFlags;
+        // Invoke the native map-close path only at its status check, AFTER
+        // cursor movement. It owns the close sound, slide and minimap restore.
+        pad.mPressedButtonFlags |= PAD_BUTTON_LEFT;
+        s_fmapCloseInjected = true;
+    }
+    return HOOK_CONTINUE;
+}
+
+void after_fmap_next_status(ModContext*, void*, void*, void*) {
+    if (s_fmapCloseInjected) {
+        auto& pad = mDoCPd_c::getCpadInfo(PAD_1);
+        pad.mPressedButtonFlags = restore_menu_shortcut_buttons(pad.mPressedButtonFlags,
+            s_fmapCloseOriginalTrig, PAD_BUTTON_LEFT);
+    }
+    s_fmapCloseInjected = false;
+    s_fmapCloseOriginalTrig = 0;
+}
+
+HookAction before_dmap_next_status(ModContext*, void* args, void* retval, void*) {
+    auto* map = mods::arg<dMenu_Dmap_c*>(args, 0);
+    if (map != nullptr && map == s_dmapInputScope && s_dmapBackTriggered &&
+        !s_inputGate.blocked() && !map->isKeyCheck()) {
+        // Use native close/minimap restoration, including its sound and animation.
+        *static_cast<u8*>(retval) = 1;
+        return HOOK_SKIP_ORIGINAL;
     }
     return HOOK_CONTINUE;
 }
@@ -9509,6 +9926,69 @@ HookAction before_dmap_draw(ModContext*, void* args, void*, void*) {
     auto* map = mods::arg<dMenu_Dmap_c*>(args, 0);
     if (map != nullptr) {
         apply_dmap_hd_layout(map->mpDrawBg);
+    }
+    return HOOK_CONTINUE;
+}
+
+HookAction before_dmap_bg_draw(ModContext*, void* args, void*, void*) {
+    s_dmapDrawing = mods::arg<dMenu_DmapBg_c*>(args, 0);
+    begin_compact_dmap(s_dmapDrawing);
+    return HOOK_CONTINUE;
+}
+
+void after_dmap_wide(ModContext*, void* args, void*, void*) {
+    auto* map = mods::arg<dMenu_DmapBg_c*>(args, 0);
+    if (!s_compactDmap.active || map != s_dmapDrawing) return;
+    compact_dmap_attachments(map);
+    if (auto* hint = map->mBaseScreen->search(MULTI_CHAR('hd_dbak'))) {
+        remember_compact_pane(hint);
+        add_dmap_back_hint(map, s_compactDmap.scale);
+    }
+}
+
+void after_dmap_bg_draw(ModContext*, void*, void*, void*) {
+    restore_compact_dmap();
+    s_dmapDrawing = nullptr;
+}
+
+HookAction before_dmap_poe_icon_draw(ModContext*, void* args, void*, void*) {
+    if (auto* fmap = s_fmapTopDrawing;
+        fmap != nullptr && mods::arg<J2DPicture*>(args, 0) == fmap->mpPoeCountIcon) {
+        const float size = map_responsive_layout::scale(608 * mDoGph_gInf_c::hudAspectScaleUp);
+        mods::arg_ref<f32>(args, 1) = fmap->mTransX + mDoGph_gInf_c::getSafeMinXF() +
+            608 * mDoGph_gInf_c::hudAspectScaleUp * 0.78f - 39 * size;
+        mods::arg_ref<f32>(args, 2) = overworld_map_layout::poeY - 16 * size;
+        mods::arg_ref<f32>(args, 3) = 30 * size;
+        mods::arg_ref<f32>(args, 4) = 30 * size;
+    }
+    auto* map = s_dmapDrawing;
+    if (map != nullptr && mods::arg<J2DPicture*>(args, 0) == map->mpPoeCountIcon) {
+        mods::arg_ref<f32>(args, 1) = map->field_0xd94 + compact_dmap_x(408.0f);
+        mods::arg_ref<f32>(args, 2) = map->field_0xd98 + compact_dmap_y(91.0f);
+        mods::arg_ref<f32>(args, 3) = 30.0f * s_compactDmap.scale;
+        mods::arg_ref<f32>(args, 4) = 30.0f * s_compactDmap.scale;
+    }
+    return HOOK_CONTINUE;
+}
+
+HookAction before_dmap_poe_text_draw(ModContext*, void* args, void*, void*) {
+    if (auto* fmap = s_fmapTopDrawing;
+        fmap != nullptr && mods::arg<J2DTextBox*>(args, 0) == fmap->mpPoeCountPane) {
+        mods::arg_ref<f32>(args, 1) += mDoGph_gInf_c::getSafeMinXF() +
+            608 * mDoGph_gInf_c::hudAspectScaleUp * 0.78f - mDoGph_gInf_c::ScaleHUDXRight(485);
+        mods::arg_ref<f32>(args, 2) += overworld_map_layout::poeY - 380;
+    }
+    auto* map = s_dmapDrawing;
+    if (map != nullptr && mods::arg<J2DTextBox*>(args, 0) == map->mpPoeCountPane) {
+        // Keep the native one-pixel shadow offset and menu slide translation.
+        mods::arg_ref<f32>(args, 1) += 439.0f - mDoGph_gInf_c::ScaleHUDXLeft(80.0f);
+        mods::arg_ref<f32>(args, 2) += map->field_0xd98 + 114.0f - 410.0f;
+        if (s_compactDmap.active) {
+            mods::arg_ref<f32>(args, 1) = map->field_0xd94 +
+                compact_dmap_x(mods::arg<f32>(args, 1) - map->field_0xd94);
+            mods::arg_ref<f32>(args, 2) = map->field_0xd98 +
+                compact_dmap_y(mods::arg<f32>(args, 2) - map->field_0xd98);
+        }
     }
     return HOOK_CONTINUE;
 }
@@ -10103,6 +10583,169 @@ void hide_ring_stock_z_prompt(dMeter2Draw_c* meter) {
     }
 }
 
+struct ActionTextDrawState {
+    J2DTextBox* text = nullptr;
+    J2DTextBox::TFontSize font{};
+    float charSpace = 0;
+};
+std::array<ActionTextDrawState, 10> s_actionTextDrawState{};
+
+struct ActionPromptDrawState {
+    J2DPane* buttonGroup = nullptr;
+    J2DPane* textGroup = nullptr;
+    J2DPicture* picture = nullptr;
+    float buttonX = 0, buttonY = 0, textX = 0, textY = 0;
+    float pictureX = 0, pictureY = 0, scaleX = 1, scaleY = 1;
+};
+ActionPromptDrawState s_actionPromptDrawState{};
+
+void restore_action_prompt_draw() {
+    auto& state = s_actionPromptDrawState;
+    if (state.picture != nullptr) {
+        state.picture->scale(state.scaleX, state.scaleY);
+        state.picture->translate(state.pictureX, state.pictureY);
+        state.buttonGroup->translate(state.buttonX, state.buttonY);
+        state.textGroup->translate(state.textX, state.textY);
+    }
+    state = {};
+}
+
+void shift_action_pane(J2DPane* pane, float dx, float dy) {
+    if (pane == nullptr || pane->getParentPane() == nullptr) return;
+    CPaneMgr manager;
+    Mtx parent;
+    manager.getGlobalVtx(pane->getParentPane(), &parent, 0, false, 0);
+    const float determinant = parent[0][0] * parent[1][1] - parent[0][1] * parent[1][0];
+    if (std::abs(determinant) < 0.0001f) return;
+    pane->translate(pane->getTranslateX() +
+            (parent[1][1] * dx - parent[0][1] * dy) / determinant,
+        pane->getTranslateY() +
+            (parent[0][0] * dy - parent[1][0] * dx) / determinant);
+}
+
+struct RupeeIconDrawState {
+    J2DPicture* icon = nullptr;
+    float x = 0, y = 0, scaleX = 1, scaleY = 1;
+};
+RupeeIconDrawState s_rupeeIconDrawState{};
+
+void scale_rupee_icon_for_draw(dMeter2Draw_c* meter) {
+    if (meter == nullptr || meter->mpScreen == nullptr) return;
+    auto* icon = as_picture(meter->mpScreen->search(MULTI_CHAR('rupi')));
+    if (icon == nullptr || !icon->isVisible() || icon->getAlpha() == 0) return;
+    const auto scales = hud_scales();
+    if (scales.overall == 1.0f && scales.rupees == 1.0f) return;
+    s_rupeeIconDrawState = {icon, icon->getTranslateX(), icon->getTranslateY(),
+        icon->getScaleX(), icon->getScaleY()};
+    CPaneMgr manager;
+    Mtx matrix;
+    const Vec originalBR = manager.getGlobalVtx(icon, &matrix, 3, false, 0);
+    const int digits = dComIfGs_getRupee() >= 1000 ? 4 : 3;
+    const float right = rupee_icon_right(originalBR.x, digits, scales.rupees);
+    const float factor = rupee_icon_multiplier(scales.overall, scales.rupees);
+    icon->scale(s_rupeeIconDrawState.scaleX * factor, s_rupeeIconDrawState.scaleY * factor);
+    const Vec resizedBR = manager.getGlobalVtx(icon, &matrix, 3, false, 0);
+    // Keep the counter's right edge and the icon's bottom fixed as it grows.
+    shift_action_pane(icon, right - resizedBR.x, originalBR.y - resizedBR.y);
+}
+
+void restore_rupee_icon_draw() {
+    const auto& state = s_rupeeIconDrawState;
+    if (state.icon != nullptr) {
+        state.icon->scale(state.scaleX, state.scaleY);
+        state.icon->translate(state.x, state.y);
+    }
+    s_rupeeIconDrawState = {};
+}
+
+void arrange_action_prompt_for_draw(dMeterButton_c* buttons) {
+    if (buttons == nullptr || buttons->mpButtonScreen == nullptr ||
+        buttons->mpButtonA == nullptr) return;
+    auto* picture = as_picture(buttons->mpButtonScreen->search(MULTI_CHAR('a_btn1')));
+    auto* buttonGroup = buttons->mpButtonA->getPanePtr();
+    if (picture == nullptr || buttonGroup == nullptr) return;
+    for (int row = 0; row < 2; ++row) {
+        // Only the contextual confirm prompt. Keep B, aiming, fishing and the
+        // upper-right controller diamond on their existing layout paths.
+        if (buttons->field_0x4be[row] != dMeterButton_c::BUTTON_A_e ||
+            buttons->mpText[row] == nullptr || buttons->mTextScale[row] <= 0) continue;
+        auto* text = buttons->mpTextBox[row * 5];
+        auto* textGroup = buttons->mpText[row]->getPanePtr();
+        if (text == nullptr || textGroup == nullptr || buttons->field_0x29c[row] <= 0) continue;
+
+        CPaneMgr manager;
+        Mtx matrix;
+        const Vec textTL = manager.getGlobalVtx(text, &matrix, 0, false, 0);
+        const float nativeWidth = buttons->field_0x29c[row] *
+            matrix[0][0] / buttons->mTextScale[row];
+        const Vec textBR = manager.getGlobalVtx(text, &matrix, 3, false, 0);
+        const Vec iconTL = manager.getGlobalVtx(picture, &matrix, 0, false, 0);
+        const Vec iconBR = manager.getGlobalVtx(picture, &matrix, 3, false, 0);
+        const float canvasWidth = iconBR.x - iconTL.x;
+        if (canvasWidth <= 0 || nativeWidth <= 0) return;
+        const float textWidth = nativeWidth * action_text_multiplier(hud_scales().actionText);
+        const float binding = text->getHBinding() == HBIND_LEFT ? 0.0f :
+            text->getHBinding() == HBIND_RIGHT ? 1.0f : 0.5f;
+        const float nativeLeft = textTL.x + (textBR.x - textTL.x - nativeWidth) * binding;
+        const float scaledLeft = textTL.x + (textBR.x - textTL.x - textWidth) * binding;
+        const Vec iconCenter{(iconTL.x + iconBR.x) * 0.5f,
+            (iconTL.y + iconBR.y) * 0.5f, 0};
+        // Preserve the native row's animated center and vertical placement.
+        const float center = (nativeLeft + iconCenter.x +
+            canvasWidth * action_prompt_layout::kFaceCoverage * 0.5f) * 0.5f;
+        const auto layout = action_prompt_layout::arrange(center, canvasWidth, textWidth);
+        s_actionPromptDrawState = {buttonGroup, textGroup, picture,
+            buttonGroup->getTranslateX(), buttonGroup->getTranslateY(),
+            textGroup->getTranslateX(), textGroup->getTranslateY(),
+            picture->getTranslateX(), picture->getTranslateY(),
+            picture->getScaleX(), picture->getScaleY()};
+        const auto& state = s_actionPromptDrawState;
+        // Scale the picture, not its animated parent: repeat-press pulses and
+        // native fades keep working, and the Action Text slider stays text-only.
+        picture->scale(state.scaleX * action_prompt_layout::kButtonScale,
+            state.scaleY * action_prompt_layout::kButtonScale);
+        const Vec resizedCenter = manager.getGlobalVtxCenter(picture, false, 0);
+        shift_action_pane(picture, iconCenter.x - resizedCenter.x, iconCenter.y - resizedCenter.y);
+        shift_action_pane(buttonGroup, layout.buttonCenter - iconCenter.x, 0);
+        shift_action_pane(textGroup, layout.textLeft - scaledLeft, 0);
+        break; // A has one shared native button group, even with two labels.
+    }
+}
+
+void restore_action_text_draw() {
+    for (auto& state : s_actionTextDrawState) {
+        if (state.text != nullptr) {
+            state.text->setFontSize(state.font);
+            state.text->setCharSpace(state.charSpace);
+        }
+        state = {};
+    }
+}
+
+void scale_action_text_for_draw(dMeterButton_c* buttons) {
+    if (buttons == nullptr) return;
+    const float factor = action_text_multiplier(hud_scales().actionText);
+    // Two action labels, each with four outline copies. Scale every layer,
+    // not the button icons or the separate floating-message text screen.
+    for (std::size_t i = 0; i < s_actionTextDrawState.size(); ++i) {
+        auto* text = buttons->mpTextBox[i];
+        if (text == nullptr) continue;
+        auto& state = s_actionTextDrawState[i];
+        state.text = text;
+        text->getFontSize(state.font);
+        state.charSpace = text->getCharSpace();
+        text->setFontSize(state.font.mSizeX * factor, state.font.mSizeY * factor);
+        text->setCharSpace(state.charSpace * factor);
+    }
+}
+
+void after_meter_button_draw(ModContext*, void*, void*, void*) {
+    // Leave native text measurement, prompt transitions and other renderers
+    // untouched, and prevent scale accumulation over consecutive frames.
+    restore_action_text_draw();
+    restore_action_prompt_draw();
+}
+
 HookAction before_meter_button_draw(ModContext*, void* args, void*, void*) {
     auto* buttons = mods::arg<dMeterButton_c*>(args, 0);
     apply_context_button_layout(buttons);
@@ -10116,6 +10759,8 @@ HookAction before_meter_button_draw(ModContext*, void* args, void*, void*) {
         // ring is open instead of trying to chase its animation every frame.
         return HOOK_SKIP_ORIGINAL;
     }
+    scale_action_text_for_draw(buttons);
+    arrange_action_prompt_for_draw(buttons);
     return HOOK_CONTINUE;
 }
 
@@ -10151,6 +10796,7 @@ HookAction before_meter_draw(ModContext*, void* args, void*, void*) {
         s_activeCollectMenu != nullptr ||
         (s_activeSaveMenu != nullptr && s_activeSaveMenu->mDisplayMenu);
     stabilize_wii_u_rupee_counter(meter, hideRupees);
+    scale_rupee_icon_for_draw(meter);
     apply_wii_u_dpad_style(meter);
     position_midna_hud(meter);
     update_midna_shoulder_badge(meter);
@@ -10172,6 +10818,7 @@ void after_meter_draw(ModContext*, void* args, void*, void*) {
         (s_activeSaveMenu == nullptr || !s_activeSaveMenu->mDisplayMenu)) {
         draw_uniform_rupee_digits(meter);
     }
+    restore_rupee_icon_draw();
     draw_wolf_action_icons(meter);
     draw_tphd_map_icon(meter);
 }
@@ -10280,7 +10927,10 @@ void hide_other_howl_pictures(J2DPane* pane, J2DPicture* button) {
     }
 }
 
+#include "dialogue_text_screen.inc"
+
 HookAction before_message_screen_draw(ModContext*, void* args, void*, void*) {
+    scale_dialogue_for_draw(mods::arg<dMsgScrnBase_c*>(args, 0));
     auto* howl = dynamic_cast<dMsgScrnHowl_c*>(mods::arg<dMsgScrnBase_c*>(args, 0));
     if (howl == nullptr || howl->mpButtonIcon[1] == nullptr) return HOOK_CONTINUE;
     J2DPane* group = howl->mpButtonIcon[1]->getPanePtr();
@@ -10406,10 +11056,47 @@ HookAction before_item_action_trigger(ModContext*, void* args, void* retval, voi
     return HOOK_SKIP_ORIGINAL;
 }
 
-HookAction before_menu_window_execute(ModContext*, void*, void*, void*) {
+HookAction before_menu_window_execute(ModContext*, void* args, void*, void*) {
     s_menuWindowSuppressedHeld = 0;
     s_menuWindowSuppressedTrig = 0;
     s_menuWindowRestoreMask = 0;
+
+    s_dmapInputScope = nullptr;
+    s_dmapBackTriggered = false;
+    auto* window = mods::arg<dMw_c*>(args, 0);
+    s_fmapInputScope = nullptr;
+    s_fmapBackTriggered = false;
+    if (window != nullptr && window->mpMenuFmap != nullptr &&
+        window->mMenuProc >= dMw_c::FMAP_OPEN && window->mMenuProc <= dMw_c::FMAP_CLOSE) {
+        auto& pad = mDoCPd_c::getCpadInfo(PAD_1);
+        s_fmapInputScope = window->mpMenuFmap;
+        s_fmapBackTriggered = dungeon_map_back_requested(window->mMenuProc == dMw_c::FMAP_MOVE,
+            s_inputGate.blocked(), !fmap_accepts_back(window->mpMenuFmap),
+            pad.mPressedButtonFlags, PAD_BUTTON_UP);
+        s_menuWindowRestoreMask = PAD_BUTTON_UP | PAD_BUTTON_DOWN | PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT;
+        s_menuWindowSuppressedHeld = pad.mButtonFlags;
+        s_menuWindowSuppressedTrig = pad.mPressedButtonFlags;
+        pad.mButtonFlags = dungeon_map_navigation_buttons(pad.mButtonFlags, s_menuWindowRestoreMask);
+        pad.mPressedButtonFlags = dungeon_map_navigation_buttons(pad.mPressedButtonFlags, s_menuWindowRestoreMask);
+        return HOOK_CONTINUE;
+    }
+    if (window != nullptr && window->mpMenuDmap != nullptr &&
+        window->mMenuProc >= dMw_c::DMAP_OPEN && window->mMenuProc <= dMw_c::DMAP_CLOSE) {
+        auto& pad = mDoCPd_c::getCpadInfo(PAD_1);
+        s_dmapInputScope = window->mpMenuDmap;
+        s_dmapBackTriggered = dungeon_map_back_requested(window->mMenuProc == dMw_c::DMAP_MOVE,
+            s_inputGate.blocked(), window->mpMenuDmap->isKeyCheck(),
+            pad.mPressedButtonFlags, PAD_BUTTON_UP);
+        s_menuWindowRestoreMask = PAD_BUTTON_UP | PAD_BUTTON_DOWN | PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT;
+        s_menuWindowSuppressedHeld = pad.mButtonFlags;
+        s_menuWindowSuppressedTrig = pad.mPressedButtonFlags;
+        // Strip before STControl samples its D-pad fallback. Analogue stick,
+        // A/B and every other menu retain native handling. Left/Right must not
+        // activate the legacy dungeon-map close shortcuts either.
+        pad.mButtonFlags = dungeon_map_navigation_buttons(pad.mButtonFlags, s_menuWindowRestoreMask);
+        pad.mPressedButtonFlags = dungeon_map_navigation_buttons(pad.mPressedButtonFlags, s_menuWindowRestoreMask);
+        return HOOK_CONTINUE;
+    }
 
     // Swap only menu-opening shortcuts. Inside Collection, Save, Items and
     // other overlays, D-Pad directions must remain navigation controls.
@@ -10445,6 +11132,10 @@ HookAction before_menu_window_execute(ModContext*, void*, void*, void*) {
 }
 
 void after_menu_window_execute(ModContext*, void*, void*, void*) {
+    s_fmapInputScope = nullptr;
+    s_fmapBackTriggered = false;
+    s_dmapInputScope = nullptr;
+    s_dmapBackTriggered = false;
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
     pad.mButtonFlags = restore_menu_shortcut_buttons(pad.mButtonFlags,
         s_menuWindowSuppressedHeld, s_menuWindowRestoreMask);
@@ -10877,6 +11568,22 @@ void initialize_face_button_textures() {
             &s_collectEquipmentFrameResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the Collection equipment frame");
     }
+    if (svc_resource->load(mod_ctx, "menu/dungeon-map-frame.bti",
+            &s_dmapFrameResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the dungeon map frame; retaining native art");
+    }
+    if (svc_resource->load(mod_ctx, "menu/overworld-map-frame.bti",
+            &s_fmapFrameResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the overworld map frame; retaining native art");
+    }
+    if (svc_resource->load(mod_ctx, "menu/overworld-banner-pattern.bti",
+            &s_fmapBannerPatternResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the overworld banner pattern");
+    }
+    if (svc_resource->load(mod_ctx, "menu/dungeon-map-back-dpad.bti",
+            &s_dmapBackDpadResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the dungeon map D-pad back icon");
+    }
     if (svc_resource->load(mod_ctx, "menu/item-bank-cell.bti",
             &s_itemBankCellResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the Items bank cell backing");
@@ -10980,6 +11687,10 @@ void shutdown_face_button_textures() {
     free_resource(s_collectParchmentResource);
     free_resource(s_collectBannerResource);
     free_resource(s_collectEquipmentFrameResource);
+    free_resource(s_dmapFrameResource);
+    free_resource(s_fmapFrameResource);
+    free_resource(s_fmapBannerPatternResource);
+    free_resource(s_dmapBackDpadResource);
     free_resource(s_itemBankCellResource);
     free_resource(s_itemBankCircleResource);
     free_resource(s_itemBankShadowResource);
@@ -11040,6 +11751,12 @@ void shutdown_item_slot_resources() {
     s_menuWindowSuppressedTrig = 0;
     s_menuWindowRestoreMask = 0;
     s_getActionBindTrig = nullptr;
+    s_dmapInputScope = nullptr;
+    s_dmapBackTriggered = false;
+    s_fmapInputScope = nullptr;
+    s_fmapBackTriggered = false;
+    s_fmapCloseInjected = false;
+    s_fmapCloseOriginalTrig = 0;
     s_getActionBindButton = nullptr;
     if (s_setVirtualActionBind != nullptr) {
         s_setVirtualActionBind(DusklightActionBind::OpenMapScreen, PAD_1,
@@ -11098,6 +11815,7 @@ ModResult install_item_slot_hooks(ModError* error) {
         "collapse legacy item-ring Z overlay");
     ADD_PRE(MeterButtonDrawHook, before_meter_button_draw,
         "hide legacy item-ring Z overlay");
+    ADD_POST(MeterButtonDrawHook, after_meter_button_draw, "restore native action text size");
     ADD_PRE(MeterDrawHook, before_meter_draw, "HUD draw (before)");
     ADD_POST(MeterDrawHook, after_meter_draw, "HUD draw (after)");
     ADD_PRE(MeterDrawButtonZHook, before_meter_draw_button_z,
@@ -11109,6 +11827,7 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_PRE(ScreenDrawHook, before_gauge_screen_draw, "top-center oil and oxygen meters");
     ADD_POST(MeterGaugeScreenHook, after_meter_gauge_screen, "oil and oxygen meter restore");
     ADD_PRE(MessageScreenDrawHook, before_message_screen_draw, "Howl button prompt");
+    ADD_POST(MessageScreenDrawHook, after_message_screen_draw, "Restore dialogue draw geometry");
     ADD_POST(MeterMidnaAlphaHook, after_meter_midna_alpha, "Midna icon opacity");
     ADD_PRE(MeterMapDrawHook, before_meter_map_draw, "minimap draw (before)");
     ADD_POST(MeterMapDrawHook, after_meter_map_draw, "minimap draw (after)");
@@ -11154,10 +11873,24 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_PRE(ThreeSelectDrawHook, before_three_select_draw,
         "three-choice prompt HD style");
     ADD_PRE(FmapMoveHook, before_fmap_move, "field map portals R button mapping");
+    ADD_PRE(FmapNextStatusHook, before_fmap_next_status, "overworld D-pad Up back");
+    ADD_POST(FmapNextStatusHook, after_fmap_next_status, "restore overworld close input");
+    ADD_PRE(FmapTopDrawHook, before_fmap_top_draw, "overworld Poe draw scope");
+    ADD_POST(FmapTopDrawHook, after_fmap_top_draw, "restore overworld Poe draw scope");
     ADD_PRE(FmapDrawHook, before_fmap_draw,
         "field map HD background, title, and prompts");
     ADD_PRE(DmapDrawHook, before_dmap_draw,
         "dungeon map HD background, title, and prompts");
+    ADD_PRE(DmapNextStatusHook, before_dmap_next_status, "dungeon map D-pad Up back");
+    ADD_PRE(DmapBgDrawHook, before_dmap_bg_draw,
+        "dungeon map draw scope");
+    ADD_POST(DmapWideHook, after_dmap_wide, "dungeon map narrow-window attachments");
+    ADD_POST(DmapBgDrawHook, after_dmap_bg_draw,
+        "dungeon map draw scope end");
+    ADD_PRE(DmapPoeIconDrawHook, before_dmap_poe_icon_draw,
+        "dungeon map native Poe icon placement");
+    ADD_PRE(DmapPoeTextDrawHook, before_dmap_poe_text_draw,
+        "dungeon map native Poe text placement");
     ADD_POST(OptionCreateHook, after_option_create, "options menu HD style");
     ADD_POST(BrightCheckScreenSetHook, after_brightness_check_screen_set,
         "brightness check HD style");

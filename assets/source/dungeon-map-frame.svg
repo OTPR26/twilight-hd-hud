@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1424" height="1248" viewBox="0 0 356 312">
+  <!-- Decorative only. The game's map/scissor bounds remain unchanged. -->
+  <path d="M10 1 H346 Q346 10 355 10 V302 Q346 302 346 311 H10 Q10 302 1 302 V10 Q10 10 10 1Z"
+        fill="#383927" stroke="#77785a" stroke-width="1.2"/>
+  <path d="M15 5 H341 Q341 13 349 13 V299 Q341 299 341 307 H15 Q15 299 7 299 V13 Q15 13 15 5Z"
+        fill="#000" stroke="#d6d8a0" stroke-width=".8"/>
+</svg>

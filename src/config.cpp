@@ -16,6 +16,10 @@ ConfigVarHandle s_hudScale = 0;
 ConfigVarHandle s_controllerDiamondSize = 0;
 ConfigVarHandle s_dpadSize = 0;
 ConfigVarHandle s_heartsSize = 0;
+ConfigVarHandle s_actionTextSize = 0;
+ConfigVarHandle s_dialogueTextSize = 0;
+ConfigVarHandle s_rupeeSize = 0;
+ConfigVarHandle s_minimapSize = 0;
 ConfigVarHandle s_textFont = 0;
 ConfigVarHandle s_itemsScreen = 0;
 ConfigVarHandle s_swapMenuButtons = 0;
@@ -50,6 +54,10 @@ ConfigVarHandle size_handle(HudSizeSetting setting) {
     case HudSizeSetting::ControllerDiamond: return s_controllerDiamondSize;
     case HudSizeSetting::Dpad: return s_dpadSize;
     case HudSizeSetting::Hearts: return s_heartsSize;
+    case HudSizeSetting::ActionText: return s_actionTextSize;
+    case HudSizeSetting::DialogueText: return s_dialogueTextSize;
+    case HudSizeSetting::Rupees: return s_rupeeSize;
+    case HudSizeSetting::Minimap: return s_minimapSize;
     }
     return 0;
 }
@@ -94,6 +102,10 @@ ModResult register_config(ModError* error) {
             static_cast<int64_t>(ControllerCompatibility::FollowDusklight),
             s_controllerCompatibility) != MOD_OK ||
         register_hud_sizes() != MOD_OK ||
+        register_int("action-text-percent", 100, s_actionTextSize) != MOD_OK ||
+        register_int("dialogue-text-percent", 100, s_dialogueTextSize) != MOD_OK ||
+        register_int("rupee-percent", 100, s_rupeeSize) != MOD_OK ||
+        register_int("minimap-percent", 100, s_minimapSize) != MOD_OK ||
         register_int("text-font", 0, s_textFont) != MOD_OK ||
         register_int("items-screen", 0, s_itemsScreen) != MOD_OK ||
         register_menu_swap() != MOD_OK)
@@ -142,7 +154,9 @@ float hud_scale() {
 HudScales hud_scales() {
     return compose_hud_scales(hud_size_percent(HudSizeSetting::Overall),
         hud_size_percent(HudSizeSetting::ControllerDiamond),
-        hud_size_percent(HudSizeSetting::Dpad), hud_size_percent(HudSizeSetting::Hearts));
+        hud_size_percent(HudSizeSetting::Dpad), hud_size_percent(HudSizeSetting::Hearts),
+        hud_size_percent(HudSizeSetting::ActionText), hud_size_percent(HudSizeSetting::DialogueText),
+        hud_size_percent(HudSizeSetting::Rupees), hud_size_percent(HudSizeSetting::Minimap));
 }
 
 int64_t hud_size_percent(HudSizeSetting setting) {

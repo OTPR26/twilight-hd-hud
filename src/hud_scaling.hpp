@@ -27,15 +27,47 @@ struct HudScales {
     float controllerDiamond;
     float dpad;
     float hearts;
+    float actionText;
+    float dialogueText;
+    float rupees;
+    float minimap;
 };
 
 constexpr HudScales compose_hud_scales(std::int64_t overall,
-    std::int64_t diamond = 100, std::int64_t dpad = 100, std::int64_t hearts = 100)
+    std::int64_t diamond = 100, std::int64_t dpad = 100, std::int64_t hearts = 100,
+    std::int64_t actionText = 100, std::int64_t dialogueText = 100,
+    std::int64_t rupees = 100, std::int64_t minimap = 100)
 {
     return {hud_size_multiplier(overall),
         hud_size_multiplier(effective_hud_percent(overall, diamond)),
         hud_size_multiplier(effective_hud_percent(overall, dpad)),
-        hud_size_multiplier(effective_hud_percent(overall, hearts))};
+        hud_size_multiplier(effective_hud_percent(overall, hearts)),
+        hud_size_multiplier(effective_hud_percent(overall, actionText)),
+        hud_size_multiplier(effective_hud_percent(overall, dialogueText)),
+        hud_size_multiplier(effective_hud_percent(overall, rupees)),
+        hud_size_multiplier(effective_hud_percent(overall, minimap))};
 }
+
+constexpr float minimap_multiplier(float settingScale) { return 0.70f * settingScale; }
+
+// Digit dimensions are in draw coordinates; the icon inherits Overall from
+// the shared rupee/key parent. Compensate only the icon, leaving keys alone.
+constexpr float rupee_icon_multiplier(float overall, float rupees) { return rupees / overall; }
+constexpr float rupee_digit_size(float scale) { return 11.0f * scale; }
+constexpr float rupee_digit_step(float scale) { return 13.0f * scale; }
+constexpr float rupee_digit_gap(float scale) { return 5.0f * scale; }
+constexpr float rupee_strip_width(int digits, float scale) {
+    return rupee_digit_gap(scale) + (digits - 1) * rupee_digit_step(scale) + rupee_digit_size(scale);
+}
+constexpr float rupee_icon_right(float originalRight, int digits, float scale) {
+    return originalRight + rupee_strip_width(digits, 1.0f) - rupee_strip_width(digits, scale);
+}
+
+// Screenshot comparison: the contextual labels are about 25% larger than TPHD.
+// 100% is the new TPHD-sized baseline; 125% recovers the previous text size.
+constexpr float action_text_multiplier(float settingScale) { return 0.8f * settingScale; }
+
+// The same dialogue line measures 1036px here versus 710px in TPHD at 1080p.
+constexpr float dialogue_text_multiplier(float settingScale) { return 0.68f * settingScale; }
 
 }  // namespace twilight_hd_hud

@@ -32,7 +32,7 @@ enum class ControllerCompatibility : int {
     FixedTphd = 1,
 };
 
-enum class HudSizeSetting { Overall, ControllerDiamond, Dpad, Hearts };
+enum class HudSizeSetting { Overall, ControllerDiamond, Dpad, Hearts, ActionText, DialogueText, Rupees, Minimap };
 
 int64_t hud_size_percent(HudSizeSetting setting);
 int64_t displayed_hud_size_percent(HudSizeSetting setting);

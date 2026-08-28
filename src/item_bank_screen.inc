@@ -23,8 +23,16 @@ void destroy_item_bank() {
     s_itemBank = {};
 }
 
+CollectionViewport item_bank_content_viewport() {
+    // Android transient system bars can change the safe-area inset while the
+    // game surface stays full-size. Items is a full-screen overlay: fit the
+    // rendered surface, not those temporary insets. Keep Collection unchanged.
+    return collection_viewport(mDoGph_gInf_c::getMinXF(), mDoGph_gInf_c::getMinYF(),
+        mDoGph_gInf_c::getMaxXF(), mDoGph_gInf_c::getMaxYF());
+}
+
 CollectionViewport item_bank_viewport(dMenu_Ring_c* ring) {
-    auto viewport = current_collection_viewport();
+    auto viewport = item_bank_content_viewport();
     viewport.left += ring->mCenterPosX;
     viewport.top += ring->mCenterPosY;
     return viewport;
@@ -37,7 +45,7 @@ int item_bank_cell(dMenu_Ring_c* ring, unsigned index) {
 
 void update_item_bank_positions(dMenu_Ring_c* ring) {
     if (!uses_item_bank(ring)) return;
-    const auto viewport = current_collection_viewport();
+    const auto viewport = item_bank_content_viewport();
     for (unsigned i = 0; i < ring->mItemsTotal && i < MAX_ITEM_SLOTS; ++i) {
         const int cell = item_bank_cell(ring, i);
         if (cell < 0) continue;
@@ -162,7 +170,7 @@ void create_item_bank(dMenu_Ring_c* ring) {
     s_itemBank.assignment = item_bank_text(310, 104, 176, 22, 12);
     s_itemBank.buttons[0] = item_bank_picture(item_assignment_button_texture(true), 352, 127, 24, 24);
     s_itemBank.buttons[1] = item_bank_picture(item_assignment_button_texture(false), 386, 127, 24, 24);
-    s_itemBank.buttons[2] = item_bank_picture(styled_r_button_texture(), 422, 129, 38, 20);
+    s_itemBank.buttons[2] = item_bank_picture(styled_r_button_texture(), 425, 123, 32, 32);
     s_itemBank.combo = item_bank_text(kBankComboX + 43, kBankComboY - 1, 240, 25, 12, HBIND_LEFT);
     s_itemBank.comboButton = item_bank_picture(styled_zl_button_texture(),
         kBankComboX, kBankComboY, 32, 22);
@@ -311,9 +319,11 @@ void draw_item_bank(dMenu_Ring_c* ring) {
     const u8 alpha = clamp_hud_alpha(ring->mAlphaRate * 255.0f);
     if (ring->mDrawFlag == 0) {
         ring->mpBlackTex->setAlpha(clamp_hud_alpha(ring->mAlphaRate * 153.0f));
-        ring->mpBlackTex->draw(mDoGph_gInf_c::getSafeMinXF(), mDoGph_gInf_c::getSafeMinYF(),
-            mDoGph_gInf_c::getSafeMaxXF() - mDoGph_gInf_c::getSafeMinXF(),
-            mDoGph_gInf_c::getSafeMaxYF() - mDoGph_gInf_c::getSafeMinYF(), false, false, false);
+        // Dim the complete game surface, independently of safe-area changes
+        // and the menu's native opening/closing translation.
+        ring->mpBlackTex->draw(mDoGph_gInf_c::getMinXF(), mDoGph_gInf_c::getMinYF(),
+            mDoGph_gInf_c::getMaxXF() - mDoGph_gInf_c::getMinXF(),
+            mDoGph_gInf_c::getMaxYF() - mDoGph_gInf_c::getMinYF(), false, false, false);
         auto* root = s_itemBank.root;
         root->scale(viewport.scale, viewport.scale);
         root->move(viewport.left, viewport.top);
@@ -328,7 +338,13 @@ void draw_item_bank(dMenu_Ring_c* ring) {
         for (int i = 0; i < 3; ++i) {
             auto* button = s_itemBank.buttons[i];
             if (button == nullptr) continue;
-            if (textures[i] != nullptr) button->changeTexture(textures[i], 0);
+            if (textures[i] != nullptr) {
+                button->changeTexture(textures[i], 0);
+                const auto bounds = bank_assignment_prompt(i, textures[i]->width, textures[i]->height);
+                button->resize(bounds.width, bounds.height);
+                button->move(bounds.x, bounds.y);
+                button->setTexCoord(button->getTexture(0), BIND15, MIRROR0, false);
+            }
             button->setAlpha(prompts && (i != 2 || !midna_uses_right_shoulder()) ? 255 : 0);
         }
         const bool mixOff = ring->isMixItemOff();

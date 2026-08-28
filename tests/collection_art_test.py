@@ -48,4 +48,19 @@ assert shadow(0, 0)[3] == 0
 assert shadow(128, 128)[:3] == (0, 0, 0)
 assert 0 < shadow(128, 8)[3] < shadow(128, 18)[3] < shadow(128, 30)[3] < 160
 assert len({shadow(128, y)[3] for y in range(4, 35)}) > 15
+map_frame = load('dungeon-map-frame', (1424, 1248))
+assert map_frame(0, 0)[3] == 0
+assert map_frame(712, 624) == (0, 0, 0, 255)
+assert map_frame(712, 12) == (56, 57, 39, 255)
+assert sum(map_frame(712, 20)[:3]) > 400
+dpad = load('dungeon-map-back-dpad', (256, 256))
+overworld = load('overworld-map-frame', (1752, 1336))
+assert overworld(0, 0)[3] == 0
+assert overworld(876, 668) == (0, 0, 0, 255)
+assert overworld(876, 12) == (56, 57, 39, 255)
+assert dpad(0, 0)[3] == 0
+assert dpad(128, 48)[0] > 180 and dpad(128, 48)[1] < 50 # Red marker on Up only.
+for x, y in ((48, 128), (200, 128), (128, 200), (128, 128)):
+    r, g, b, a = dpad(x, y)
+    assert abs(r - g) < 3 and abs(g - b) < 3 and a == 255
 print('PASS: menu art dimensions, tiled RGBA8, transparency, texture, and palette')

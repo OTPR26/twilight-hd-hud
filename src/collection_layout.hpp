@@ -47,7 +47,9 @@ inline int collection_neighbor(int current, CollectionDirection direction,
     if (current < 0 || current >= static_cast<int>(kCollectionCells.size())) return current;
     const auto& origin = kCollectionCells[current];
     int best = current;
+    int bestLane = 2;
     float bestScore = std::numeric_limits<float>::max();
+    float bestSideways = std::numeric_limits<float>::max();
     const bool horizontal = direction == CollectionDirection::Left ||
         direction == CollectionDirection::Right;
     const float sign = direction == CollectionDirection::Left ||
@@ -59,13 +61,24 @@ inline int collection_neighbor(int current, CollectionDirection direction,
         const float forward = (horizontal ? dx : dy) * sign;
         const float sideways = std::fabs(horizontal ? dy : dx);
         if (forward < 1.0f) continue;
-        // Prefer the same visual row/column without trapping the cursor when
-        // an item is missing or crossing between equipment and collectibles.
-        const float score = forward + 3.0f * sideways +
+        // Vertical travel uses the rendered widths, not exact center lines:
+        // Save and the heart share x=158, but the two collectible rows sit
+        // between them. Prefer the nearest overlapping row, then its closest
+        // column. With no overlap, fall back to a nearby diagonal target.
+        // Keep horizontal navigation's existing same-row preference.
+        // Include the small visual gutter around a cell; the outside grid
+        // columns sit just 4-5px beyond the heart's nominal width.
+        const bool overlaps = sideways <= (origin.width + kCollectionCells[i].width) * 0.5f + 8.0f;
+        const int lane = horizontal || overlaps ? 0 : 1;
+        const float score = horizontal ? forward + 3.0f * sideways +
             (sideways >= 1.0f ? 10000.0f : 0.0f) +
-            (sideways > forward ? 10000.0f : 0.0f);
-        if (score < bestScore) {
+            (sideways > forward ? 10000.0f : 0.0f) :
+            overlaps ? forward : forward + 3.0f * sideways;
+        if (lane < bestLane || (lane == bestLane &&
+            (score < bestScore || (!horizontal && score == bestScore && sideways < bestSideways)))) {
+            bestLane = lane;
             bestScore = score;
+            bestSideways = sideways;
             best = static_cast<int>(i);
         }
     }

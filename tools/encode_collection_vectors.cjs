@@ -31,8 +31,9 @@ function encodeRGBA8(pixels, width, height) {
 }
 
 (async () => {
-    for (const name of ['collection-banner', 'collection-equipment-frame', 'item-bank-cell',
-        'item-bank-circle', 'item-bank-shadow']) {
+    const names = ['collection-banner', 'collection-equipment-frame', 'item-bank-cell',
+        'item-bank-circle', 'item-bank-shadow', 'dungeon-map-frame', 'dungeon-map-back-dpad', 'overworld-map-frame'];
+    for (const name of process.argv[3] ? names.filter(name => name === process.argv[3]) : names) {
         const source = path.join(root, 'assets/source', name + '.svg');
         const {data, info} = await sharp(source).ensureAlpha().raw().toBuffer({resolveWithObject: true});
         await fs.writeFile(path.join(root, 'res/menu', name + '.bti'), encodeRGBA8(data, info.width, info.height));

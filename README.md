@@ -16,7 +16,8 @@ Dusklight **v1.4.1-141 or newer** is required. The mod is built and tested again
 - Four text fonts: Original, Zen Kaku Gothic New, M PLUS 2, and Dusklight's Fira Sans family.
 - Editable HUD sizes from 50% to 125% in 1% steps, with reset-to-100% buttons.
   Overall HUD Size overrides all groups when it is not 100%, disabling the
-  individual controls. At 100%, saved Controller Diamond, D-Pad, and Hearts
+  individual controls. At 100%, saved Controller Diamond, D-Pad, Hearts,
+  Action Text, Dialogue Text, Rupee, and Minimap
   percentages apply independently, without multiplication. Changes apply live.
 - *Twilight Princess HD*-style panels for shared three-choice dialogue screens
 - TPHD-style Collection screen with parchment descriptions, decorated equipment
@@ -27,6 +28,9 @@ Dusklight **v1.4.1-141 or newer** is required. The mod is built and tested again
 - Collection/Save on D-Pad Down and Items on Start / +, with aligned HUD labels
 - Collection wallet descriptions automatically reflect Dusklight's Bigger Wallets
   setting; no additional toggle or game-image patch is needed
+- Refined dungeon and overworld maps with responsive narrow-window layouts,
+  patterned banners, and D-Pad Up to go back
+- TPHD-sized action and dialogue text, with the bottom-center A prompt on the left
 - Native modules for Windows x64, Linux x64, macOS Apple Silicon, Android ARM64, iOS ARM64, and tvOS ARM64
 
 Planned improvements are tracked in [ROADMAP.md](ROADMAP.md).
@@ -67,8 +71,10 @@ restore **D-Pad Down → Items** and **Start / + → Collection/Save** while kee
 the TPHD Bank layout. The preference is saved and the HUD label updates when
 you return to gameplay; no restart is needed.
 
-Inside menus, D-Pad directions remain navigation controls; **Start / +** or
-**B** closes Items. In Follow mode, if Call Midna is assigned to Down, the
+Inside Items and Collection, D-Pad directions remain navigation controls;
+**Start / +** or **B** closes Items. On dungeon and overworld maps,
+**D-Pad Up** goes back and the analog stick handles navigation.
+In Follow mode, if Call Midna is assigned to Down, the
 D-Pad menu shortcut moves to Right and Minimap to Left in either setting.
 No controller profile is rewritten.
 
@@ -105,7 +111,8 @@ supported; decorative fonts and unsupported characters keep their original
 artwork. Text spacing and line wrapping are unchanged.
 
 The **HUD Sizing** tab accepts whole percentages from **50% to 125%**. Set
-**Overall HUD Size** to 100% to adjust the controller diamond, D-Pad, and hearts
+**Overall HUD Size** to 100% to adjust the controller diamond, D-Pad, hearts,
+action text, dialogue text, rupees, and minimap
 separately. Any other overall value overrides those controls without multiplying
 their saved percentages. Each control has a reset-to-100% button. Use
 Dusklight's **Minimal HUD** setting to hide the HUD.

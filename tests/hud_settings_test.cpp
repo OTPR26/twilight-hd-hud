@@ -139,6 +139,10 @@ int main() {
         {"dpad-size", 1}, {"hearts-size", 2}};
     assert(register_config(nullptr) == MOD_OK);
     assert(swap_menu_buttons()); // upgrades preserve the previous mapping by default
+    assert(saved.at("action-text-percent") == 100); // independent of old size migration
+    assert(saved.at("dialogue-text-percent") == 100);
+    assert(saved.at("rupee-percent") == 100);
+    assert(saved.at("minimap-percent") == 100);
     assert(set_bool(nullptr, swap_menu_buttons_config_var(), false) == MOD_OK);
     assert(!swap_menu_buttons());
     assert(item_bank_enabled());
@@ -161,11 +165,19 @@ int main() {
     assert(hud_size_percent(HudSizeSetting::ControllerDiamond) == 75);
     set_hud_size_percent(HudSizeSetting::Overall, 100);
     set_hud_size_percent(HudSizeSetting::ControllerDiamond, 83);
+    set_hud_size_percent(HudSizeSetting::ActionText, 87);
+    set_hud_size_percent(HudSizeSetting::DialogueText, 92);
+    set_hud_size_percent(HudSizeSetting::Rupees, 81);
+    set_hud_size_percent(HudSizeSetting::Minimap, 114);
     names.clear();
     assert(register_config(nullptr) == MOD_OK);
     assert(!swap_menu_buttons()); // reload must not overwrite saved Off
     assert(hud_size_percent(HudSizeSetting::Overall) == 100);
     assert(hud_size_percent(HudSizeSetting::ControllerDiamond) == 83);
+    assert(hud_size_percent(HudSizeSetting::ActionText) == 87);
+    assert(hud_size_percent(HudSizeSetting::DialogueText) == 92);
+    assert(hud_scales().rupees == 0.81f);
+    assert(hud_scales().minimap == 1.14f);
 
     UiService ui{};
     ui.pane_add_section = section;
@@ -179,7 +191,17 @@ int main() {
     svc_ui = &ui;
     assert(register_ui(nullptr) == MOD_OK);
     menuTab.on_selected(nullptr, nullptr);
-    assert(controls.size() == 8);
+    assert(controls.size() == 16);
+    assert(std::string(controls[12].label) == "Rupee Scale");
+    assert(std::string(controls[12].help_rml) == "Sizes the rupee icon and counter.");
+    assert(displayed(controls[12]) == 81);
+    assert(std::string(controls[14].label) == "Minimap Scale");
+    assert(std::string(controls[14].help_rml) == "Sizes the minimap.");
+    assert(displayed(controls[14]) == 114);
+    assert(std::string(controls[8].label) == "Action Text Scale");
+    assert(displayed(controls[8]) == 87);
+    assert(std::string(controls[10].label) == "Dialogue Text Scale");
+    assert(displayed(controls[10]) == 92);
     for (std::size_t i = 0; i < controls.size(); i += 2) {
         auto& number = controls[i];
         assert(number.kind == UI_CONTROL_NUMBER && number.min == 50 && number.max == 125);
@@ -195,8 +217,37 @@ int main() {
     }
     // Even stale reset callbacks cannot overwrite a locked custom value.
     controls[3].on_pressed(nullptr, controls[3].user_data);
+    controls[13].on_pressed(nullptr, controls[13].user_data);
+    controls[15].on_pressed(nullptr, controls[15].user_data);
     controls[1].on_pressed(nullptr, controls[1].user_data);
     assert(displayed(controls[2]) == 83);
+    assert(displayed(controls[12]) == 81);
+    assert(displayed(controls[14]) == 114);
+    for (std::size_t i : {12u, 14u}) {
+        enter(controls[i], 0);
+        assert(displayed(controls[i]) == 50);
+        enter(controls[i], 900);
+        assert(displayed(controls[i]) == 125);
+        controls[i + 1].on_pressed(nullptr, controls[i + 1].user_data);
+        assert(displayed(controls[i]) == 100);
+        assert(!controls[i].is_modified(nullptr, controls[i].user_data));
+    }
+    assert(displayed(controls[8]) == 87);
+    enter(controls[8], 10);
+    assert(displayed(controls[10]) == 92); // independent of Action Text
+    enter(controls[10], 10);
+    assert(displayed(controls[10]) == 50);
+    enter(controls[10], 900);
+    assert(displayed(controls[10]) == 125);
+    controls[11].on_pressed(nullptr, controls[11].user_data);
+    assert(displayed(controls[10]) == 100);
+    assert(!controls[10].is_modified(nullptr, controls[10].user_data));
+    assert(displayed(controls[8]) == 50);
+    enter(controls[8], 900);
+    assert(displayed(controls[8]) == 125);
+    controls[9].on_pressed(nullptr, controls[9].user_data);
+    assert(displayed(controls[8]) == 100);
+    assert(!controls[8].is_modified(nullptr, controls[8].user_data));
     assert(!controls[2].is_disabled(nullptr, controls[2].user_data));
     enter(controls[2], 0);
     assert(displayed(controls[2]) == 50);
@@ -211,7 +262,8 @@ int main() {
     assert(register_config(nullptr) == MOD_OK);
     assert(swap_menu_buttons());
     for (auto setting : {HudSizeSetting::Overall, HudSizeSetting::ControllerDiamond,
-             HudSizeSetting::Dpad, HudSizeSetting::Hearts}) {
+             HudSizeSetting::Dpad, HudSizeSetting::Hearts, HudSizeSetting::ActionText,
+             HudSizeSetting::DialogueText, HudSizeSetting::Rupees, HudSizeSetting::Minimap}) {
         assert(hud_size_percent(setting) == 100 && !hud_size_locked(setting));
     }
     std::cout << "PASS: migration/reload, numeric UI, override display/disable, saved values, clamping, reset\n";

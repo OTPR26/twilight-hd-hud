@@ -7,6 +7,18 @@
 
 namespace twilight_hd_hud {
 
+struct BankPromptRect { float x, y, width, height; };
+inline BankPromptRect bank_assignment_prompt(int index, float textureWidth, float textureHeight) {
+    constexpr float centers[] = {364, 398, 441};
+    const float extent = index == 2 ? 32.0f : 24.0f;
+    // Shoulder artwork already has its shallow silhouette inside a square
+    // canvas. Fit that whole canvas uniformly, including its padding.
+    const float scale = textureWidth > 0 && textureHeight > 0 ?
+        extent / std::fmax(textureWidth, textureHeight) : 0.0f;
+    const float width = textureWidth * scale, height = textureHeight * scale;
+    return {centers[index] - width / 2, 139 - height / 2, width, height};
+}
+
 // Native inventory slot IDs, not item IDs or the wheel's compacted indices.
 // The main bank matches TPHD's three rows of seven. Extra quest slots appear
 // below it only when occupied, without moving the main items.

@@ -1,4 +1,5 @@
 #include "item_bank_layout.hpp"
+#include "collection_layout.hpp"
 #include <cassert>
 #include <iostream>
 #include <queue>
@@ -6,6 +7,26 @@
 using namespace twilight_hd_hud;
 
 int main() {
+    for (int i = 0; i < 3; ++i) {
+        for (const auto size : {std::array<float, 2>{83, 83}, {64, 64}, {128, 64}, {32, 64}}) {
+            const auto prompt = bank_assignment_prompt(i, size[0], size[1]);
+            assert(std::fabs(prompt.width / prompt.height - size[0] / size[1]) < 0.0001f);
+            assert(prompt.y + prompt.height / 2 == 139);
+            assert(prompt.x + prompt.width / 2 == (i == 0 ? 364 : i == 1 ? 398 : 441));
+            assert(std::fabs(std::fmax(prompt.width, prompt.height) - (i == 2 ? 32 : 24)) < 0.0001f);
+        }
+    }
+    const auto r = bank_assignment_prompt(2, 83, 83);
+    assert(std::fabs(r.width - 32) < 0.0001f && std::fabs(r.height - 32) < 0.0001f);
+    assert(std::fabs(r.x - 425) < 0.0001f && std::fabs(r.y - 123) < 0.0001f);
+    // Full-surface layout still adapts to genuine aspect-ratio changes.
+    for (const auto bounds : {std::array<float, 4>{0, 0, 796, 448},
+            {-94, 0, 702, 448}, {0, 0, 608, 448}, {-180, -20, 788, 468}}) {
+        const auto viewport = collection_viewport(bounds[0], bounds[1], bounds[2], bounds[3]);
+        assert(viewport.scale > 0);
+        assert(std::fabs(viewport.left + 398 * viewport.scale - (bounds[0] + bounds[2]) / 2) < 0.001f);
+        assert(std::fabs(viewport.top + 224 * viewport.scale - (bounds[1] + bounds[3]) / 2) < 0.001f);
+    }
     for (int cell = 0; cell < 24; ++cell) {
         for (float scale : {0.5f, 1.0f, 1.25f, 2.0f}) {
             for (float phase : {0.0f, 5.0f, 10.0f, 15.0f, 20.0f}) {

@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.4.3 - 2026-08-28
+
+- Refine dungeon and overworld maps, including narrow-window scaling and D-Pad Up to go back.
+- Add action text, dialogue text, rupee, and minimap scaling controls.
+- Match TPHD action/dialogue sizing and place the bottom-center A prompt before its text.
+- Fix Collection vertical navigation and Items button/background sizing.
+
+## v1.4.2 - 2026-08-27
+
+- Add the Items / Collection button-swap toggle while keeping the TPHD Bank layout available.
+
 ## v1.4.1 - 2026-08-27
 
 minor fixes and adjustments

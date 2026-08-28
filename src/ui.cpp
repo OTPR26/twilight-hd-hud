@@ -172,13 +172,21 @@ ModResult build_hud_sizing_tab(
             != MOD_OK) return MOD_ERROR;
 
     static HudSizeSetting settings[] = {HudSizeSetting::Overall,
-        HudSizeSetting::ControllerDiamond, HudSizeSetting::Dpad, HudSizeSetting::Hearts};
+        HudSizeSetting::ControllerDiamond, HudSizeSetting::Dpad, HudSizeSetting::Hearts,
+        HudSizeSetting::ActionText, HudSizeSetting::DialogueText,
+        HudSizeSetting::Rupees, HudSizeSetting::Minimap};
     constexpr const char* labels[] = {
         "Overall HUD Size", "Controller Diamond Size", "D-Pad Size", "Hearts Size",
+        "Action Text Scale",
+        "Dialogue Text Scale",
+        "Rupee Scale", "Minimap Scale",
     };
     constexpr const char* resetLabels[] = {
         "Reset Overall to 100%", "Reset Diamond to 100%",
         "Reset D-Pad to 100%", "Reset Hearts to 100%",
+        "Reset Action Text to 100%",
+        "Reset Dialogue Text to 100%",
+        "Reset Rupees to 100%", "Reset Minimap to 100%",
     };
     constexpr const char* help[] = {
         "Any value other than 100% overrides all groups. Individual controls show that value "
@@ -187,6 +195,10 @@ ModResult build_hud_sizing_tab(
         "Set Overall to 100% to edit this percentage.",
         "Sizes the D-pad, labels, and map icon. Set Overall to 100% to edit this percentage.",
         "Sizes gameplay hearts, not save-menu hearts. Set Overall to 100% to edit this percentage.",
+        "Sizes bottom-center action text. 100% uses the TPHD-style size; 125% restores the previous size.",
+        "Sizes dialogue text. 100% uses the TPHD-style size.",
+        "Sizes the rupee icon and counter.",
+        "Sizes the minimap.",
     };
     for (std::size_t i = 0; i < std::size(settings); ++i) {
         UiControlDesc number = UI_CONTROL_DESC_INIT;

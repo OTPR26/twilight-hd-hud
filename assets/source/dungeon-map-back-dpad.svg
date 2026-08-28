@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="face" x2="0" y2="1">
+      <stop stop-color="#fafafa"/>
+      <stop offset="1" stop-color="#c4c4c4"/>
+    </linearGradient>
+  </defs>
+  <!-- A neutral white cross with only Up marked, matching the map shortcut. -->
+  <path d="M24 4 H40 Q42 4 42 6 V22 H58 Q60 22 60 24 V40 Q60 42 58 42 H42 V58 Q42 60 40 60 H24 Q22 60 22 58 V42 H6 Q4 42 4 40 V24 Q4 22 6 22 H22 V6 Q22 4 24 4Z"
+        transform="translate(0 1.5)" fill="#000" opacity=".45" stroke="#000" stroke-width="3"/>
+  <path d="M24 3 H40 Q42 3 42 5 V22 H59 Q61 22 61 24 V40 Q61 42 59 42 H42 V59 Q42 61 40 61 H24 Q22 61 22 59 V42 H5 Q3 42 3 40 V24 Q3 22 5 22 H22 V5 Q22 3 24 3Z"
+        fill="url(#face)" stroke="#f0f0f0" stroke-width="2"/>
+  <path d="M25 23 V7 H39 V25 H57 V39 H39 V57 H25 V39 H7 V25 H25Z"
+        fill="none" stroke="#a5a5a5" stroke-width="1.2"/>
+  <rect x="28" y="6" width="8" height="14" rx="2" fill="#dd1826" stroke="#fff" stroke-width=".7"/>
+  <g fill="#929292">
+    <rect x="9" y="29" width="10" height="5" rx="1"/>
+    <rect x="45" y="29" width="10" height="5" rx="1"/>
+    <rect x="29" y="45" width="5" height="10" rx="1"/>
+  </g>
+</svg>

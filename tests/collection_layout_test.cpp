@@ -90,6 +90,37 @@ int main() {
     assert(collection_neighbor(collection_cell_index(0, 5), right, available) == collection_cell_index(1, 5));
     assert(collection_neighbor(-1, down, available) == -1);
 
+    const int save = collection_cell_index(0, 5);
+    const int heart = collection_cell_index(5, 0);
+    const int lowerItem = collection_cell_index(3, 3); // second row, nearest Save's center
+    const int upperItem = collection_cell_index(0, 4); // first row, nearest heart's center
+    const int mirror = collection_cell_index(6, 0);
+    const int options = collection_cell_index(1, 5);
+    assert(collection_neighbor(save, up, available) == lowerItem);
+    assert(collection_neighbor(lowerItem, up, available) == upperItem);
+    assert(collection_neighbor(upperItem, up, available) == heart);
+    assert(collection_neighbor(heart, down, available) == upperItem);
+    assert(collection_neighbor(upperItem, down, available) == lowerItem);
+    assert(collection_neighbor(lowerItem, down, available) == save);
+    assert(collection_neighbor(options, up, available) == mirror);
+    assert(collection_neighbor(mirror, down, available) == options);
+
+    // Every subset of the eight collectibles: never skip an available row
+    // between the broad heart/Save targets, even when only an outer cell exists.
+    for (unsigned mask = 0; mask < 256; ++mask) {
+        available.fill(true);
+        for (int i = 0; i < 8; ++i) available[9 + i] = (mask & (1u << i)) != 0;
+        const int fromSave = collection_neighbor(save, up, available);
+        const int fromHeart = collection_neighbor(heart, down, available);
+        const float expectedUp = (mask & 0xf0) ? 370 : (mask & 0x0f) ? 310 : 205;
+        const float expectedDown = (mask & 0x0f) ? 310 : (mask & 0xf0) ? 370 : 416;
+        assert(kCollectionCells[fromSave].y == expectedUp);
+        assert(kCollectionCells[fromHeart].y == expectedDown);
+        assert(available[fromSave] && available[fromHeart]);
+        assert(collection_neighbor(save, right, available) == options);
+        assert(collection_neighbor(options, left, available) == save);
+    }
+
     // Every unlocked cell must remain reachable, including when any single
     // equipment slot/collectible is absent. Also exercise sparse early saves.
     for (int missing = -2; missing < static_cast<int>(available.size()); ++missing) {
