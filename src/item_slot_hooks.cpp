@@ -186,7 +186,13 @@ DEFINE_HOOK(&dMenu_Fmap_c::getNextStatus, FmapNextStatusHook);
 DEFINE_HOOK(&dMenu_Fmap2DTop_c::draw, FmapTopDrawHook);
 DEFINE_HOOK(&dMenu_Dmap_c::_draw, DmapDrawHook);
 DEFINE_HOOK(&dMenu_Dmap_c::getNextStatus, DmapNextStatusHook);
+#if defined(_MSC_VER)
+// MSVC cannot constant-initialize this multiple-inheritance virtual member pointer.
+// The SDK resolves the unique qualified name to the same native draw function.
+DEFINE_HOOK_SYMBOL("dMenu_DmapBg_c::draw", void(dMenu_DmapBg_c*), DmapBgDrawHook);
+#else
 DEFINE_HOOK(&dMenu_DmapBg_c::draw, DmapBgDrawHook);
+#endif
 DEFINE_HOOK(&dMenu_DmapBg_c::dMapBgWide, DmapWideHook);
 DEFINE_HOOK((static_cast<void (J2DPicture::*)(f32, f32, f32, f32, bool, bool, bool)>(&J2DPicture::draw)), DmapPoeIconDrawHook);
 DEFINE_HOOK((static_cast<void (J2DTextBox::*)(f32, f32, f32, J2DTextBoxHBinding)>(&J2DTextBox::draw)), DmapPoeTextDrawHook);
