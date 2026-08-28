@@ -2,21 +2,29 @@
 
 namespace twilight_hd_hud {
 
-enum class ItemHelpButton { None, Action, Back, ItemX, ItemY, Shoulder, Target };
+enum class ItemHelpButton { None, Action, Back, ItemX, ItemY, Shoulder, Target, Trigger };
 
 // Native out-font glyph IDs. Only item-help text uses this mapping; ordinary
 // dialogue retains its own controls and illustrations.
-constexpr ItemHelpButton item_help_button(int type, bool bowCombination) {
+constexpr ItemHelpButton item_help_button(int type, bool bowCombination, bool boomerang = false) {
     switch (type) {
     case 0: return ItemHelpButton::Action;
     case 1: return ItemHelpButton::Back;
     case 3: return ItemHelpButton::Target;
-    case 4: return bowCombination ? ItemHelpButton::Target : ItemHelpButton::Shoulder;
+    case 4: return boomerang ? ItemHelpButton::Trigger :
+        bowCombination ? ItemHelpButton::Target : ItemHelpButton::Shoulder;
     case 5: return ItemHelpButton::ItemX;
     case 6: return ItemHelpButton::ItemY;
     case 7: return ItemHelpButton::Shoulder;
     default: return ItemHelpButton::None;
     }
+}
+
+// Only the Gale Boomerang's inserted third-assignment glyph needs its gap
+// tightened. Leave the native R targeting glyph and all following text alone.
+// Out-font coordinates are local to the text box, so the shift scales with it.
+constexpr float item_help_icon_x(float x, float width, int type, bool boomerang) {
+    return boomerang && type == 7 && width > 0.0f ? x - width * 0.4f : x;
 }
 
 constexpr bool show_ring_assignment_prompts(bool wolf, int explanationStatus) {

@@ -1,8 +1,7 @@
-Twilight HD HUD v1.4.0
+Twilight HD HUD v1.4.1
 
 Wallet description hotfix: Collection automatically follows Dusklight's Bigger
-Wallets setting. No extra toggle or ISO edits are required. Reinstall this
-updated package even if your existing download also says v1.4.0.
+Wallets setting. No extra toggle or ISO edits are required.
 
 Requires official Dusklight v1.4.1-141 or newer.
 
@@ -16,11 +15,8 @@ Supported platforms:
 
 Extract this ZIP before installing; upload or copy the .dusk file inside it.
 
-New in v1.4.0:
-- TPHD-style Items bank with fixed cells, patterned banner, soft shadows, and Ooccoo's circular slot.
-- D-Pad Down opens Collection/Save; Start / + opens Items. Start or B closes Items.
-- Items Screen in the mod settings lets you switch back to Original Wheel.
-- Follow mode keeps custom Midna bindings: when Midna uses Down, Collection/Save uses Right.
+New in v1.4.1:
+minor fixes and adjustments
 
 iPhone and iPad installation:
 1. Launch Dusklight once so its data folders are created.

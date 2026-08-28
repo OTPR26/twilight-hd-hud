@@ -101,6 +101,24 @@ int main() {
     assert(item_help_button(5, false) == ItemHelpButton::ItemX);
     assert(item_help_button(6, false) == ItemHelpButton::ItemY);
     assert(item_help_button(7, false) == ItemHelpButton::Shoulder);
+    // Assignment R/RB/R1 and targeting ZR/RT/R2 are different native glyphs
+    // even when they appear together in the same boomerang description.
+    assert(item_help_button(4, false, true) == ItemHelpButton::Trigger);
+    assert(item_help_button(7, false, true) == ItemHelpButton::Shoulder);
+    assert(item_help_button(3, false, true) == ItemHelpButton::Target);
+    assert(item_help_button(5, false, true) == ItemHelpButton::ItemX);
+    assert(item_help_button(6, false, true) == ItemHelpButton::ItemY);
+    for (float scale : {0.5f, 0.75f, 1.0f, 1.5f, 2.0f}) {
+        const float x = 100.0f * scale;
+        const float width = 20.0f * scale;
+        assert(std::fabs(item_help_icon_x(x, width, 7, true) - 92.0f * scale) < 0.001f);
+        assert(item_help_icon_x(x, width, 7, false) == x);
+        assert(item_help_icon_x(x, width, 4, true) == x);
+        for (int type : {0, 1, 3, 5, 6, 8, 32}) {
+            assert(item_help_icon_x(x, width, type, true) == x);
+        }
+    }
+    assert(item_help_icon_x(100.0f, 0.0f, 7, true) == 100.0f);
     for (int type = 8; type < 70; ++type) {
         assert(item_help_button(type, true) == ItemHelpButton::None);
     }

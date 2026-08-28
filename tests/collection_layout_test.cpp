@@ -57,6 +57,27 @@ int main() {
         // must project back to the requested screen position.
         assert(collection_projection_y(y) + 100.0f == y);
     }
+    assert(collection_mirror_projection_call(600.0f, false));
+    assert(!collection_mirror_projection_call(600.0f, true)); // scaled Link
+    for (float depth : {400.0f, 450.0f, 550.0f, 580.0f}) {
+        assert(!collection_mirror_projection_call(depth, false));
+    }
+    for (bool active : {false, true}) {
+        for (bool hasModel : {false, true}) {
+            for (bool helperRan : {false, true}) {
+                const bool fallback = collection_mirror_needs_correction(active, hasModel, helperRan);
+                assert(fallback == (active && hasModel && !helperRan));
+                if (!active || !hasModel) continue;
+                // Android's inlined move and Mac's hooked call must apply
+                // exactly one correction on every newly computed frame.
+                for (float y : {0.0f, 80.0f, 200.0f, 405.0f}) {
+                    float result = helperRan ? collection_projection_y(y) : y;
+                    if (fallback) result += collection_projection_y(0.0f);
+                    assert(result == y - 100.0f);
+                }
+            }
+        }
+    }
     std::array<bool, kCollectionCells.size()> available{};
     available.fill(true);
     const auto right = CollectionDirection::Right;

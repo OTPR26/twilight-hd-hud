@@ -146,6 +146,17 @@ inline constexpr float collection_projection_y(float screenY) {
     return screenY - 100.0f;
 }
 
+// The mirror/crystal has a fixed camera depth of 600; Link's explicit mod
+// placement can also reach that depth when scaled, so exclude its output.
+inline constexpr bool collection_mirror_projection_call(float depth, bool explicitLink) {
+    return depth == 600.0f && !explicitLink;
+}
+
+inline constexpr bool collection_mirror_needs_correction(bool active, bool hasModel,
+    bool nativeHelperCorrected) {
+    return active && hasModel && !nativeHelperCorrected;
+}
+
 inline CollectionViewport collection_viewport(float left, float top, float right, float bottom) {
     const float scale = std::fmin((right - left) / 796.0f, (bottom - top) / 448.0f);
     return {(left + right - 796.0f * scale) * 0.5f,

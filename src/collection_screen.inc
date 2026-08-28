@@ -36,6 +36,7 @@ struct CollectionScreen {
 CollectionScreen s_collectionScreen;
 dMenu_Collect3D_c* s_collectionModelScope = nullptr;
 cXyz s_collectionModelPosition;
+bool s_collectionMirrorProjectionCorrected = false;
 
 CollectionViewport current_collection_viewport() {
     return collection_viewport(mDoGph_gInf_c::getSafeMinXF(), mDoGph_gInf_c::getSafeMinYF(),
@@ -660,11 +661,30 @@ HookAction before_collection_model_move(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Collect3D_c*>(args, 0);
     s_collectionModelScope = s_collectionScreen.root != nullptr && menu != nullptr &&
         menu->mpCollect2D == s_activeCollectMenu ? menu : nullptr;
+    s_collectionMirrorProjectionCorrected = false;
     return HOOK_CONTINUE;
 }
 
-void after_collection_model_move(ModContext*, void*, void*, void*) {
+void after_collection_model_move(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Collect3D_c*>(args, 0);
+    const bool correctMirror = collection_mirror_needs_correction(
+        menu != nullptr && menu == s_collectionModelScope,
+        menu != nullptr && menu->mpModel != nullptr, s_collectionMirrorProjectionCorrected);
     s_collectionModelScope = nullptr;
+    s_collectionMirrorProjectionCorrected = false;
+    if (correctMirror) {
+        // Android inlines the native toItem3Dpos calls inside _move, bypassing
+        // our coordinate hook. Convert the missing 100-screen-unit correction
+        // through the real camera after the move. On non-inlined hosts the
+        // hook already corrected the mirror, so its existing placement stays.
+        // Clear the scope first: these two explicit conversions must be raw.
+        cXyz original, corrected;
+        dMenu_Collect3D_c::toItem3Dpos(0.0f, 0.0f, 600.0f, &original);
+        dMenu_Collect3D_c::toItem3Dpos(0.0f, collection_projection_y(0.0f), 600.0f, &corrected);
+        menu->mMaskMirrorPos += corrected - original;
+        // Native animation, orientation, shard offsets and scale are retained.
+        menu->set_mtx();
+    }
 }
 
 HookAction before_collection_link_pose(ModContext*, void* args, void*, void*) {
@@ -694,6 +714,10 @@ HookAction before_collection_projection(ModContext*, void*, void*, void*) {
 
 HookAction before_collection_position(ModContext*, void* args, void*, void*) {
     if (s_collectionModelScope != nullptr) {
+        if (collection_mirror_projection_call(mods::arg<f32>(args, 2),
+                mods::arg<cXyz*>(args, 3) == &s_collectionModelPosition)) {
+            s_collectionMirrorProjectionCorrected = true;
+        }
         mods::arg_ref<f32>(args, 1) = collection_projection_y(mods::arg<f32>(args, 1));
     }
     return HOOK_CONTINUE;

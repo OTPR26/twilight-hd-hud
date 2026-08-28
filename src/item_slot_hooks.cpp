@@ -4,6 +4,7 @@
 #include "diamond_layout.hpp"
 #include "font_override.hpp"
 #include "hud_layout.hpp"
+#include "hud_visibility.hpp"
 #include "input_gate.hpp"
 #include "menu_shortcuts.hpp"
 #include "item_help_text.hpp"
@@ -1298,14 +1299,16 @@ void apply_item_explain_button_layout(dMenu_ItemExplain_c* menu) {
 
     COutFont_c* outFont = menu->mpInfoString->mpOutFont;
     const bool combination = item_help_uses_bow_combination(menu->field_0xe1);
+    const bool boomerang = menu->field_0xe1 == dItemNo_BOOMERANG_e;
     for (int type : {0, 1, 3, 4, 5, 6, 7}) {
         ResTIMG const* replacement = nullptr;
-        switch (item_help_button(type, combination)) {
+        switch (item_help_button(type, combination, boomerang)) {
         case ItemHelpButton::Action: replacement = menu_face_button_texture(true); break;
         case ItemHelpButton::Back: replacement = menu_face_button_texture(false); break;
         case ItemHelpButton::ItemX: replacement = item_assignment_button_texture(true); break;
         case ItemHelpButton::ItemY: replacement = item_assignment_button_texture(false); break;
         case ItemHelpButton::Target: replacement = styled_zl_button_texture(); break;
+        case ItemHelpButton::Trigger: replacement = styled_zr_button_texture(); break;
         case ItemHelpButton::Shoulder: replacement = styled_r_button_texture(); break;
         case ItemHelpButton::None: break;
         }
@@ -1315,6 +1318,38 @@ void apply_item_explain_button_layout(dMenu_ItemExplain_c* menu) {
             set_neutral_picture_colors(picture);
         }
     }
+}
+
+struct ItemHelpIconPosition {
+    COutFontSet_c* icon = nullptr;
+    f32 x = 0.0f;
+};
+std::array<ItemHelpIconPosition, 35> s_itemHelpIconPositions{};
+std::size_t s_itemHelpIconPositionCount = 0;
+
+HookAction before_item_help_out_font_draw(ModContext*, void* args, void*, void*) {
+    auto* strings = mods::arg<dMsgString_c*>(args, 0);
+    auto* text = mods::arg<J2DTextBox*>(args, 1);
+    auto* menu = s_activeItemExplanation;
+    if (menu == nullptr || menu->field_0xe1 != dItemNo_BOOMERANG_e ||
+        strings != menu->mpInfoString || text == nullptr || text != s_itemHelpDrawText ||
+        strings->mpOutFont == nullptr) return HOOK_CONTINUE;
+
+    for (auto* icon : strings->mpOutFont->mpOfs) {
+        if (icon == nullptr || icon->getTextBoxPtr() != text || icon->getType() != 7) continue;
+        s_itemHelpIconPositions[s_itemHelpIconPositionCount++] = {icon, icon->getPosX()};
+        icon->mPosX = item_help_icon_x(icon->getPosX(), icon->getSizeX(), icon->getType(), true);
+    }
+    return HOOK_CONTINUE;
+}
+
+void after_item_help_out_font_draw(ModContext*, void*, void*, void*) {
+    // Item cards cache their icon queue between frames. Restore after drawing
+    // so the optical offset never accumulates or leaks into the next card.
+    for (std::size_t i = 0; i < s_itemHelpIconPositionCount; ++i) {
+        s_itemHelpIconPositions[i].icon->mPosX = s_itemHelpIconPositions[i].x;
+    }
+    s_itemHelpIconPositionCount = 0;
 }
 
 void update_menu_face_button(J2DScreen* screen, const u64 tag,
@@ -6922,12 +6957,9 @@ void apply_wii_u_archive_layout_corrections(dMeter2Draw_c* meter) {
             pane->scale(pane->getInitScaleX() * scale, pane->getInitScaleY() * scale);
         }
     }
-    if (meter->mpRupeeKeyParent != nullptr) {
-        meter->mpRupeeKeyParent->show();
-    }
 }
 
-void stabilize_wii_u_rupee_counter(dMeter2Draw_c* meter) {
+void stabilize_wii_u_rupee_counter(dMeter2Draw_c* meter, bool overlayHidden) {
     if (meter == nullptr || meter->mpScreen == nullptr ||
         meter->mpRupeeKeyParent == nullptr || meter->mpRupeeParent[0] == nullptr)
     {
@@ -6954,10 +6986,7 @@ void stabilize_wii_u_rupee_counter(dMeter2Draw_c* meter) {
         }
     }
 
-    meter->mpRupeeKeyParent->show();
-    meter->mpRupeeKeyParent->setAlphaRate(1.0f);
-    meter->mpRupeeParent[0]->show();
-    meter->mpRupeeParent[0]->setAlphaRate(1.0f);
+    const u8 alpha = rupee_counter_alpha(meter->mpRupeeParent[0]->getPanePtr(), overlayHidden);
     // This archive adds a decorative ring pane behind the rupee group. Unlike
     // the matching key pane, the stock initializer never hides it, producing
     // the dark oval to the right of the currency value.
@@ -6970,7 +6999,6 @@ void stabilize_wii_u_rupee_counter(dMeter2Draw_c* meter) {
     for (int frame = 1; frame < 3; ++frame) {
         if (meter->mpRupeeParent[frame] != nullptr) {
             meter->mpRupeeParent[frame]->hide();
-            meter->mpRupeeParent[frame]->setAlphaRate(0.0f);
         }
     }
 
@@ -7008,8 +7036,13 @@ void stabilize_wii_u_rupee_counter(dMeter2Draw_c* meter) {
         // place the icon immediately to the left of the visible number.
         visibleRupeeIcon->move(thousandsDigit->getTranslateX() + 87.0f,
             thousandsDigit->getTranslateY() + 46.0f);
-        visibleRupeeIcon->show();
-        visibleRupeeIcon->setAlpha(255);
+        // The icon lives beside the number strip for layout purposes, outside
+        // the native animated rupee subgroup. Mirror that subgroup's final
+        // alpha without changing its timer, opacity, or the shared key group.
+        visibleRupeeIcon->setInfluencedAlpha(false, false);
+        visibleRupeeIcon->setAlpha(alpha);
+        if (alpha != 0) visibleRupeeIcon->show();
+        else visibleRupeeIcon->hide();
     }
 }
 
@@ -7039,7 +7072,7 @@ void draw_uniform_rupee_digits(dMeter2Draw_c* meter) {
     }
 
     J2DPicture* icon = as_picture(meter->mpScreen->search(MULTI_CHAR('rupi')));
-    if (icon == nullptr) {
+    if (icon == nullptr || !icon->isVisible() || icon->getAlpha() == 0) {
         return;
     }
 
@@ -7071,7 +7104,7 @@ void draw_uniform_rupee_digits(dMeter2Draw_c* meter) {
             digit->changeTexture(texture, 0);
             digit->setBlackWhite(black, white);
             digit->setCornerColor(cornerWhite);
-            digit->setAlpha(255);
+            digit->setAlpha(icon->getAlpha());
             digit->draw(startX + digitStep * index, startY, digitSize, digitSize,
                 false, false, false);
         }
@@ -8297,7 +8330,9 @@ void update_z_hud_item(dMeter2Draw_c* meter) {
         itemParent->show();
     }
     meter->mpItemR->show();
-    meter->mpLightXY[2]->show();
+    // TPHD's third assignment has no item halo. Midna's separate icon and
+    // the first two item slots retain their own native lighting.
+    meter->mpLightXY[2]->hide();
     dMeter2Info_onUseButton(METER2_USEBUTTON_Z);
     change_z_hud_item_texture(meter, itemNo);
     layout_z_hud_item(meter, itemNo);
@@ -10110,26 +10145,19 @@ HookAction before_meter_draw(ModContext*, void* args, void*, void*) {
     // geometry. Applying the older synthetic round-button and relocation pass
     // here would overwrite those resources and move the panes twice.
     apply_wii_u_archive_layout_corrections(meter);
-    stabilize_wii_u_rupee_counter(meter);
     const bool hideRupees = menu_overlay_hides_rupees() ||
         s_activeCollectMenu != nullptr ||
         (s_activeSaveMenu != nullptr && s_activeSaveMenu->mDisplayMenu);
-    if (hideRupees) {
-        if (meter->mpRupeeKeyParent != nullptr) {
-            meter->mpRupeeKeyParent->hide();
-            meter->mpRupeeKeyParent->setAlphaRate(0.0f);
-        }
-        for (CPaneMgrAlpha* parent : meter->mpRupeeParent) {
-            if (parent != nullptr) {
-                parent->hide();
-                parent->setAlphaRate(0.0f);
-            }
-        }
-    }
+    stabilize_wii_u_rupee_counter(meter, hideRupees);
     apply_wii_u_dpad_style(meter);
     position_midna_hud(meter);
     update_midna_shoulder_badge(meter);
     apply_hud_backing_visibility(meter);
+    if (meter->mpLightXY[2] != nullptr) {
+        // Run after all native/restored HUD styling, including form changes.
+        meter->mpLightXY[2]->hide();
+        meter->mpLightXY[2]->setAlpha(0);
+    }
     hide_ring_stock_z_prompt(meter);
     return HOOK_CONTINUE;
 }
@@ -11099,6 +11127,8 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_PRE(CollectTextEscapeHook, before_collection_text_escape, "collection inline slot start");
     ADD_POST(CollectTextEscapeHook, after_collection_text_escape, "collection inline slot end");
     ADD_PRE(CollectOutFontDrawHook, before_collection_out_font_draw, "collection final inline alignment");
+    ADD_PRE(CollectOutFontDrawHook, before_item_help_out_font_draw, "boomerang assignment icon spacing");
+    ADD_POST(CollectOutFontDrawHook, after_item_help_out_font_draw, "item help icon position restore");
     ADD_POST(LetterCreateHook, after_letter_create, "letter menu buttons");
     ADD_PRE(LetterDrawHook, before_letter_draw, "letter menu responsive buttons");
     ADD_POST(FishingCreateHook, after_fishing_create, "fish journal buttons");

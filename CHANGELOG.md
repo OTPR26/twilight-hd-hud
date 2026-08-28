@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.4.1 - 2026-08-27
+
+minor fixes and adjustments
+
 ## v1.4.0 - 2026-08-27
 
 - Wallet description hotfix: Collection now reads the live wallet capacity,
