@@ -20,6 +20,8 @@ assert 'state.poeText->setFontSize(state.poeFont)' in compact
 assert 'ADD_POST(DmapWideHook, after_dmap_wide' in source
 assert 'DEFINE_HOOK_SYMBOL("dMenu_DmapBg_c::draw", void(dMenu_DmapBg_c*), DmapBgDrawHook)' in source
 assert 'DEFINE_HOOK(&dMenu_DmapBg_c::draw, DmapBgDrawHook)' in source
+assert 'DEFINE_HOOK_SYMBOL("dMenu_DmapBg_c::dMapBgWide", void(dMenu_DmapBg_c*), DmapWideHook)' in source
+assert 'DEFINE_HOOK(&dMenu_DmapBg_c::dMapBgWide, DmapWideHook)' in source
 assert 'begin_compact_dmap(s_dmapDrawing)' in source
 assert 'restore_compact_dmap();' in source
 assert 'add_dmap_back_hint(map, s_compactDmap.scale)' in source
