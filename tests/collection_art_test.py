@@ -63,4 +63,11 @@ assert dpad(128, 48)[0] > 180 and dpad(128, 48)[1] < 50 # Red marker on Up only.
 for x, y in ((48, 128), (200, 128), (128, 200), (128, 128)):
     r, g, b, a = dpad(x, y)
     assert abs(r - g) < 3 and abs(g - b) < 3 and a == 255
+divider = load('fish-journal-divider', (512, 64))
+assert divider(0, 32)[3] > 0 and divider(280, 32)[3] > 0
+record_value = load('fish-journal-record-value', (128, 32))
+assert record_value(0, 16)[3] < 10
+assert record_value(64, 16)[3] > 100
+journal_rule = load('fish-journal-rule', (64, 8))
+assert journal_rule(32, 1)[3] > 200 and journal_rule(32, 4)[3] == 255
 print('PASS: menu art dimensions, tiled RGBA8, transparency, texture, and palette')

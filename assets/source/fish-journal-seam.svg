@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="1024" viewBox="0 0 48 1024">
+  <defs>
+    <linearGradient id="seam" x1="0" x2="1">
+      <stop offset="0" stop-color="#6f5129" stop-opacity="0"/>
+      <stop offset=".34" stop-color="#74542b" stop-opacity=".18"/>
+      <stop offset=".5" stop-color="#4a3217" stop-opacity=".34"/>
+      <stop offset=".66" stop-color="#8a6738" stop-opacity=".16"/>
+      <stop offset="1" stop-color="#795a31" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="1024" fill="url(#seam)"/>
+  <path d="M24 10 C20 180 28 330 23 512 C19 700 28 850 24 1014"
+        fill="none" stroke="#5c401f" stroke-opacity=".22" stroke-width="2"/>
+</svg>

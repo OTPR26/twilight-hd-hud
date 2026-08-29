@@ -8,6 +8,7 @@ The game still owns text metrics; these resources provide only glyph drawings.
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import struct
 
@@ -28,6 +29,14 @@ SOURCES = {
              "a4d8e149ecdd4874a0726eb0af894488b3b31c423d6b0017c8f415ed1b795b45"),
 }
 
+# The original message font assigns its ornamental star to byte 0xB1. CP-1252
+# calls that slot plus-minus, so draw the intended game glyph there instead.
+SPECIAL_GLYPHS = {0xB1: "★"}
+
+
+def glyph_for_code(code):
+    return SPECIAL_GLYPHS.get(code, bytes([code]).decode("cp1252"))
+
 
 def supported(code):
     return 0x20 <= code <= 0x7E or 0xA0 <= code <= 0xFF
@@ -46,8 +55,8 @@ def fit_font(path, variable, cap_height):
         box = font.getbbox("H", anchor="ls")
         if -box[1] != cap_height:
             continue
-        bounds = [font.getbbox(bytes([c]).decode("cp1252"), anchor="ls")
-                  for c in range(256) if supported(c)]
+        bounds = [font.getbbox(glyph_for_code(c), anchor="ls")
+                  for c in range(256) if supported(c) and c not in SPECIAL_GLYPHS]
         if all(max(PAD, 2 - b[0]) + b[2] < CELL - 2 and
                ASCENT + b[1] >= 2 and ASCENT + b[3] < CELL - 2 for b in bounds):
             return font, size
@@ -121,7 +130,20 @@ def generate(name, out_dir, preview_dir):
         if not supported(code):
             widths.extend((PAD, 0))
             continue
-        char = bytes([code]).decode("cp1252")
+        char = glyph_for_code(code)
+        if code in SPECIAL_GLYPHS:
+            tile = Image.new("L", (CELL, CELL))
+            center_x, center_y = CELL / 2, ASCENT - 31
+            points = []
+            for point in range(10):
+                angle = -math.pi / 2 + point * math.pi / 5
+                radius = 33 if point % 2 == 0 else 14
+                points.append((center_x + math.cos(angle) * radius,
+                               center_y + math.sin(angle) * radius))
+            ImageDraw.Draw(tile).polygon(points, fill=255)
+            atlas.paste(tile, ((code % 16) * CELL, (code // 16) * CELL))
+            widths.extend((30, 68))
+            continue
         pad = max(PAD, 2 - font.getbbox(char, anchor="ls")[0])
         mask = font.getmask(char)
         if char not in (" ", "\u00a0", "\u00ad") and bytes(mask) == missing_reference:

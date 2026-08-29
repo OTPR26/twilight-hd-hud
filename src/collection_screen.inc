@@ -63,6 +63,24 @@ void collection_place(dMenu_Collect2D_c* menu, J2DPane* pane,
         viewport.top + y * viewport.scale - center.y);
 }
 
+void collection_fill_physical_viewport(dMenu_Collect2D_c* menu, J2DPane* pane) {
+    if (menu == nullptr || pane == nullptr || pane->getWidth() <= 0 ||
+        pane->getHeight() <= 0) return;
+    float parentX = 1.0f, parentY = 1.0f;
+    for (auto* parent = pane->getParentPane(); parent != nullptr;
+         parent = parent->getParentPane()) {
+        parentX *= parent->getScaleX();
+        parentY *= parent->getScaleY();
+    }
+    if (std::fabs(parentX) < 0.001f || std::fabs(parentY) < 0.001f) return;
+    pane->scale((mDoGph_gInf_c::getWidthF() / pane->getWidth()) / parentX,
+        (mDoGph_gInf_c::getHeightF() / pane->getHeight()) / parentY);
+    const Vec center = menu->mpLinkPm->getGlobalVtxCenter(pane, false, 0);
+    offset_diamond_group(std::array<J2DPane*, 1>{pane},
+        mDoGph_gInf_c::getMinXF() + mDoGph_gInf_c::getWidthF() * 0.5f - center.x,
+        mDoGph_gInf_c::getMinYF() + mDoGph_gInf_c::getHeightF() * 0.5f - center.y);
+}
+
 void collection_text(J2DScreen* screen, J2DPane* parent, u64 tag,
     float x, float y, float width, float height, float size, JUtility::TColor color) {
     auto* text = static_cast<J2DTextBox*>(screen->search(tag));
@@ -557,9 +575,11 @@ void apply_collection_screen(dMenu_Collect2D_c* menu) {
     constexpr float ruleY[] = {20.35f, 23.35f, 420.35f, 423.35f};
     for (std::size_t i = 0; i < s_collectionScreen.rules.size(); ++i)
         collection_place(menu, s_collectionScreen.rules[i], 398, ruleY[i], safeWidth, 0.7f, false);
-    collection_place(menu, s_collectionScreen.background, 398, 224,
-        (mDoGph_gInf_c::getSafeMaxXF() - mDoGph_gInf_c::getSafeMinXF()) / viewport.scale,
-        (mDoGph_gInf_c::getSafeMaxYF() - mDoGph_gInf_c::getSafeMinYF()) / viewport.scale, false);
+    // The HUD-safe rectangle can be vertically inset on Android devices.
+    // Collection's controls belong inside that safe area, but its opaque
+    // backdrop must cover the physical viewport so gameplay never leaks above
+    // or below the menu.
+    collection_fill_physical_viewport(menu, s_collectionScreen.background);
     for (std::size_t i = 0; i < kCollectionCells.size(); ++i) {
         const auto& cell = kCollectionCells[i];
         collection_place(menu, s_collectionScreen.frames[i], cell.x, cell.y,

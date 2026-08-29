@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.5.0 - 2026-08-29
+
+- Add TPHD-inspired Fish Journal, Golden Bugs, Hidden Skills, and Letters collection submenus.
+- Support touch, D-Pad, and analog-stick navigation across Collection submenus.
+- Center oil, oxygen, and lantern meters consistently across display sizes.
+- Fix File Selection D-Pad navigation and preserve the minimap's hidden state after closing a map.
+- Include additional input, layout, cursor, and cross-platform stability fixes.
+
 ## v1.4.3 - 2026-08-28
 
 - Refine dungeon and overworld maps, including narrow-window scaling and D-Pad Up to go back.
