@@ -34,6 +34,18 @@ constexpr bool show_ring_assignment_prompts(bool wolf, int explanationStatus) {
 
 struct MeterOffset { float x; float y; };
 
+struct OptionWarningSize { float width; float height; };
+
+// All dimensions are in the same live screen space, even when the heading,
+// warning frame and text belong to differently scaled native parent panes.
+constexpr OptionWarningSize option_warning_size(float titleWidth, float titleHeight,
+    float textWidth, float textHeight, float textScaleX, float textScaleY) {
+    const float paddedWidth = textWidth + 28.0f * textScaleX;
+    const float paddedHeight = textHeight + 16.0f * textScaleY;
+    return {titleWidth > paddedWidth ? titleWidth : paddedWidth,
+        titleHeight > paddedHeight ? titleHeight : paddedHeight};
+}
+
 // These are optical offsets for the authored HUD panes, not visible ink gaps.
 // The cross texture and text cell both contain padding. Screenshot comparison
 // with TPHD requires pulling Collection upward by 24% of the cross pane width

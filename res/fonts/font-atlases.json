@@ -7,7 +7,7 @@
     "cap_height": 65,
     "glyph_count": 191,
     "atlas_file": "zen-bold.bfn",
-    "atlas_sha256": "dd3add4f62136a6f2cea420c6acdfbe36830229d45b899813c318e6a8625c8ac"
+    "atlas_sha256": "14a14177c06c014ab06b8633fa7ca91da424d60a727dd2ee9e28f632ece76e34"
   },
   "mplus": {
     "source_file": "MPLUS2-Variable.ttf",
@@ -17,7 +17,7 @@
     "cap_height": 65,
     "glyph_count": 191,
     "atlas_file": "mplus-bold.bfn",
-    "atlas_sha256": "3b7f992f47b9a1f2a196cc683d6f925846f6cb9d4b309e4e3f7954cec82234e5"
+    "atlas_sha256": "58ed747a513dcaadc24dafb970ae28e8f34c54a11a39208e309975cd5c2bd5bf"
   },
   "fira": {
     "source_file": "FiraSans-Bold.ttf",
@@ -27,6 +27,6 @@
     "cap_height": 57,
     "glyph_count": 191,
     "atlas_file": "fira-bold.bfn",
-    "atlas_sha256": "1fd585afcd3c9bcf7f1481a4ee3c1b05e7d6208b5a21c330e745e4fcf4bf1bd4"
+    "atlas_sha256": "b7c4093c6c928b5bf7fa476fe86817860ddd8965c95d6da6a0f73fe17f87015e"
   }
 }

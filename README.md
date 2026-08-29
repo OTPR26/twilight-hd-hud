@@ -22,6 +22,8 @@ Dusklight **v1.4.1-141 or newer** is required. The mod is built and tested again
 - *Twilight Princess HD*-style panels for shared three-choice dialogue screens
 - TPHD-style Collection screen with parchment descriptions, decorated equipment
   frames, and a forward-facing Link model that retains Dusklight's rotation controls
+- TPHD-inspired Fish Journal, Golden Bugs, Hidden Skills, and Letters submenus,
+  with touch, D-Pad, and analog-stick navigation
 - TPHD-style Items bank with fixed inventory cells, dark patterned backings,
   soft shadows, and Ooccoo's circular bottom-right slot; the original wheel
   remains selectable in settings
@@ -31,6 +33,7 @@ Dusklight **v1.4.1-141 or newer** is required. The mod is built and tested again
 - Refined dungeon and overworld maps with responsive narrow-window layouts,
   patterned banners, and D-Pad Up to go back
 - TPHD-sized action and dialogue text, with the bottom-center A prompt on the left
+- Centered oil, oxygen, and lantern meters across supported display sizes
 - Native modules for Windows x64, Linux x64, macOS Apple Silicon, Android ARM64, iOS ARM64, and tvOS ARM64
 
 Planned improvements are tracked in [ROADMAP.md](ROADMAP.md).

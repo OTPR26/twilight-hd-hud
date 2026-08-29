@@ -1,7 +1,4 @@
-Twilight HD HUD v1.4.2
-
-Wallet description hotfix: Collection automatically follows Dusklight's Bigger
-Wallets setting. No extra toggle or ISO edits are required.
+Twilight HD HUD v1.5.0 — Collection Submenus
 
 Requires official Dusklight v1.4.1-141 or newer.
 
@@ -15,8 +12,12 @@ Supported platforms:
 - macOS Apple Silicon
 - Android ARM64
 
-New in v1.4.2:
-minor fixes and adjustments
+New in v1.5.0:
+- TPHD-inspired Fish Journal, Golden Bugs, Hidden Skills, and Letters.
+- Touch, D-Pad, and analog-stick navigation across Collection submenus.
+- Centered oil, oxygen, and lantern meters across display sizes.
+- Fixed File Selection D-Pad navigation and preserved the minimap's hidden state after closing a map.
+- Additional input, layout, cursor, and cross-platform stability fixes.
 
 Installation:
 1. Extract this ZIP and place the included .dusk file in the mods folder inside the active Dusklight data folder.

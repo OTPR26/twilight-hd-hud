@@ -8,6 +8,30 @@
 using namespace twilight_hd_hud;
 
 int main() {
+    // The confirmation replaces the whole Options title and gives the
+    // centered message equal padding across native parent scales/languages.
+    for (float titleScale : {0.75f, 1.0f, 1.5f}) {
+        for (float textScale : {0.5f, 1.0f, 2.0f}) {
+            for (float frameScale : {0.5f, 1.0f, 1.5f}) {
+                for (float messageWidth : {60.0f, 210.0f, 330.0f}) {
+                    for (float messageHeight : {18.0f, 42.0f}) {
+                        const auto fitted = option_warning_size(176.0f * titleScale,
+                            33.0f * titleScale, messageWidth * textScale,
+                            messageHeight * textScale, textScale, textScale);
+                        assert(fitted.width >= 176.0f * titleScale);
+                        assert(fitted.height >= 33.0f * titleScale);
+                        assert(fitted.width >= (messageWidth + 28.0f) * textScale);
+                        assert(fitted.height >= (messageHeight + 16.0f) * textScale);
+                        const float localWidth = fitted.width / frameScale;
+                        const float localHeight = fitted.height / frameScale;
+                        assert(std::fabs(localWidth * frameScale - fitted.width) < 0.001f);
+                        assert(std::fabs(localHeight * frameScale - fitted.height) < 0.001f);
+                    }
+                }
+            }
+        }
+    }
+
     // The visible cross, not the legacy Items pane origin, owns this anchor.
     // Test differing text widths, screen offsets, HUD scales and repeated draws.
     for (float screenX : {-200.0f, 0.0f, 180.0f}) {
@@ -152,4 +176,26 @@ int main() {
     const auto safeArea = top_meter_offset(20.0f, 600.0f, 10.0f,
         240.0f, 58.0f, 380.0f, 70.0f);
     assert(safeArea.x == 0.0f && safeArea.y == 0.0f);
+
+    // Native kantera layout: 115-wide end containers are centered at 24/153;
+    // their actual ornaments start at -25 and are only 26 units wide.
+    // The old container union therefore biased the visible center by -12.
+    for (float canvasWidth : {608.0f, 796.0f, 1045.0f})
+    for (float scale : {0.35f, 0.525f, 0.7f, 0.875f, 1.4f}) {
+        const float safeLeft = (608.0f - canvasWidth) * 0.5f;
+        const float safeRight = safeLeft + canvasWidth;
+        const float artLeft = (24.0f - 25.0f) * scale;
+        const float artRight = (153.0f - 25.0f + 26.0f) * scale;
+        const float oldLeft = (24.0f - 115.0f * 0.5f) * scale;
+        const float oldRight = (153.0f + 115.0f * 0.5f) * scale;
+        const auto oldOffset = top_meter_offset(safeLeft, safeRight, 0,
+            oldLeft, 0, oldRight, 16 * scale);
+        assert(std::fabs((artLeft + artRight) * 0.5f + oldOffset.x -
+            (304.0f - 12.0f * scale)) < 0.001f);
+        const auto corrected = top_meter_offset(safeLeft, safeRight, 0,
+            artLeft, 0, artRight, 16 * scale);
+        assert(std::fabs(artLeft + corrected.x - safeLeft -
+            (safeRight - artRight - corrected.x)) < 0.001f);
+        assert(std::fabs((artLeft + artRight) * 0.5f + corrected.x - 304.0f) < 0.001f);
+    }
 }

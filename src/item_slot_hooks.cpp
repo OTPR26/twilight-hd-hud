@@ -8,10 +8,12 @@
 #include "map_responsive_layout.hpp"
 #include "dialogue_text_layout.hpp"
 #include "font_override.hpp"
+#include "file_select_layout.hpp"
 #include "hud_layout.hpp"
 #include "hud_visibility.hpp"
 #include "input_gate.hpp"
 #include "menu_shortcuts.hpp"
+#include "menu_input_state.hpp"
 #include "dungeon_map_input.hpp"
 #include "item_help_text.hpp"
 #include "wallet_description.hpp"
@@ -81,6 +83,7 @@
 #include "mods/svc/hook.h"
 #include "mods/svc/hook.hpp"
 #include "mods/svc/resource.h"
+#include "dusk/menu_pointer.h"
 
 #include <algorithm>
 #include <array>
@@ -88,6 +91,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <type_traits>
 #include <utility>
 
 namespace twilight_hd_hud {
@@ -170,12 +174,19 @@ DEFINE_HOOK(&dMsgString_c::drawOutFontLocal, CollectOutFontDrawHook);
 DEFINE_HOOK(&dMenu_Collect2D_c::menuCollectWide, CollectWideHook);
 #endif
 DEFINE_HOOK(&dMenu_Letter_c::_create, LetterCreateHook);
+DEFINE_HOOK(&dMenu_Letter_c::_move, LetterMoveHook);
 DEFINE_HOOK(&dMenu_Letter_c::_draw, LetterDrawHook);
+DEFINE_HOOK(&dMenu_Letter_c::wait_move, LetterWaitMoveHook);
 DEFINE_HOOK(&dMenu_Fishing_c::_create, FishingCreateHook);
+DEFINE_HOOK(&dMenu_Fishing_c::_move, FishingMoveHook);
 DEFINE_HOOK(&dMenu_Fishing_c::_draw, FishingDrawHook);
 DEFINE_HOOK(&dMenu_Skill_c::_create, SkillCreateHook);
+DEFINE_HOOK(&dMenu_Skill_c::_move, SkillMoveHook);
+DEFINE_HOOK(&dMenu_Skill_c::wait_move, SkillWaitMoveHook);
 DEFINE_HOOK(&dMenu_Skill_c::_draw, SkillDrawHook);
 DEFINE_HOOK(&dMenu_Insect_c::_create, InsectCreateHook);
+DEFINE_HOOK(&dMenu_Insect_c::_move, InsectMoveHook);
+DEFINE_HOOK(&dMenu_Insect_c::wait_move, InsectWaitMoveHook);
 DEFINE_HOOK(&dMenu_Insect_c::_draw, InsectDrawHook);
 DEFINE_HOOK(&dSelect_cursor_c::draw, SelectCursorDrawHook);
 DEFINE_HOOK(&dSelect_cursor_c::update, SelectCursorUpdateHook);
@@ -315,6 +326,26 @@ ResourceBuffer s_itemBankCellResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_itemBankCircleResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_itemBankShadowResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_collectMenuButtonResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_fishJournalSeamResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_fishJournalSelectionResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_fishJournalDividerResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_fishJournalRecordValueResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_fishJournalRuleResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_lettersCornerResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_lettersScrollArrowResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_lettersScrollStateResources[11] = {
+    RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
+    RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
+    RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
+    RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
+};
+ResourceBuffer s_goldenBugMaleResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_goldenBugFemaleResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_hiddenSkillPanelResources[7] = {
+    RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
+    RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
+    RESOURCE_BUFFER_INIT,
+};
 ResourceBuffer s_fileSelectBackgroundResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectRowResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectSelectedRowResource = RESOURCE_BUFFER_INIT;
@@ -407,6 +438,14 @@ using GetSdlGamepadAxisFn = s16 (*)(SDL_Gamepad*, int);
 GetSdlGamepadAxisFn s_getSdlGamepadAxis = nullptr;
 using GetSdlGamepadButtonFn = bool (*)(SDL_Gamepad*, int);
 GetSdlGamepadButtonFn s_getSdlGamepadButton = nullptr;
+using MenuPointerBeginContextFn = void (*)(dusk::menu_pointer::Context);
+using MenuPointerStateFn = const dusk::menu_pointer::State& (*)();
+using MenuPointerSetHoverTargetFn = void (*)(dusk::menu_pointer::TargetId);
+using MenuPointerConsumeClickFn = bool (*)();
+MenuPointerBeginContextFn s_menuPointerBeginContext = nullptr;
+MenuPointerStateFn s_menuPointerState = nullptr;
+MenuPointerSetHoverTargetFn s_menuPointerSetHoverTarget = nullptr;
+MenuPointerConsumeClickFn s_menuPointerConsumeClick = nullptr;
 
 SDL_Gamepad* primary_sdl_gamepad() {
     const s32 index = PADGetIndexForPort(PAD_1);
@@ -678,6 +717,32 @@ void resolve_action_binding_functions() {
     if (s_getSdlGamepadAxis == nullptr || s_getSdlGamepadButton == nullptr) {
         svc_log->warn(mod_ctx,
             "Exact physical controller reads unavailable; using compatibility fallback");
+    }
+}
+
+void resolve_fish_journal_pointer_functions() {
+    void* address = nullptr;
+    HookSymbolFlags flags = {};
+    auto resolve = [&](const char* symbol, auto& function) {
+        address = nullptr;
+        const ModResult result = svc_hook->resolve(
+            mod_ctx, symbol, &address, &flags);
+        function = result == MOD_OK && address != nullptr ?
+            reinterpret_cast<std::remove_reference_t<decltype(function)>>(address) : nullptr;
+        return function != nullptr;
+    };
+    const bool available =
+        resolve("dusk::menu_pointer::begin_context", s_menuPointerBeginContext) &&
+        resolve("dusk::menu_pointer::state", s_menuPointerState) &&
+        resolve("dusk::menu_pointer::set_hover_target", s_menuPointerSetHoverTarget) &&
+        resolve("dusk::menu_pointer::consume_click", s_menuPointerConsumeClick);
+    if (!available) {
+        s_menuPointerBeginContext = nullptr;
+        s_menuPointerState = nullptr;
+        s_menuPointerSetHoverTarget = nullptr;
+        s_menuPointerConsumeClick = nullptr;
+        svc_log->warn(mod_ctx,
+            "Fish Journal touch targets unavailable in this Dusklight build");
     }
 }
 
@@ -3429,14 +3494,17 @@ void add_option_prompts(dMenu_Option_c* menu) {
         group->appendChild(picture);
     };
 
-    // Keep the flourish at its intended wide proportions and place it behind
-    // both button discs, so its loops appear to wrap A and B like TPHD.
+    // Reuse the working Quest Log / Save pairing as a complete cluster.
+    // Moving only the discs above the flourish exposes its middle loops.
+    constexpr f32 right = 608.0f;
     addPicture(MULTI_CHAR('hd_oflr'),
-        JGeometry::TBox2<f32>(534.0f, 18.0f, 606.0f, 84.0f),
+        JGeometry::TBox2<f32>(right - 74.0f, 18.0f,
+            right - 2.0f, 84.0f),
         resource_texture(s_fileSelectPromptFlourishResource), 220);
 
     auto* confirm = JKR_NEW J2DTextBox(MULTI_CHAR('hd_ocfm'),
-        JGeometry::TBox2<f32>(490.0f, 17.0f, 555.0f, 38.0f), nullptr,
+        JGeometry::TBox2<f32>(right - 112.0f, 30.0f,
+            right - 48.0f, 51.0f), nullptr,
         "Confirm", 16, HBIND_RIGHT, VBIND_CENTER);
     confirm->setFont(menu->mpFont);
     confirm->setFontSize(13.5f, 13.5f);
@@ -3445,13 +3513,16 @@ void add_option_prompts(dMenu_Option_c* menu) {
     group->appendChild(confirm);
 
     addPicture(MULTI_CHAR('hd_oapi'),
-        JGeometry::TBox2<f32>(558.0f, 14.0f, 585.0f, 41.0f),
+        JGeometry::TBox2<f32>(right - 50.0f, 28.0f,
+            right - 23.0f, 55.0f),
         menu_face_button_texture(true));
     addPicture(MULTI_CHAR('hd_obck'),
-        JGeometry::TBox2<f32>(508.0f, 35.0f, 547.0f, 51.0f),
+        JGeometry::TBox2<f32>(right - 100.0f, 51.0f,
+            right - 61.0f, 67.0f),
         resource_texture(s_fileSelectBackLabelResource));
     addPicture(MULTI_CHAR('hd_obpi'),
-        JGeometry::TBox2<f32>(548.5f, 35.5f, 570.5f, 57.5f),
+        JGeometry::TBox2<f32>(right - 62.0f, 49.0f,
+            right - 35.0f, 76.0f),
         menu_face_button_texture(false));
 
     auto* displayPrompt = JKR_NEW J2DTextBox(MULTI_CHAR('hd_odsp'),
@@ -3475,13 +3546,15 @@ bool option_confirmation_active(const dMenu_Option_c* menu) {
          menu->field_0x3ef == dMenu_Option_c::PROC_CONFIRM_CLOSE_MOVE_e);
 }
 
-void fit_option_warning_frame(J2DPicture* frame, J2DTextBox* text) {
+bool fit_option_warning_frame(J2DPicture* frame, J2DTextBox* text, J2DPane* title) {
     const char* message = text_box_string(text);
     JUTFont* font = text != nullptr ? text->getFont() : nullptr;
     if (frame == nullptr || font == nullptr || message == nullptr ||
-        message[0] == '\0' || font->getCellHeight() <= 0 || text->getWidth() < 1.0f)
+        message[0] == '\0' || font->getCellHeight() <= 0 || text->getWidth() < 1.0f ||
+        title == nullptr || frame->getParentPane() == nullptr ||
+        text->getParentPane() == nullptr)
     {
-        return;
+        return false;
     }
 
     // Measure with the native parser (without drawing), including localized
@@ -3503,13 +3576,44 @@ void fit_option_warning_frame(J2DPicture* frame, J2DTextBox* text) {
         static_cast<int>(text->getWidth()), nullptr, measured, 255, false);
     const f32 textHeight = belowBaseline +
         font->getAscent() * (size.mSizeY / font->getCellHeight());
-    const f32 width = std::ceil(measured.field_0x0) + 28.0f;
-    const f32 height = std::ceil(std::max(size.mSizeY, textHeight)) + 16.0f;
-    const auto bounds = frame->getBounds();
-    // Keep the left edge and vertical center fixed, with no changes to the
-    // native text pane or animated parent. Repeated draws cannot drift.
-    frame->resize(width, height);
-    frame->move(bounds.i.x, bounds.i.y + (bounds.getHeight() - height) * 0.5f);
+    CPaneMgr manager;
+    Mtx titleMatrix, textMatrix, frameMatrix;
+    const Vec titleTop = manager.getGlobalVtx(title, &titleMatrix, 0, false, 0);
+    const Vec titleBottom = manager.getGlobalVtx(title, &titleMatrix, 3, false, 0);
+    manager.getGlobalVtx(text, &textMatrix, 0, false, 0);
+    manager.getGlobalVtx(frame, &frameMatrix, 0, false, 0);
+    const f32 frameScaleX = std::fabs(frameMatrix[0][0]);
+    const f32 frameScaleY = std::fabs(frameMatrix[1][1]);
+    const f32 textScaleX = std::fabs(textMatrix[0][0]);
+    const f32 textScaleY = std::fabs(textMatrix[1][1]);
+    if (!std::isfinite(frameScaleX) || !std::isfinite(frameScaleY) ||
+        !std::isfinite(textScaleX) || !std::isfinite(textScaleY) ||
+        frameScaleX < 0.001f || frameScaleY < 0.001f ||
+        textScaleX < 0.001f || textScaleY < 0.001f) return false;
+
+    // Replace the Options heading at its live top-left, rather than leaving
+    // the warning at the old stone-window title position below it. Fit in
+    // screen space because the warning and title have different parents.
+    if (titleBottom.x <= titleTop.x || titleBottom.y <= titleTop.y) return false;
+    const auto fitted = option_warning_size(titleBottom.x - titleTop.x,
+        titleBottom.y - titleTop.y,
+        std::ceil(measured.field_0x0) * textScaleX,
+        std::ceil(std::max(size.mSizeY, textHeight)) * textScaleY,
+        textScaleX, textScaleY);
+    const f32 width = fitted.width;
+    const f32 height = fitted.height;
+    const f32 centerX = titleTop.x + width * 0.5f;
+    const f32 centerY = titleTop.y + height * 0.5f;
+    if (!std::isfinite(width) || !std::isfinite(height) ||
+        !std::isfinite(centerX) || !std::isfinite(centerY)) return false;
+    frame->resize(width / frameScaleX, height / frameScaleY);
+    position_dmap_global_center(frame, centerX, centerY);
+    text->mFlags = static_cast<u8>((text->mFlags & ~0x0f) |
+        (HBIND_CENTER << 2) | VBIND_CENTER);
+    text->field_0x10c = 0.0f;
+    text->field_0x110 = 0.0f;
+    position_dmap_global_center(text, centerX, centerY);
+    return true;
 }
 
 void style_option_confirmation(dMenu_Option_c* menu) {
@@ -3518,8 +3622,14 @@ void style_option_confirmation(dMenu_Option_c* menu) {
         return;
     }
 
-    // Save and discard questions share this warning instance. Preserve its
-    // localized message, native opening/closing animation, and placement.
+    J2DPane* titleGroup = menu->mpBackScreen != nullptr ?
+        menu->mpBackScreen->search(MULTI_CHAR('hd_otit')) : nullptr;
+    J2DPane* titleFrame = titleGroup != nullptr ?
+        titleGroup->search(MULTI_CHAR('hd_otfr')) : nullptr;
+    bool warningReady = false;
+
+    // Save and discard questions share this warning instance. Preserve the
+    // localized message, native visibility, and confirmation state machine.
     if (dFile_warning_c* warning = menu->mpWarning;
         warning != nullptr && warning->mpRootPane != nullptr)
     {
@@ -3547,9 +3657,16 @@ void style_option_confirmation(dMenu_Option_c* menu) {
                     JUtility::TColor(255, 255, 255, 255));
                 text->setFontColor(JUtility::TColor(242, 242, 235, 255),
                     JUtility::TColor(255, 255, 255, 255));
-                fit_option_warning_frame(frame, text);
+                warningReady = fit_option_warning_frame(frame, text, titleFrame);
             }
         }
+    }
+
+    // A fading/clipped warning must not expose a second title behind it.
+    // Restore the complete heading immediately after confirmation closes.
+    if (titleGroup != nullptr) {
+        if (warningReady && option_confirmation_active(menu)) titleGroup->hide();
+        else titleGroup->show();
     }
 
     // Match the compact gold-edged choices already used by Save/File Select.
@@ -5661,9 +5778,19 @@ void position_cursor_outside_frame(dSelect_cursor_c* cursor, J2DPane* target,
         return;
     }
 
-    const auto& bounds = target->getGlbBounds();
-    cursor->setPos((bounds.i.x + bounds.f.x) * 0.5f,
-        (bounds.i.y + bounds.f.y) * 0.5f, target, true);
+    // J2DPane::getGlbBounds() does not include every ancestor transform in
+    // these dynamically appended menu trees.  Resolve the rendered vertices
+    // through CPaneMgr, as the pointer hit-testing path does.
+    CPaneMgr manager;
+    Mtx matrix;
+    const Vec vertex0 = manager.getGlobalVtx(target, &matrix, 0, false, 0);
+    const Vec vertex3 = manager.getGlobalVtx(target, &matrix, 3, false, 0);
+    const f32 left = std::min(vertex0.x, vertex3.x);
+    const f32 top = std::min(vertex0.y, vertex3.y);
+    const f32 right = std::max(vertex0.x, vertex3.x);
+    const f32 bottom = std::max(vertex0.y, vertex3.y);
+    cursor->setPos((left + right) * 0.5f,
+        (top + bottom) * 0.5f, target, true);
 
     constexpr u64 cornerTags[] = {
         MULTI_CHAR('l_u_null'), MULTI_CHAR('l_d_null'),
@@ -5674,12 +5801,24 @@ void position_cursor_outside_frame(dSelect_cursor_c* cursor, J2DPane* target,
         (20.0f - phase) / 10.0f;
     const f32 pulse = (1.0f - cursor->mParam3) +
         oscillation * cursor->mParam3;
+    const f32 halfWidth = (right - left) * 0.5f;
+    const f32 halfHeight = (bottom - top) * 0.5f;
+    const f32 cursorScaleX = std::fabs(cursor->mParam1) > 0.001f ?
+        std::fabs(cursor->mParam1) : 1.0f;
+    const f32 cursorScaleY = std::fabs(cursor->mParam2) > 0.001f ?
+        std::fabs(cursor->mParam2) : 1.0f;
 
     for (int corner = 0; corner < 4; ++corner) {
-        cursor->field_0x94[corner] +=
-            corner < 2 ? -horizontalPadding : horizontalPadding;
-        cursor->field_0xa4[corner] +=
-            corner % 2 == 0 ? -verticalPadding : verticalPadding;
+        // setPos() only considers the pane's own scale.  HD submenu rows are
+        // scaled by an ancestor at narrow aspect ratios, so replace its local
+        // extents with the rendered global extents before positioning corners.
+        // update() multiplies these stored extents by mParam1/mParam2.  PC
+        // additionally aspect-adjusts mParam1, so normalize here to avoid a
+        // second expansion after fitting to the rendered frame.
+        cursor->field_0x94[corner] = (corner < 2 ? -1.0f : 1.0f) *
+            (halfWidth + horizontalPadding) / cursorScaleX;
+        cursor->field_0xa4[corner] = (corner % 2 == 0 ? -1.0f : 1.0f) *
+            (halfHeight + verticalPadding) / cursorScaleY;
         cursor->field_0x74[corner] = cursor->mParam1 *
             cursor->field_0x94[corner] * pulse;
         cursor->field_0x84[corner] = cursor->mParam2 *
@@ -5758,6 +5897,40 @@ void position_file_select_cursor(dFile_select_c* menu) {
     }
 }
 
+void align_file_select_play_time(J2DPicture* row, J2DTextBox* text) {
+    if (row == nullptr || text == nullptr || text->getParentPane() == nullptr) {
+        return;
+    }
+
+    // Recompute live matrices: getGlbBounds() still contains the previous
+    // draw's geometry while cards resize and their parents animate.
+    CPaneMgr manager;
+    Mtx matrix;
+    const Vec top = manager.getGlobalVtx(row, &matrix, 0, false, 0);
+    const Vec bottom = manager.getGlobalVtx(row, &matrix, 3, false, 0);
+    const Vec center = manager.getGlobalVtxCenter(text, false, 0);
+    const f32 targetY = file_select_layout::play_time_center(top.y, bottom.y);
+    manager.getGlobalVtx(text->getParentPane(), &matrix, 0, false, 0);
+    const f32 determinant = matrix[0][0] * matrix[1][1] -
+        matrix[0][1] * matrix[1][0];
+    if (!std::isfinite(targetY) || !std::isfinite(center.y) ||
+        !std::isfinite(determinant) || std::fabs(determinant) < 0.0001f ||
+        bottom.y <= top.y) {
+        return;
+    }
+    const f32 dy = targetY - center.y;
+    const f32 dxLocal = -matrix[0][1] * dy / determinant;
+    const f32 dyLocal = matrix[0][0] * dy / determinant;
+    if (!std::isfinite(dxLocal) || !std::isfinite(dyLocal)) {
+        return;
+    }
+    // Give the label and value the same vertical binding, retaining their
+    // independent horizontal alignment and all native strings/colors.
+    text->mFlags = static_cast<u8>((text->mFlags & ~0x03) | VBIND_CENTER);
+    text->field_0x110 = 0.0f;
+    text->add(dxLocal, dyLocal);
+}
+
 void style_file_select_metadata(dFile_select_c* menu) {
     if (menu == nullptr) {
         return;
@@ -5768,6 +5941,9 @@ void style_file_select_metadata(dFile_select_c* menu) {
     };
     constexpr u64 valueTags[] = {
         MULTI_CHAR('w_time01'), MULTI_CHAR('w_ptim01'),
+    };
+    constexpr u64 rowTags[] = {
+        MULTI_CHAR('w_go_b00'), MULTI_CHAR('w_go_b01'), MULTI_CHAR('w_go_b02'),
     };
     for (std::size_t index = 0; index < 3; ++index) {
         J2DPane* group = menu->mFileInfoDatBasePane[index] != nullptr ?
@@ -5786,26 +5962,13 @@ void style_file_select_metadata(dFile_select_c* menu) {
         const f32 scaleY = group->getHeight() > 0.0f ?
             groupGlobal.getHeight() / group->getHeight() : 1.0f;
         const bool hasSecondHeartLine = file_info_has_second_heart_line(group);
-        const f32 saveCenterY = saveLabel != nullptr ?
-            (saveLabel->getGlbBounds().i.y + saveLabel->getGlbBounds().f.y) * 0.5f :
-            0.0f;
-    const f32 totalTimeSpacing = hasSecondHeartLine ? 24.0f : 17.0f;
-        auto alignTotalTimeY = [saveLabel, saveCenterY, scaleY,
-                                   totalTimeSpacing](J2DPane* pane) {
-            if (saveLabel == nullptr || pane == nullptr ||
-                !std::isfinite(scaleY) || std::fabs(scaleY) <= 0.001f) {
-                return;
-            }
-            const auto& bounds = pane->getGlbBounds();
-            const f32 centerY = (bounds.i.y + bounds.f.y) * 0.5f;
-            // TPHD leaves the total-play-time row below the middle rule and
-            // closer to the lower rule.  Resolve from Save time every frame so
-            // this remains idempotent through animation and window resizing.
-            const f32 targetY = saveCenterY + totalTimeSpacing * scaleY;
-            if (std::isfinite(centerY) && std::isfinite(targetY)) {
-                pane->add(0.0f, (targetY - centerY) / scaleY);
-            }
-        };
+        J2DPane* rowGroup = menu->fileSel.Scr != nullptr ?
+            menu->fileSel.Scr->search(rowTags[index]) : nullptr;
+        J2DPicture* row = as_picture(rowGroup);
+        if (row == nullptr) {
+            f32 area = 0.0f;
+            find_largest_picture(rowGroup, row, area);
+        }
 
         // Resolve every position from live pane geometry. The archive applies
         // one last transform after reset/create; additive one-time offsets
@@ -5863,7 +6026,7 @@ void style_file_select_metadata(dFile_select_c* menu) {
             if (text != nullptr) {
                 text->setFontSize(11.5f, 11.5f);
                 if (tag == MULTI_CHAR('f_p_t_02')) {
-                    alignTotalTimeY(text);
+                    align_file_select_play_time(row, text);
                 }
             }
         }
@@ -5884,7 +6047,7 @@ void style_file_select_metadata(dFile_select_c* menu) {
                     }
                 }
                 if (tag == MULTI_CHAR('w_ptim01')) {
-                    alignTotalTimeY(text);
+                    align_file_select_play_time(row, text);
                 }
             }
         }
@@ -6084,8 +6247,19 @@ void style_save_select_title(dMenu_save_c* menu) {
             menu->mpHeaderTxtPane[menu->mHeaderTxtType]->getPanePtr()) :
         nullptr;
     const char* nativeString = text_box_string(nativeTitle);
-    const bool active = nativeString != nullptr &&
+    const bool saveQuestion = nativeString != nullptr &&
         std::strstr(nativeString, "Save to which log?") != nullptr;
+    const bool overwriteQuestion = nativeString != nullptr &&
+        std::strstr(nativeString, "Overwrite this log?") != nullptr;
+    const bool active = saveQuestion || overwriteQuestion;
+    if (J2DPane* rules = screen->search(MULTI_CHAR('hd_stlin'))) {
+        // Both log questions use one compact banner. Restore the original
+        // bounds for Saved/Continue and other native status/error messages.
+        const f32 top = active ? file_select_layout::kSaveQuestionBannerTop : 24.0f;
+        const f32 bottom = active ? file_select_layout::kSaveQuestionBannerBottom : 80.0f;
+        rules->resize(screen->getBounds().getWidth() - 48.0f, bottom - top);
+        rules->move(24.0f, top);
+    }
     J2DPane* group = screen->search(MULTI_CHAR('hd_stit'));
     if (group == nullptr) {
         group = JKR_NEW J2DPane(MULTI_CHAR('hd_stit'),
@@ -6126,23 +6300,29 @@ void style_save_select_title(dMenu_save_c* menu) {
         if (title != nullptr) title->setAlpha(0);
     }
 
-    constexpr f32 size = 24.0f;
-    constexpr f32 spacing = -0.5f;
+    constexpr f32 size = file_select_layout::kSaveQuestionFontSize;
+    constexpr f32 spacing = -0.5f * (size / 24.0f);
+    constexpr f32 textTop = file_select_layout::kSaveQuestionTextCenter -
+        file_select_layout::kSaveQuestionTextHeight * 0.5f;
+    constexpr f32 textBottom = file_select_layout::kSaveQuestionTextCenter +
+        file_select_layout::kSaveQuestionTextHeight * 0.5f;
     JUTFont* font = menu->mSaveSel.font[0];
-    const char* pieces[] = {"Save to which lo", "g", "?"};
+    const char* question = overwriteQuestion ? "Overwrite this log?" : "Save to which log?";
+    const char* pieces[] = {
+        overwriteQuestion ? "Overwrite this lo" : "Save to which lo", "g", "?",
+    };
     constexpr u64 tags[] = {
         MULTI_CHAR('hd_st0'), MULTI_CHAR('hd_st1'), MULTI_CHAR('hd_st2'),
     };
-    const f32 totalWidth = copy_title_text_width(font,
-        "Save to which log?", size, spacing);
+    const f32 totalWidth = copy_title_text_width(font, question, size, spacing);
     f32 left = (608.0f - totalWidth) * 0.5f;
     for (std::size_t index = 0; index < 3; ++index) {
         const f32 pieceWidth = copy_title_text_width(font, pieces[index],
             size, spacing);
-        const f32 opticalDrop = index == 1 ? 2.0f : 0.0f;
+        const f32 opticalDrop = index == 1 ? 2.0f * (size / 24.0f) : 0.0f;
         auto* text = copy_metadata_text(group, tags[index],
-            JGeometry::TBox2<f32>(left, 30.0f + opticalDrop,
-                left + pieceWidth + 4.0f, 66.0f + opticalDrop),
+            JGeometry::TBox2<f32>(left, textTop + opticalDrop,
+                left + pieceWidth + 4.0f, textBottom + opticalDrop),
             font, HBIND_LEFT, size,
             JUtility::TColor(234, 201, 55, 255));
         if (text != nullptr) {
@@ -6300,24 +6480,7 @@ void style_save_menu_metadata(dMenu_save_c* menu) {
         const f32 scaleY = group->getHeight() > 0.0f ?
             groupGlobal.getHeight() / group->getHeight() : 1.0f;
         const bool hasSecondHeartLine = file_info_has_second_heart_line(group);
-        const f32 saveCenterY = saveLabel != nullptr ?
-            (saveLabel->getGlbBounds().i.y + saveLabel->getGlbBounds().f.y) *
-                0.5f :
-            0.0f;
-        const f32 totalTimeSpacing = hasSecondHeartLine ? 24.0f : 17.0f;
-        auto alignTotalTimeY = [saveLabel, saveCenterY, scaleY,
-                                   totalTimeSpacing](J2DPane* pane) {
-            if (saveLabel == nullptr || pane == nullptr ||
-                !std::isfinite(scaleY) || std::fabs(scaleY) <= 0.001f) {
-                return;
-            }
-            const auto& bounds = pane->getGlbBounds();
-            const f32 centerY = (bounds.i.y + bounds.f.y) * 0.5f;
-            const f32 targetY = saveCenterY + totalTimeSpacing * scaleY;
-            if (std::isfinite(centerY) && std::isfinite(targetY)) {
-                pane->add(0.0f, (targetY - centerY) / scaleY);
-            }
-        };
+        J2DPicture* row = save_menu_row_picture(menu, index);
         if (saveLabel != nullptr && std::isfinite(scaleY) &&
             std::fabs(scaleY) > 0.001f) {
             const f32 saveTop = saveLabel->getGlbBounds().i.y;
@@ -6369,7 +6532,7 @@ void style_save_menu_metadata(dMenu_save_c* menu) {
             if (text != nullptr) {
                 text->setFontSize(11.5f, 11.5f);
                 if (text == playLabel) {
-                    alignTotalTimeY(text);
+                    align_file_select_play_time(row, text);
                 }
             }
         }
@@ -6390,7 +6553,7 @@ void style_save_menu_metadata(dMenu_save_c* menu) {
                     }
                 }
                 if (text == playValue) {
-                    alignTotalTimeY(text);
+                    align_file_select_play_time(row, text);
                 }
             }
         }
@@ -6716,8 +6879,8 @@ void apply_save_menu_hd_style(dMenu_save_c* menu) {
                 JUtility::TColor(255, 244, 120, 255));
         }
     }
-    style_save_select_title(menu);
     add_save_menu_title_rules(menu);
+    style_save_select_title(menu);
     style_save_menu_prompts(menu);
     add_save_menu_fixed_prompts(menu);
     style_save_menu_yes_no_buttons(menu);
@@ -6936,6 +7099,73 @@ void apply_collection_submenu_button_layout(J2DScreen* screen,
     if (strings != nullptr) {
         apply_out_font_face_button_layout(strings->mpOutFont);
     }
+}
+
+constexpr f32 kCollectionSubmenuCanvasLeft = -94.0f;
+constexpr f32 kCollectionSubmenuCanvasWidth = 796.0f;
+constexpr f32 kCollectionSubmenuCanvasHeight = 448.0f;
+
+void fit_collection_submenu_overlay(J2DPane* group, u64 backdropTag,
+    u64 upperRuleTag, u64 lowerRuleTag) {
+    if (group == nullptr || group->getParentPane() == nullptr) return;
+    const CollectionViewport viewport = current_collection_viewport();
+    if (viewport.scale < 0.001f) return;
+
+    f32 parentScaleX = 1.0f;
+    f32 parentScaleY = 1.0f;
+    for (J2DPane* parent = group->getParentPane(); parent != nullptr;
+         parent = parent->getParentPane()) {
+        parentScaleX *= parent->getScaleX();
+        parentScaleY *= parent->getScaleY();
+    }
+    if (std::fabs(parentScaleX) < 0.001f ||
+        std::fabs(parentScaleY) < 0.001f) return;
+
+    group->scale(viewport.scale / parentScaleX,
+        viewport.scale / parentScaleY);
+    position_dmap_global_center(group,
+        viewport.left + kCollectionSubmenuCanvasWidth * viewport.scale * 0.5f,
+        viewport.top + kCollectionSubmenuCanvasHeight * viewport.scale * 0.5f);
+
+    // Content follows the safe 796x448 canvas, while the motif and rules
+    // continue to cover the physical viewport at narrow and ultrawide ratios.
+    const f32 physicalLeft = mDoGph_gInf_c::getMinXF();
+    const f32 physicalTop = mDoGph_gInf_c::getMinYF();
+    const f32 physicalWidth = mDoGph_gInf_c::getWidthF();
+    const f32 physicalHeight = mDoGph_gInf_c::getHeightF();
+    const f32 localLeft = kCollectionSubmenuCanvasLeft +
+        (physicalLeft - viewport.left) / viewport.scale;
+    const f32 localTop = (physicalTop - viewport.top) / viewport.scale;
+    if (J2DPane* backdrop = group->search(backdropTag)) {
+        backdrop->resize(physicalWidth / viewport.scale,
+            physicalHeight / viewport.scale);
+        backdrop->move(localLeft, localTop);
+    }
+    for (const auto [tag, physicalY] : {
+             std::pair<u64, f32>{upperRuleTag, physicalTop + 22.0f},
+             std::pair<u64, f32>{lowerRuleTag,
+                 physicalTop + physicalHeight - 27.0f},
+         }) {
+        if (J2DPane* rule = group->search(tag)) {
+            rule->resize(physicalWidth / viewport.scale,
+                4.0f / viewport.scale);
+            rule->move(localLeft,
+                (physicalY - viewport.top) / viewport.scale);
+        }
+    }
+}
+
+JGeometry::TBox2<f32> collection_submenu_global_bounds(J2DPane* pane) {
+    if (pane == nullptr) return {};
+    CPaneMgr manager;
+    Mtx matrix;
+    const Vec topLeft = manager.getGlobalVtx(pane, &matrix, 0, false, 0);
+    const Vec bottomRight = manager.getGlobalVtx(pane, &matrix, 3, false, 0);
+    return JGeometry::TBox2<f32>(
+        std::min(topLeft.x, bottomRight.x),
+        std::min(topLeft.y, bottomRight.y),
+        std::max(topLeft.x, bottomRight.x),
+        std::max(topLeft.y, bottomRight.y));
 }
 
 // In-game HUD ---------------------------------------------------------------
@@ -8197,14 +8427,16 @@ void draw_ring_z_prompt(dMenu_Ring_c* ring) {
     }
 }
 
-bool pane_current_global_bounds(CPaneMgr* pane, f32& left, f32& top, f32& right, f32& bottom) {
+bool pane_current_global_bounds(J2DPane* pane, f32& left, f32& top, f32& right, f32& bottom) {
     if (pane == nullptr) {
         return false;
     }
 
+    CPaneMgr manager;
     Mtx mtx;
     for (u8 i = 0; i < 4; ++i) {
-        Vec vtx = pane->getGlobalVtx(&mtx, i, false, 0);
+        Vec vtx = manager.getGlobalVtx(pane, &mtx, i, false, 0);
+        if (!std::isfinite(vtx.x) || !std::isfinite(vtx.y)) return false;
         if (i == 0) {
             left = right = vtx.x;
             top = bottom = vtx.y;
@@ -8226,7 +8458,7 @@ bool pane_current_global_bounds(CPaneMgr* pane, f32& left, f32& top, f32& right,
     return true;
 }
 
-bool add_pane_current_global_bounds(CPaneMgr* pane, f32& left, f32& top, f32& right,
+bool add_pane_current_global_bounds(J2DPane* pane, f32& left, f32& top, f32& right,
     f32& bottom, bool& hasBounds) {
     f32 paneLeft;
     f32 paneTop;
@@ -9416,15 +9648,16 @@ void after_pad_read(ModContext*, void*, void*, void*) {
     const bool fixedTphdBindings =
         controller_compatibility() == ControllerCompatibility::FixedTphd;
 
-    const bool fixedMidnaAvailable = use_tphd_midna_binding() &&
-        !z_item_menu_or_pause_context();
+    const bool gameplayShortcuts = gameplay_shortcuts_active(
+        daAlink_getAlinkActorClass() != nullptr, s_fileSelectScreenActive,
+        z_item_menu_or_pause_context(), s_inputGate.blocked());
+    const bool fixedMidnaAvailable = use_tphd_midna_binding() && gameplayShortcuts;
 
     // Capture the translated trigger bits before suppressing their GameCube
     // behavior. Dusklight's touch-controls pass clears virtual action binds
     // later in this frame, so the map hook consumes these canonical triggers
     // directly instead of racing that synchronization.
-    const bool fixedMapAvailable = use_tphd_dpad_map_bindings() &&
-        !z_item_menu_or_pause_context();
+    const bool fixedMapAvailable = use_tphd_dpad_map_bindings() && gameplayShortcuts;
     const FollowDpadLayout followLayout = follow_dpad_layout();
     const u32 mapMask = fixedTphdBindings ? PAD_BUTTON_UP :
         game_button_for_dpad_direction(followLayout.map);
@@ -9682,20 +9915,1129 @@ void after_collect_create(ModContext*, void* args, void*, void*) {
     }
 }
 
+void ensure_letters_overlay(dMenu_Letter_c* menu);
+
 void after_letter_create(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Letter_c*>(args, 0);
     if (menu != nullptr) {
         apply_collection_submenu_button_layout(menu->mpIconScreen,
             menu->mpArchive, menu->mpString);
+        ensure_letters_overlay(menu);
     }
 }
+
+void ensure_fish_journal_overlay(dMenu_Fishing_c* menu);
 
 void after_fishing_create(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Fishing_c*>(args, 0);
     if (menu != nullptr) {
         apply_collection_submenu_button_layout(menu->mpIconScreen,
             menu->mpArchive, menu->mpString);
+        // Some builds invoke the virtual draw wrapper without entering the
+        // separately hooked _draw symbol. Build the overlay while _create is
+        // definitely active; subsequent move callbacks refresh it.
+        ensure_fish_journal_overlay(menu);
     }
+}
+
+struct FishJournalState {
+    dMenu_Fishing_c* menu = nullptr;
+    int selected = 0;
+};
+
+FishJournalState s_fishJournal;
+
+// Save-data order is Hyrule Bass, Hylian Loach, Hylian Pike, Ordon Catfish,
+// Reekfish and Greengill. TPHD presents them as three fixed book rows:
+// Greengill / Hyrule Bass, Ordon Catfish / Reekfish, Pike / Loach.
+constexpr int kFishBookSlots[MAX_FINDABLE_FISHES] = {1, 5, 4, 2, 3, 0};
+
+int next_caught_fish(int selected, int direction) {
+    for (int step = 1; step <= MAX_FINDABLE_FISHES; ++step) {
+        const int index = (selected + direction * step + MAX_FINDABLE_FISHES * 2) %
+            MAX_FINDABLE_FISHES;
+        if (dComIfGs_getFishNum(index) != 0) return index;
+    }
+    return selected;
+}
+
+int caught_fish_in_direction(int selected, int dx, int dy) {
+    if (selected < 0 || selected >= MAX_FINDABLE_FISHES) return selected;
+    const int selectedSlot = kFishBookSlots[selected];
+    const int selectedColumn = selectedSlot & 1;
+    const int selectedRow = selectedSlot >> 1;
+    int best = selected;
+    int bestPrimary = 100;
+    int bestSecondary = 100;
+    for (int index = 0; index < MAX_FINDABLE_FISHES; ++index) {
+        if (index == selected || dComIfGs_getFishNum(index) == 0) continue;
+        const int slot = kFishBookSlots[index];
+        const int columnDelta = (slot & 1) - selectedColumn;
+        const int rowDelta = (slot >> 1) - selectedRow;
+        const int primary = dx != 0 ? columnDelta * dx : rowDelta * dy;
+        if (primary <= 0) continue;
+        const int secondary = dx != 0 ? std::abs(rowDelta) : std::abs(columnDelta);
+        if (primary < bestPrimary ||
+            (primary == bestPrimary && secondary < bestSecondary)) {
+            best = index;
+            bestPrimary = primary;
+            bestSecondary = secondary;
+        }
+    }
+    return best;
+}
+
+void ensure_fish_journal_overlay(dMenu_Fishing_c* menu) {
+    if (menu == nullptr || menu->mpScreen == nullptr || menu->mpArchive == nullptr) return;
+    if (s_fishJournal.menu != menu) {
+        s_fishJournal = {menu, next_caught_fish(-1, 1)};
+    }
+    J2DPane* group = menu->mpScreen->search(MULTI_CHAR('hd_fjov'));
+    if (group == nullptr) {
+        group = JKR_NEW J2DPane(MULTI_CHAR('hd_fjov'),
+            JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f,
+                kCollectionSubmenuCanvasHeight));
+        menu->mpScreen->appendChild(group);
+
+        if (ResTIMG const* background = resource_texture(s_collectBackgroundResource)) {
+            auto* backdrop = JKR_NEW J2DPicture(MULTI_CHAR('hd_fjbg'),
+                JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f, 448.0f),
+                background, nullptr);
+            configure_hd_picture(backdrop);
+            group->appendChild(backdrop);
+        }
+        if (ResTIMG const* rule = resource_texture(s_fishJournalRuleResource)) {
+            auto* upperRule = JKR_NEW J2DPicture(MULTI_CHAR('hd_fjru'),
+                JGeometry::TBox2<f32>(0.0f, 22.0f, 608.0f, 26.0f), rule, nullptr);
+            configure_hd_picture(upperRule);
+            group->appendChild(upperRule);
+            auto* lowerRule = JKR_NEW J2DPicture(MULTI_CHAR('hd_fjrl'),
+                JGeometry::TBox2<f32>(0.0f, 421.0f, 608.0f, 425.0f), rule, nullptr);
+            configure_hd_picture(lowerRule);
+            group->appendChild(lowerRule);
+        }
+        if (ResTIMG const* parchment = resource_texture(s_collectParchmentResource)) {
+            auto* book = JKR_NEW J2DPicture(MULTI_CHAR('hd_fjbk'),
+                JGeometry::TBox2<f32>(-58.0f, 32.0f, 666.0f, 416.0f),
+                parchment, nullptr);
+            configure_hd_picture(book);
+            group->appendChild(book);
+        }
+        if (ResTIMG const* seam = resource_texture(s_fishJournalSeamResource)) {
+            auto* bookSeam = JKR_NEW J2DPicture(MULTI_CHAR('hd_fjsm'),
+                JGeometry::TBox2<f32>(296.0f, 44.0f, 312.0f, 405.0f),
+                seam, nullptr);
+            configure_hd_picture(bookSeam);
+            group->appendChild(bookSeam);
+        }
+        if (ResTIMG const* banner = resource_texture(s_collectBannerResource)) {
+            auto* titleBanner = JKR_NEW J2DPicture(MULTI_CHAR('hd_fjbn'),
+                JGeometry::TBox2<f32>(-56.0f, 16.0f, 188.0f, 55.0f),
+                banner, nullptr);
+            configure_hd_picture(titleBanner);
+            group->appendChild(titleBanner);
+            auto* title = JKR_NEW J2DTextBox(MULTI_CHAR('hd_fjtt'),
+                JGeometry::TBox2<f32>(-46.0f, 23.0f, 178.0f, 59.0f), nullptr,
+                "Fish Journal", 24, HBIND_CENTER, VBIND_CENTER);
+            title->setFont(mDoExt_getMesgFont());
+            title->setFontSize(20.0f, 20.0f);
+            title->setCharSpace(0.0f);
+            title->setFontColor(JUtility::TColor(245, 245, 238, 255),
+                JUtility::TColor(255, 255, 255, 255));
+            group->appendChild(title);
+        }
+        if (ResTIMG const* flourish = resource_texture(s_fileSelectPromptFlourishResource)) {
+            // Reuse the opening Quest Log flourish geometry and opacity
+            // verbatim. Keep its center aligned with A as in that screen so
+            // the button discs mask the same parts of the curls.
+            auto* backFlourish = JKR_NEW J2DPicture(MULTI_CHAR('hd_fjbf'),
+                JGeometry::TBox2<f32>(612.5f, 12.0f, 684.5f, 78.0f),
+                flourish, nullptr);
+            backFlourish->setTexCoord(backFlourish->getTexture(0),
+                BIND15, MIRROR0, false);
+            backFlourish->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+                JUtility::TColor(255, 255, 255, 255));
+            backFlourish->setCornerColor(
+                JUtility::TColor(255, 255, 255, 220));
+            group->appendChild(backFlourish);
+            auto* nameFlourish = JKR_NEW J2DPicture(MULTI_CHAR('hd_fjnf'),
+                JGeometry::TBox2<f32>(320.0f, 76.0f, 342.0f, 100.0f),
+                flourish, nullptr);
+            configure_hd_picture(nameFlourish);
+            nameFlourish->setAlpha(170);
+            group->appendChild(nameFlourish);
+        }
+        if (ResTIMG const* button = menu_face_button_texture(true)) {
+            auto* actionButton = JKR_NEW J2DPicture(MULTI_CHAR('hd_fjab'),
+                JGeometry::TBox2<f32>(634.0f, 17.0f, 666.0f, 49.0f),
+                button, nullptr);
+            configure_hd_picture(actionButton);
+            group->appendChild(actionButton);
+        }
+        if (ResTIMG const* button = menu_face_button_texture(false)) {
+            auto* backButton = JKR_NEW J2DPicture(MULTI_CHAR('hd_fjbb'),
+                JGeometry::TBox2<f32>(622.0f, 40.0f, 654.0f, 72.0f),
+                button, nullptr);
+            configure_hd_picture(backButton);
+            group->appendChild(backButton);
+            if (ResTIMG const* label = resource_texture(s_fileSelectBackLabelResource)) {
+                auto* back = JKR_NEW J2DPicture(MULTI_CHAR('hd_fjbt'),
+                    JGeometry::TBox2<f32>(551.0f, 44.0f, 629.0f, 68.0f),
+                    label, nullptr);
+                configure_hd_picture(back);
+                group->appendChild(back);
+            }
+        }
+        if (ResTIMG const* selection = resource_texture(s_fishJournalSelectionResource)) {
+            auto* selectionCorners = JKR_NEW J2DPicture(MULTI_CHAR('hd_fjsc'),
+                JGeometry::TBox2<f32>(15.0f, 85.0f, 160.0f, 153.0f),
+                selection, nullptr);
+            configure_hd_picture(selectionCorners);
+            group->appendChild(selectionCorners);
+        }
+
+        auto makeText = [group](u64 tag, const JGeometry::TBox2<f32>& bounds,
+                            const char* value, f32 size,
+                            J2DTextBoxHBinding alignment = HBIND_LEFT) {
+            auto* text = JKR_NEW J2DTextBox(tag, bounds, nullptr, value, 96,
+                alignment, VBIND_CENTER);
+            text->setFont(mDoExt_getSubFont());
+            text->setFontSize(size, size);
+            text->setFontColor(JUtility::TColor(83, 56, 21, 255),
+                JUtility::TColor(125, 86, 31, 255));
+            group->appendChild(text);
+        };
+        if (ResTIMG const* divider = resource_texture(s_fishJournalDividerResource)) {
+            auto* detailDivider = JKR_NEW J2DPicture(MULTI_CHAR('hd_fjdv'),
+                JGeometry::TBox2<f32>(340.0f, 164.0f, 602.0f, 190.0f),
+                divider, nullptr);
+            configure_hd_picture(detailDivider);
+            group->appendChild(detailDivider);
+        }
+        if (ResTIMG const* backing = resource_texture(s_fishJournalRecordValueResource)) {
+            for (int row = 0; row < 2; ++row) {
+                auto* valueBacking = JKR_NEW J2DPicture(
+                    MULTI_CHAR('hd_fjv0') + row,
+                    JGeometry::TBox2<f32>(492.0f, 307.0f + row * 25.0f,
+                        548.0f, 329.0f + row * 25.0f), backing, nullptr);
+                configure_hd_picture(valueBacking);
+                group->appendChild(valueBacking);
+            }
+        }
+        makeText(MULTI_CHAR('hd_fjnm'), {345.0f, 78.0f, 602.0f, 102.0f}, "", 17.0f);
+        makeText(MULTI_CHAR('hd_fjrh'), {340.0f, 190.0f, 602.0f, 214.0f}, "Remarks", 15.0f);
+        makeText(MULTI_CHAR('hd_fjrt'), {347.0f, 216.0f, 602.0f, 258.0f},
+            "A record of this catch.", 12.0f);
+        makeText(MULTI_CHAR('hd_fjrm'), {340.0f, 278.0f, 602.0f, 302.0f}, "Records", 15.0f);
+        makeText(MULTI_CHAR('hd_fjcl'), {347.0f, 307.0f, 460.0f, 329.0f},
+            "No. Caught", 11.5f);
+        makeText(MULTI_CHAR('hd_fjcv'), {494.0f, 307.0f, 546.0f, 329.0f},
+            "", 11.5f, HBIND_CENTER);
+        makeText(MULTI_CHAR('hd_fjcu'), {548.0f, 307.0f, 585.0f, 329.0f},
+            "fish", 11.5f);
+        makeText(MULTI_CHAR('hd_fjsl'), {347.0f, 332.0f, 460.0f, 354.0f},
+            "Largest", 11.5f);
+        makeText(MULTI_CHAR('hd_fjsv'), {494.0f, 332.0f, 546.0f, 354.0f},
+            "", 11.5f, HBIND_CENTER);
+        makeText(MULTI_CHAR('hd_fjsu'), {548.0f, 332.0f, 585.0f, 354.0f},
+            "in.", 11.5f);
+        for (int index = 0; index < MAX_FINDABLE_FISHES; ++index) {
+            J2DPicture* source = nullptr;
+            f32 area = 0.0f;
+            find_largest_picture(menu->mpFishParts[0][index]->getPanePtr(), source, area);
+            JUTTexture* texture = source != nullptr ? source->getTexture(0) : nullptr;
+            ResTIMG const* info = texture != nullptr ? texture->getTexInfo() : nullptr;
+            if (info == nullptr) continue;
+            auto* detail = JKR_NEW J2DPicture(MULTI_CHAR('hd_fd00') + index,
+                JGeometry::TBox2<f32>(430.0f, 103.0f, 540.0f, 163.0f), info, nullptr);
+            configure_hd_picture(detail);
+            group->appendChild(detail);
+            // Refresh assigns the compact caught-only row. Initial bounds are
+            // merely a safe construction position.
+            const f32 top = 96.0f;
+            auto* listPicture = JKR_NEW J2DPicture(MULTI_CHAR('hd_fl00') + index,
+                JGeometry::TBox2<f32>(72.0f, top, 151.0f, top + 35.0f), info, nullptr);
+            configure_hd_picture(listPicture);
+            group->appendChild(listPicture);
+            makeText(MULTI_CHAR('hd_fn00') + index,
+                {45.0f, top + 33.0f, 178.0f, top + 52.0f}, "", 10.5f,
+                HBIND_CENTER);
+        }
+    }
+    group->show();
+
+    fit_collection_submenu_overlay(group, MULTI_CHAR('hd_fjbg'),
+        MULTI_CHAR('hd_fjru'), MULTI_CHAR('hd_fjrl'));
+
+    // The replacement supplies its own single Back prompt. Hiding the native
+    // icon screen removes its unused A disc and keeps Back attached to B.
+    if (menu->mpIconScreen != nullptr) menu->mpIconScreen->hide();
+
+    // Replace the oversized native title hierarchy. The custom banner is
+    // anchored to the widescreen book instead of the original 4:3 panel.
+    if (J2DPane* nativeTitle = collect_title_container(menu->mpScreen)) {
+        nativeTitle->hide();
+    }
+
+    // The native journal repeats every fish's icon, name, rules and record
+    // fields in a static GameCube grid. The HD journal uses a compact caught-
+    // fish list plus one selected detail page, so none of those native rows
+    // should remain visible beneath the replacement content.
+    for (int info = 0; info < 2; ++info) {
+        if (menu->mpFishInfoParent[info] != nullptr)
+            menu->mpFishInfoParent[info]->getPanePtr()->hide();
+    }
+
+    for (int index = 0; index < MAX_FINDABLE_FISHES; ++index) {
+        const bool caught = dComIfGs_getFishNum(index) != 0;
+        // TPHD keeps species in stable book slots rather than collapsing them
+        // into the GameCube list order. The complete journal reference fixes
+        // every species to this two-column, three-row page.
+        const int slot = kFishBookSlots[index];
+        const int column = slot & 1;
+        const int row = slot >> 1;
+        const f32 listLeft = -22.0f + column * 190.0f;
+        const f32 listTop = 95.0f + row * 80.0f;
+        if (menu->mpFishParent[index] != nullptr) {
+            menu->mpFishParent[index]->getPanePtr()->hide();
+        }
+        for (int part = 0; part < 6; ++part)
+            if (menu->mpFishParts[part][index] != nullptr)
+                menu->mpFishParts[part][index]->getPanePtr()->hide();
+        auto* listName = static_cast<J2DTextBox*>(
+            group->search(MULTI_CHAR('hd_fn00') + index));
+        if (listName != nullptr && menu->mpFishNameString[index] != nullptr) {
+            listName->setString(96, text_box_string(menu->mpFishNameString[index]));
+            listName->resize(125.0f, 19.0f);
+            listName->move(listLeft - 20.0f, listTop + 36.0f);
+            listName->setFontColor(
+                index == s_fishJournal.selected ? JUtility::TColor(184, 124, 22, 255) :
+                    JUtility::TColor(83, 56, 21, 255),
+                index == s_fishJournal.selected ? JUtility::TColor(241, 190, 55, 255) :
+                    JUtility::TColor(125, 86, 31, 255));
+            if (caught) listName->show(); else listName->hide();
+        }
+        if (J2DPane* listPicture = group->search(MULTI_CHAR('hd_fl00') + index)) {
+            listPicture->resize(85.0f, 38.0f);
+            listPicture->move(listLeft, listTop);
+            if (caught) listPicture->show(); else listPicture->hide();
+        }
+        if (index == s_fishJournal.selected) {
+            if (J2DPane* selection = group->search(MULTI_CHAR('hd_fjsc'))) {
+                selection->resize(128.0f, 88.0f);
+                selection->move(listLeft - 21.0f, listTop - 29.0f);
+                selection->show();
+            }
+        }
+        if (J2DPane* detail = group->search(MULTI_CHAR('hd_fd00') + index)) {
+            if (caught && index == s_fishJournal.selected) detail->show();
+            else detail->hide();
+        }
+    }
+    const int selected = s_fishJournal.selected;
+    auto* name = static_cast<J2DTextBox*>(group->search(MULTI_CHAR('hd_fjnm')));
+    auto* caughtValue = static_cast<J2DTextBox*>(group->search(MULTI_CHAR('hd_fjcv')));
+    auto* sizeValue = static_cast<J2DTextBox*>(group->search(MULTI_CHAR('hd_fjsv')));
+    if (name != nullptr && menu->mpFishNameString[selected] != nullptr)
+        name->setString(96, text_box_string(menu->mpFishNameString[selected]));
+    if (caughtValue != nullptr) {
+        char value[32];
+        std::snprintf(value, sizeof(value), "%u",
+            dComIfGs_getFishNum(selected));
+        caughtValue->setString(32, value);
+    }
+    if (sizeValue != nullptr) {
+        char value[32];
+        std::snprintf(value, sizeof(value), "%u",
+            dComIfGs_getFishSize(selected));
+        sizeValue->setString(32, value);
+    }
+    update_menu_face_button(menu->mpScreen, MULTI_CHAR('hd_fjab'), true);
+    update_menu_face_button(menu->mpScreen, MULTI_CHAR('hd_fjbb'), false);
+}
+
+void after_fishing_move(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Fishing_c*>(args, 0);
+    if (menu == nullptr || s_fishJournal.menu != menu) return;
+    const bool up = mDoCPd_c::getTrigUp(PAD_1) ||
+        (menu->mpStick != nullptr && menu->mpStick->checkUpTrigger());
+    const bool down = mDoCPd_c::getTrigDown(PAD_1) ||
+        (menu->mpStick != nullptr && menu->mpStick->checkDownTrigger());
+    const bool left = mDoCPd_c::getTrigLeft(PAD_1) ||
+        (menu->mpStick != nullptr && menu->mpStick->checkLeftTrigger());
+    const bool right = mDoCPd_c::getTrigRight(PAD_1) ||
+        (menu->mpStick != nullptr && menu->mpStick->checkRightTrigger());
+    if (up) {
+        s_fishJournal.selected = caught_fish_in_direction(
+            s_fishJournal.selected, 0, -1);
+    } else if (down) {
+        s_fishJournal.selected = caught_fish_in_direction(
+            s_fishJournal.selected, 0, 1);
+    } else if (left) {
+        s_fishJournal.selected = caught_fish_in_direction(
+            s_fishJournal.selected, -1, 0);
+    } else if (right) {
+        s_fishJournal.selected = caught_fish_in_direction(
+            s_fishJournal.selected, 1, 0);
+    }
+
+#if TARGET_PC
+    if (s_menuPointerBeginContext != nullptr && s_menuPointerState != nullptr &&
+        s_menuPointerSetHoverTarget != nullptr && s_menuPointerConsumeClick != nullptr) {
+        s_menuPointerBeginContext(dusk::menu_pointer::Context::Collection);
+    }
+    const dusk::menu_pointer::State* pointer = s_menuPointerState != nullptr ?
+        &s_menuPointerState() : nullptr;
+    if (pointer != nullptr && pointer->valid && menu->mpScreen != nullptr) {
+        J2DPane* group = menu->mpScreen->search(MULTI_CHAR('hd_fjov'));
+        if (group == nullptr) return;
+        for (int index = 0; index < MAX_FINDABLE_FISHES; ++index) {
+            if (dComIfGs_getFishNum(index) == 0) continue;
+            J2DPane* fish = group->search(MULTI_CHAR('hd_fl00') + index);
+            if (fish == nullptr || !fish->isVisible()) continue;
+            const JGeometry::TBox2<f32> bounds =
+                collection_submenu_global_bounds(fish);
+            constexpr f32 padding = 14.0f;
+            if (pointer->x < bounds.i.x - padding || pointer->x > bounds.f.x + padding ||
+                pointer->y < bounds.i.y - padding || pointer->y > bounds.f.y + padding) {
+                continue;
+            }
+            s_menuPointerSetHoverTarget(
+                static_cast<dusk::menu_pointer::TargetId>(0x500 + index));
+            if (s_fishJournal.selected != index ||
+                s_menuPointerConsumeClick()) {
+                s_fishJournal.selected = index;
+            }
+            break;
+        }
+    }
+#endif
+    // setHIO(false) is the final native operation in _move and may restore the
+    // authored fish transforms, so reapply the HD layout afterward.
+    ensure_fish_journal_overlay(menu);
+}
+
+struct LettersOverlayState {
+    dMenu_Letter_c* menu = nullptr;
+    int letter = -1;
+    int contentPage = 1;
+    int contentPages = 1;
+    int scrollOffset = 0;
+    int selectedSlot = 0;
+    bool leftShoulderHeld = false;
+    bool rightShoulderHeld = false;
+    bool dpadUpHeld = false;
+    bool dpadDownHeld = false;
+};
+
+LettersOverlayState s_lettersOverlay;
+
+struct HiddenSkillInputState {
+    dMenu_Skill_c* menu = nullptr;
+    bool dpadUpHeld = false;
+    bool dpadDownHeld = false;
+};
+
+HiddenSkillInputState s_hiddenSkillInput;
+
+int letters_visible_count(const dMenu_Letter_c* menu) {
+    if (menu == nullptr) return 0;
+    return std::max(0, std::min(6,
+        static_cast<int>(menu->m_letter_num) - s_lettersOverlay.scrollOffset));
+}
+
+int selected_letter_index(const dMenu_Letter_c* menu) {
+    if (menu == nullptr || letters_visible_count(menu) == 0) return -1;
+    const int slot = s_lettersOverlay.selectedSlot;
+    if (slot < 0 || slot >= menu->m_letter_num) return -1;
+    const int letter = static_cast<int>(menu->field_0x3ac[slot]) - 1;
+    return letter >= 0 ? letter : -1;
+}
+
+JGeometry::TBox2<f32> letter_row_bounds(int index) {
+    const f32 top = 68.0f + static_cast<f32>(index) * 49.0f;
+    return JGeometry::TBox2<f32>(-43.0f, top, 170.0f, top + 43.0f);
+}
+
+void position_letters_cursor(dMenu_Letter_c* menu, J2DPane* group) {
+    if (menu == nullptr || group == nullptr || menu->mpDrawCursor == nullptr) return;
+    J2DPane* frame = group->search(MULTI_CHAR('hd_lr00') + menu->mIndex);
+    if (frame == nullptr) return;
+    // The submenu root is uniformly scaled at narrow aspect ratios.  The
+    // cursor lives outside that root, so it must use the row's rendered global
+    // bounds instead of its wider authored bounds.
+    position_cursor_outside_frame(menu->mpDrawCursor, frame, 4.0f, 3.0f);
+}
+
+void ensure_letters_overlay(dMenu_Letter_c* menu) {
+    if (menu == nullptr || menu->mpBaseScreen == nullptr || menu->mpArchive == nullptr ||
+        menu->mpString == nullptr) return;
+    J2DPane* group = menu->mpBaseScreen->search(MULTI_CHAR('hd_ltov'));
+    if (group == nullptr) {
+        group = JKR_NEW J2DPane(MULTI_CHAR('hd_ltov'),
+            JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f,
+                kCollectionSubmenuCanvasHeight));
+        menu->mpBaseScreen->appendChild(group);
+
+        auto addPicture = [group](u64 tag, const JGeometry::TBox2<f32>& bounds,
+                              ResTIMG const* texture, u8 alpha = 255) -> J2DPicture* {
+            if (texture == nullptr) return nullptr;
+            auto* picture = JKR_NEW J2DPicture(tag, bounds, texture, nullptr);
+            configure_hd_picture(picture);
+            picture->setAlpha(alpha);
+            group->appendChild(picture);
+            return picture;
+        };
+
+        addPicture(MULTI_CHAR('hd_ltbg'),
+            JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f, 448.0f),
+            resource_texture(s_collectBackgroundResource));
+        addPicture(MULTI_CHAR('hd_ltru'),
+            JGeometry::TBox2<f32>(0.0f, 22.0f, 608.0f, 26.0f),
+            resource_texture(s_fishJournalRuleResource));
+        addPicture(MULTI_CHAR('hd_ltrl'),
+            JGeometry::TBox2<f32>(0.0f, 421.0f, 608.0f, 425.0f),
+            resource_texture(s_fishJournalRuleResource));
+        addPicture(MULTI_CHAR('hd_ltbk'),
+            JGeometry::TBox2<f32>(205.0f, 55.0f, 652.0f, 414.0f),
+            resource_texture(s_collectParchmentResource));
+        addPicture(MULTI_CHAR('hd_ltc1'),
+            JGeometry::TBox2<f32>(219.0f, 67.0f, 279.0f, 127.0f),
+            resource_texture(s_lettersCornerResource), 188);
+        if (J2DPicture* corner = addPicture(MULTI_CHAR('hd_ltc2'),
+                JGeometry::TBox2<f32>(578.0f, 342.0f, 638.0f, 402.0f),
+                resource_texture(s_lettersCornerResource), 188)) {
+            corner->rotate(30.0f, 30.0f, ROTATE_Z, 180.0f);
+        }
+        addPicture(MULTI_CHAR('hd_ltbn'),
+            JGeometry::TBox2<f32>(-56.0f, 16.0f, 188.0f, 55.0f),
+            resource_texture(s_collectBannerResource));
+
+        addPicture(MULTI_CHAR('hd_ltsa'),
+            JGeometry::TBox2<f32>(-74.0f, 72.0f, -50.0f, 96.0f),
+            resource_texture(s_lettersScrollArrowResource));
+        if (J2DPicture* bottomArrow = addPicture(MULTI_CHAR('hd_ltsb'),
+                JGeometry::TBox2<f32>(-74.0f, 356.0f, -50.0f, 380.0f),
+                resource_texture(s_lettersScrollArrowResource))) {
+            bottomArrow->rotate(12.0f, 12.0f, ROTATE_Z, 180.0f);
+        }
+        // Each stop is a complete rail-plus-indicator texture. This avoids
+        // the backend bug that misprojects narrow standalone picture panes.
+        for (int stop = 0; stop <= 10; ++stop) {
+            addPicture(MULTI_CHAR('hd_lu00') + stop,
+                JGeometry::TBox2<f32>(-70.0f, 104.0f, -54.0f, 348.0f),
+                resource_texture(s_lettersScrollStateResources[stop]));
+        }
+
+        auto* title = JKR_NEW J2DTextBox(MULTI_CHAR('hd_lttt'),
+            JGeometry::TBox2<f32>(-46.0f, 23.0f, 178.0f, 59.0f), nullptr,
+            "Letters", 24, HBIND_CENTER, VBIND_CENTER);
+        title->setFont(mDoExt_getMesgFont());
+        title->setFontSize(20.0f, 20.0f);
+        title->setCharSpace(0.0f);
+        title->setFontColor(JUtility::TColor(245, 245, 238, 255),
+            JUtility::TColor(255, 255, 255, 255));
+        group->appendChild(title);
+
+        ResTIMG const* rowTexture = resource_texture(s_collectMenuButtonResource);
+        ResTIMG const* envelopeTexture = collection_submenu_texture(
+            menu->mpArchive, "ni_item_icon_letter.bti");
+        for (int index = 0; index < 6; ++index) {
+            const auto bounds = letter_row_bounds(index);
+            addPicture(MULTI_CHAR('hd_lr00') + index, bounds, rowTexture);
+            addPicture(MULTI_CHAR('hd_le00') + index,
+                JGeometry::TBox2<f32>(bounds.i.x + 12.0f, bounds.i.y + 5.0f,
+                    bounds.i.x + 50.0f, bounds.i.y + 39.0f), envelopeTexture);
+            auto* subject = JKR_NEW J2DTextBox(MULTI_CHAR('hd_ls00') + index,
+                JGeometry::TBox2<f32>(bounds.i.x + 52.0f, bounds.i.y + 3.0f,
+                    bounds.f.x - 5.0f, bounds.i.y + 23.0f), nullptr,
+                "", 128, HBIND_LEFT, VBIND_CENTER);
+            subject->setFont(mDoExt_getMesgFont());
+            subject->setFontSize(12.0f, 12.0f);
+            group->appendChild(subject);
+            auto* sender = JKR_NEW J2DTextBox(MULTI_CHAR('hd_ln00') + index,
+                JGeometry::TBox2<f32>(bounds.i.x + 58.0f, bounds.i.y + 22.0f,
+                    bounds.f.x - 8.0f, bounds.f.y - 2.0f), nullptr,
+                "", 96, HBIND_RIGHT, VBIND_CENTER);
+            sender->setFont(mDoExt_getMesgFont());
+            sender->setFontSize(10.5f, 10.5f);
+            group->appendChild(sender);
+        }
+
+        auto* body = JKR_NEW J2DTextBox(MULTI_CHAR('hd_ltbx'),
+            JGeometry::TBox2<f32>(226.0f, 91.0f, 584.0f, 373.0f), nullptr,
+            "", 2048, HBIND_LEFT, VBIND_TOP);
+        body->setFont(mDoExt_getMesgFont());
+        body->setFontSize(14.0f, 14.0f);
+        body->setLineSpace(23.0f);
+        body->setFontColor(JUtility::TColor(75, 48, 18, 255),
+            JUtility::TColor(116, 78, 29, 255));
+        group->appendChild(body);
+        auto* page = JKR_NEW J2DTextBox(MULTI_CHAR('hd_ltpg'),
+            JGeometry::TBox2<f32>(395.0f, 377.0f, 492.0f, 402.0f), nullptr,
+            "", 32, HBIND_CENTER, VBIND_CENTER);
+        page->setFont(mDoExt_getMesgFont());
+        page->setFontSize(10.0f, 10.0f);
+        page->setFontColor(JUtility::TColor(104, 74, 36, 255),
+            JUtility::TColor(142, 101, 48, 255));
+        group->appendChild(page);
+        addPicture(MULTI_CHAR('hd_ltpl'),
+            JGeometry::TBox2<f32>(371.0f, 377.0f, 395.0f, 401.0f),
+            styled_l_button_texture());
+        addPicture(MULTI_CHAR('hd_ltpr'),
+            JGeometry::TBox2<f32>(492.0f, 377.0f, 516.0f, 401.0f),
+            styled_r_button_texture());
+
+        addPicture(MULTI_CHAR('hd_ltfl'),
+            JGeometry::TBox2<f32>(612.5f, 12.0f, 684.5f, 78.0f),
+            resource_texture(s_fileSelectPromptFlourishResource), 220);
+        addPicture(MULTI_CHAR('hd_ltab'),
+            JGeometry::TBox2<f32>(634.0f, 17.0f, 666.0f, 49.0f),
+            menu_face_button_texture(true));
+        addPicture(MULTI_CHAR('hd_ltbb'),
+            JGeometry::TBox2<f32>(622.0f, 40.0f, 654.0f, 72.0f),
+            menu_face_button_texture(false));
+        addPicture(MULTI_CHAR('hd_ltbt'),
+            JGeometry::TBox2<f32>(551.0f, 44.0f, 629.0f, 68.0f),
+            resource_texture(s_fileSelectBackLabelResource));
+    }
+
+    if (s_lettersOverlay.menu != menu) {
+        s_lettersOverlay = {};
+        s_lettersOverlay.menu = menu;
+    }
+    const int letterCount = static_cast<int>(menu->m_letter_num);
+    if (letterCount > 0) {
+        s_lettersOverlay.selectedSlot = std::clamp(
+            s_lettersOverlay.selectedSlot, 0, letterCount - 1);
+        const int maxOffset = std::max(0, letterCount - 6);
+        s_lettersOverlay.scrollOffset = std::clamp(
+            s_lettersOverlay.scrollOffset, 0, maxOffset);
+        if (s_lettersOverlay.selectedSlot < s_lettersOverlay.scrollOffset) {
+            s_lettersOverlay.scrollOffset = s_lettersOverlay.selectedSlot;
+        } else if (s_lettersOverlay.selectedSlot >= s_lettersOverlay.scrollOffset + 6) {
+            s_lettersOverlay.scrollOffset = s_lettersOverlay.selectedSlot - 5;
+        }
+        menu->mIndex = static_cast<u8>(
+            s_lettersOverlay.selectedSlot - s_lettersOverlay.scrollOffset);
+    } else {
+        s_lettersOverlay.selectedSlot = 0;
+        s_lettersOverlay.scrollOffset = 0;
+        menu->mIndex = 0;
+    }
+    // Native Letter code treats this byte as a six-item page index. The HD
+    // journal owns its continuous scroll window instead, so never expose a
+    // synthetic page to native draw/teardown paths.
+    menu->field_0x36f = 0;
+
+    for (int parent = 0; parent < 3; ++parent) {
+        if (menu->mpParent[parent] != nullptr) menu->mpParent[parent]->hide();
+    }
+    if (menu->mpIconScreen != nullptr) menu->mpIconScreen->hide();
+
+    fit_collection_submenu_overlay(group, MULTI_CHAR('hd_ltbg'),
+        MULTI_CHAR('hd_ltru'), MULTI_CHAR('hd_ltrl'));
+
+    const int visible = letters_visible_count(menu);
+    if (visible > 0 && menu->mIndex >= visible) menu->mIndex = visible - 1;
+    for (int index = 0; index < 6; ++index) {
+        J2DPane* framePane = group->search(MULTI_CHAR('hd_lr00') + index);
+        auto* frame = as_picture(framePane);
+        J2DPane* envelope = group->search(MULTI_CHAR('hd_le00') + index);
+        auto* subject = static_cast<J2DTextBox*>(group->search(MULTI_CHAR('hd_ls00') + index));
+        auto* sender = static_cast<J2DTextBox*>(group->search(MULTI_CHAR('hd_ln00') + index));
+        if (index >= visible) {
+            if (framePane != nullptr) framePane->hide();
+            if (envelope != nullptr) envelope->hide();
+            if (subject != nullptr) subject->hide();
+            if (sender != nullptr) sender->hide();
+            continue;
+        }
+        if (framePane != nullptr) framePane->show();
+        if (envelope != nullptr) envelope->show();
+        if (subject != nullptr) subject->show();
+        if (sender != nullptr) sender->show();
+        const int slot = s_lettersOverlay.scrollOffset + index;
+        const int letter = static_cast<int>(menu->field_0x3ac[slot]) - 1;
+        if (letter >= 0) {
+            // getString can otherwise preserve a wrapped second line from the
+            // preceding row contents when the subject changes.
+            if (subject != nullptr) subject->setString(128, "");
+            if (sender != nullptr) sender->setString(96, "");
+            menu->mpString->getString(dMenu_Letter::getLetterSubject(letter),
+                subject, nullptr, nullptr, nullptr, 0);
+            menu->mpString->getString(dMenu_Letter::getLetterName(letter),
+                sender, nullptr, nullptr, nullptr, 0);
+        }
+        const bool selected = index == menu->mIndex;
+        if (frame != nullptr) {
+            frame->setBlackWhite(
+                selected ? JUtility::TColor(35, 35, 22, 255) : JUtility::TColor(5, 5, 3, 255),
+                selected ? JUtility::TColor(226, 224, 185, 255) : JUtility::TColor(112, 112, 75, 255));
+        }
+        if (subject != nullptr) subject->setFontColor(
+            selected ? JUtility::TColor(250, 249, 235, 255) : JUtility::TColor(190, 188, 168, 255),
+            selected ? JUtility::TColor(255, 255, 245, 255) : JUtility::TColor(225, 222, 198, 255));
+        if (sender != nullptr) sender->setFontColor(
+            selected ? JUtility::TColor(218, 209, 167, 255) : JUtility::TColor(155, 151, 126, 255),
+            selected ? JUtility::TColor(238, 229, 188, 255) : JUtility::TColor(185, 181, 151, 255));
+    }
+
+    const int letter = selected_letter_index(menu);
+    if (letter != s_lettersOverlay.letter) {
+        s_lettersOverlay.letter = letter;
+        s_lettersOverlay.contentPage = 1;
+        s_lettersOverlay.contentPages = 1;
+    }
+    auto* body = static_cast<J2DTextBox*>(group->search(MULTI_CHAR('hd_ltbx')));
+    auto* page = static_cast<J2DTextBox*>(group->search(MULTI_CHAR('hd_ltpg')));
+    if (letter >= 0 && body != nullptr) {
+        constexpr int lineMax = 12;
+        menu->mpString->getStringPage(dMenu_Letter::getLetterText(letter),
+            s_lettersOverlay.contentPage - 1, lineMax, body,
+            nullptr, nullptr, nullptr, 0);
+        s_lettersOverlay.contentPages = std::max<int>(1, menu->mpString->getPageMax(lineMax));
+        s_lettersOverlay.contentPage = std::min(
+            s_lettersOverlay.contentPage, s_lettersOverlay.contentPages);
+        dComIfGs_onLetterReadFlag(letter);
+    }
+    if (page != nullptr) {
+        if (s_lettersOverlay.contentPages > 1) {
+            char pages[24];
+            SAFE_SPRINTF(pages, "Page %d/%d", s_lettersOverlay.contentPage,
+                s_lettersOverlay.contentPages);
+            page->setString(24, pages);
+            page->show();
+        } else {
+            page->hide();
+        }
+    }
+    for (const auto [tag, texture] : {
+             std::pair<u64, ResTIMG const*>{MULTI_CHAR('hd_ltpl'), styled_l_button_texture()},
+             std::pair<u64, ResTIMG const*>{MULTI_CHAR('hd_ltpr'), styled_r_button_texture()},
+         }) {
+        if (J2DPicture* prompt = as_picture(group->search(tag))) {
+            if (texture != nullptr) prompt->changeTexture(texture, 0);
+            if (s_lettersOverlay.contentPages > 1) prompt->show();
+            else prompt->hide();
+        }
+    }
+    const bool showScrollbar = letterCount > 6;
+    for (const u64 tag : {MULTI_CHAR('hd_ltsa'), MULTI_CHAR('hd_ltsb')}) {
+        if (J2DPane* pane = group->search(tag)) {
+            if (showScrollbar) pane->show();
+            else pane->hide();
+        }
+    }
+    const int maxOffset = std::max(0, letterCount - 6);
+    const int activeStop = maxOffset > 0 ? std::clamp(
+        (s_lettersOverlay.scrollOffset * 10 + maxOffset / 2) / maxOffset,
+        0, 10) : 0;
+    for (int stop = 0; stop <= 10; ++stop) {
+        if (J2DPane* thumb = group->search(MULTI_CHAR('hd_lu00') + stop)) {
+            if (showScrollbar && stop == activeStop) thumb->show();
+            else thumb->hide();
+        }
+    }
+    update_menu_face_button(menu->mpBaseScreen, MULTI_CHAR('hd_ltab'), true);
+    update_menu_face_button(menu->mpBaseScreen, MULTI_CHAR('hd_ltbb'), false);
+    position_letters_cursor(menu, group);
+}
+
+HookAction before_letter_wait_move(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Letter_c*>(args, 0);
+    if (menu == nullptr) return HOOK_CONTINUE;
+    const bool leftShoulderHeld = physical_button_held(kSdlLeftShoulderButton);
+    const bool rightShoulderHeld = physical_button_held(kSdlRightShoulderButton);
+    const bool leftShoulderTrig = leftShoulderHeld &&
+        !s_lettersOverlay.leftShoulderHeld;
+    const bool rightShoulderTrig = rightShoulderHeld &&
+        !s_lettersOverlay.rightShoulderHeld;
+    const bool dpadUpHeld = mDoCPd_c::getHoldUp(PAD_1) != 0;
+    const bool dpadDownHeld = mDoCPd_c::getHoldDown(PAD_1) != 0;
+    const bool dpadUpTrig = dpadUpHeld && !s_lettersOverlay.dpadUpHeld;
+    const bool dpadDownTrig = dpadDownHeld && !s_lettersOverlay.dpadDownHeld;
+    s_lettersOverlay.leftShoulderHeld = leftShoulderHeld;
+    s_lettersOverlay.rightShoulderHeld = rightShoulderHeld;
+    s_lettersOverlay.dpadUpHeld = dpadUpHeld;
+    s_lettersOverlay.dpadDownHeld = dpadDownHeld;
+    if (mDoGph_gInf_c::getFader()->getStatus() == 1) {
+        if (mDoCPd_c::getTrigB(PAD_1)) {
+            menu->mpDrawCursor->offPlayAnime(0);
+            menu->mStatus = 3;
+        } else if (leftShoulderTrig &&
+                   s_lettersOverlay.contentPage > 1) {
+            --s_lettersOverlay.contentPage;
+            Z2GetAudioMgr()->seStart(Z2SE_SY_LETTER_NEXT_PAGE, nullptr, 0, 0,
+                1.0f, 1.0f, -1.0f, -1.0f, 0);
+        } else if (rightShoulderTrig &&
+                   s_lettersOverlay.contentPage < s_lettersOverlay.contentPages) {
+            ++s_lettersOverlay.contentPage;
+            Z2GetAudioMgr()->seStart(Z2SE_SY_LETTER_NEXT_PAGE, nullptr, 0, 0,
+                1.0f, 1.0f, -1.0f, -1.0f, 0);
+        } else {
+            const bool up = dpadUpTrig || (!dpadUpHeld &&
+                menu->mpStick != nullptr && menu->mpStick->checkUpTrigger());
+            const bool down = dpadDownTrig || (!dpadDownHeld &&
+                menu->mpStick != nullptr && menu->mpStick->checkDownTrigger());
+            int next = s_lettersOverlay.selectedSlot;
+            if (up && next > 0) --next;
+            if (down && next + 1 < menu->m_letter_num) ++next;
+            if (next != s_lettersOverlay.selectedSlot) {
+                s_lettersOverlay.selectedSlot = next;
+                if (next < s_lettersOverlay.scrollOffset) {
+                    s_lettersOverlay.scrollOffset = next;
+                } else if (next >= s_lettersOverlay.scrollOffset + 6) {
+                    s_lettersOverlay.scrollOffset = next - 5;
+                }
+                s_lettersOverlay.letter = -1;
+                Z2GetAudioMgr()->seStart(Z2SE_SY_CURSOR_ITEM, nullptr, 0, 0,
+                    1.0f, 1.0f, -1.0f, -1.0f, 0);
+            }
+        }
+    }
+    return HOOK_SKIP_ORIGINAL;
+}
+
+void after_letter_move(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Letter_c*>(args, 0);
+    if (menu == nullptr) return;
+    ensure_letters_overlay(menu);
+#if TARGET_PC
+    if (s_menuPointerBeginContext == nullptr || s_menuPointerState == nullptr ||
+        s_menuPointerSetHoverTarget == nullptr || s_menuPointerConsumeClick == nullptr) return;
+    s_menuPointerBeginContext(dusk::menu_pointer::Context::Collection);
+    const auto& pointer = s_menuPointerState();
+    if (!pointer.valid) return;
+    const int visible = letters_visible_count(menu);
+    for (int index = 0; index < visible; ++index) {
+        J2DPane* row = menu->mpBaseScreen != nullptr ?
+            menu->mpBaseScreen->search(MULTI_CHAR('hd_lr00') + index) : nullptr;
+        const auto bounds = collection_submenu_global_bounds(row);
+        if (pointer.x < bounds.i.x || pointer.x > bounds.f.x ||
+            pointer.y < bounds.i.y || pointer.y > bounds.f.y) continue;
+        s_menuPointerSetHoverTarget(
+            static_cast<dusk::menu_pointer::TargetId>(0x800 + index));
+        const int selectedSlot = s_lettersOverlay.scrollOffset + index;
+        if (s_lettersOverlay.selectedSlot != selectedSlot) {
+            s_lettersOverlay.selectedSlot = selectedSlot;
+            s_lettersOverlay.letter = -1;
+        }
+        s_menuPointerConsumeClick();
+        ensure_letters_overlay(menu);
+        break;
+    }
+#endif
+}
+
+constexpr u32 kHiddenSkillDescriptionIds[7] = {
+    1716, 1715, 1717, 1718, 1719, 1720, 1721,
+};
+
+constexpr const char* kHiddenSkillPanelPaths[7] = {
+    "menu/hidden-skills/ending-blow.bti",
+    "menu/hidden-skills/shield-attack.bti",
+    "menu/hidden-skills/back-slice.bti",
+    "menu/hidden-skills/helm-splitter.bti",
+    "menu/hidden-skills/mortal-draw.bti",
+    "menu/hidden-skills/jump-strike.bti",
+    "menu/hidden-skills/great-spin.bti",
+};
+
+constexpr const char* kLettersScrollStatePaths[11] = {
+    "menu/letters-scroll-state-0.bti",
+    "menu/letters-scroll-state-1.bti",
+    "menu/letters-scroll-state-2.bti",
+    "menu/letters-scroll-state-3.bti",
+    "menu/letters-scroll-state-4.bti",
+    "menu/letters-scroll-state-5.bti",
+    "menu/letters-scroll-state-6.bti",
+    "menu/letters-scroll-state-7.bti",
+    "menu/letters-scroll-state-8.bti",
+    "menu/letters-scroll-state-9.bti",
+    "menu/letters-scroll-state-10.bti",
+};
+
+JGeometry::TBox2<f32> hidden_skill_row_bounds(int index) {
+    const f32 top = 63.0f + static_cast<f32>(index) * 47.0f;
+    return JGeometry::TBox2<f32>(-82.0f, top, 178.0f, top + 42.0f);
+}
+
+ResTIMG const* hidden_skill_inline_icon_texture(COutFont_c* outFont, u8 type) {
+    switch (type) {
+    case 0: return menu_face_button_texture(true);
+    case 1: return menu_face_button_texture(false);
+    case 3: return styled_zl_button_texture();
+    case 4: return styled_r_button_texture();
+    case 5: return item_assignment_button_texture(true);
+    case 6: return item_assignment_button_texture(false);
+    case 7: return styled_r_button_texture();
+    default:
+        break;
+    }
+    if (outFont == nullptr || type >= 70 || outFont->mpPane[type] == nullptr ||
+        outFont->mpPane[type]->getTexture(0) == nullptr) {
+        return nullptr;
+    }
+    return outFont->mpPane[type]->getTexture(0)->getTexInfo();
+}
+
+void update_hidden_skill_inline_icons(dMenu_Skill_c* menu, J2DPane* group,
+    J2DTextBox* description) {
+    constexpr int kInlineIconCount = 12;
+    for (int index = 0; index < kInlineIconCount; ++index) {
+        if (J2DPane* pane = group->search(MULTI_CHAR('hd_hx00') + index)) pane->hide();
+    }
+    if (menu == nullptr || menu->mpString == nullptr ||
+        menu->mpString->mpOutFont == nullptr || description == nullptr) return;
+
+    COutFont_c* outFont = menu->mpString->mpOutFont;
+    const auto textBounds = description->getBounds();
+    int visibleIndex = 0;
+    for (COutFontSet_c* icon : outFont->mpOfs) {
+        if (visibleIndex >= kInlineIconCount) break;
+        if (icon == nullptr || icon->getTextBoxPtr() != description ||
+            icon->getType() == 0x47) continue;
+        ResTIMG const* texture = hidden_skill_inline_icon_texture(outFont, icon->getType());
+        auto* picture = as_picture(group->search(MULTI_CHAR('hd_hx00') + visibleIndex));
+        if (picture == nullptr || texture == nullptr) continue;
+
+        const f32 x = textBounds.i.x + icon->getPosX();
+        const f32 y = textBounds.i.y + icon->getPosY();
+        picture->move(x, y);
+        picture->resize(icon->getSizeX(), icon->getSizeY());
+        picture->changeTexture(texture, 0);
+        set_neutral_picture_colors(picture);
+        picture->setAlpha(icon->getAlpha());
+        picture->show();
+        ++visibleIndex;
+    }
+}
+
+void position_hidden_skill_cursor(dMenu_Skill_c* menu, J2DPane* group) {
+    if (menu == nullptr || group == nullptr || menu->mpDrawCursor == nullptr) return;
+    J2DPane* frame = group->search(MULTI_CHAR('hd_hs00') + menu->mIndex);
+    if (frame == nullptr) return;
+    position_cursor_outside_frame(menu->mpDrawCursor, frame, 4.0f, 3.0f);
+}
+
+void ensure_hidden_skills_overlay(dMenu_Skill_c* menu) {
+    if (menu == nullptr || menu->mpMenuScreen == nullptr || menu->mpArchive == nullptr) return;
+    J2DPane* group = menu->mpMenuScreen->search(MULTI_CHAR('hd_hsov'));
+    if (group == nullptr) {
+        group = JKR_NEW J2DPane(MULTI_CHAR('hd_hsov'),
+            JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f,
+                kCollectionSubmenuCanvasHeight));
+        menu->mpMenuScreen->appendChild(group);
+
+        auto addPicture = [group](u64 tag, const JGeometry::TBox2<f32>& bounds,
+                              ResTIMG const* texture, u8 alpha = 255) -> J2DPicture* {
+            if (texture == nullptr) return nullptr;
+            auto* picture = JKR_NEW J2DPicture(tag, bounds, texture, nullptr);
+            configure_hd_picture(picture);
+            picture->setAlpha(alpha);
+            group->appendChild(picture);
+            return picture;
+        };
+
+        addPicture(MULTI_CHAR('hd_hsbg'),
+            JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f, 448.0f),
+            resource_texture(s_collectBackgroundResource));
+        addPicture(MULTI_CHAR('hd_hsru'),
+            JGeometry::TBox2<f32>(0.0f, 22.0f, 608.0f, 26.0f),
+            resource_texture(s_fishJournalRuleResource));
+        addPicture(MULTI_CHAR('hd_hsrl'),
+            JGeometry::TBox2<f32>(0.0f, 421.0f, 608.0f, 425.0f),
+            resource_texture(s_fishJournalRuleResource));
+        addPicture(MULTI_CHAR('hd_hsbk'),
+            JGeometry::TBox2<f32>(193.0f, 32.0f, 654.0f, 416.0f),
+            resource_texture(s_collectParchmentResource));
+        addPicture(MULTI_CHAR('hd_hsdt'),
+            JGeometry::TBox2<f32>(229.0f, 48.0f, 590.0f, 68.0f),
+            resource_texture(s_fishJournalDividerResource), 135);
+        addPicture(MULTI_CHAR('hd_hsdb'),
+            JGeometry::TBox2<f32>(229.0f, 385.0f, 590.0f, 405.0f),
+            resource_texture(s_fishJournalDividerResource), 90);
+        addPicture(MULTI_CHAR('hd_hsbn'),
+            JGeometry::TBox2<f32>(-56.0f, 16.0f, 188.0f, 55.0f),
+            resource_texture(s_collectBannerResource));
+
+        auto* title = JKR_NEW J2DTextBox(MULTI_CHAR('hd_hstt'),
+            JGeometry::TBox2<f32>(-46.0f, 23.0f, 178.0f, 59.0f), nullptr,
+            "Skills", 24, HBIND_CENTER, VBIND_CENTER);
+        title->setFont(mDoExt_getMesgFont());
+        title->setFontSize(20.0f, 20.0f);
+        title->setCharSpace(0.0f);
+        title->setFontColor(JUtility::TColor(245, 245, 238, 255),
+            JUtility::TColor(255, 255, 255, 255));
+        group->appendChild(title);
+
+        ResTIMG const* rowTexture = resource_texture(s_collectMenuButtonResource);
+        ResTIMG const* scrollTexture = menu->field_0x94[0] != nullptr &&
+            menu->field_0x94[0]->getTexture(0) != nullptr ?
+            menu->field_0x94[0]->getTexture(0)->getTexInfo() : nullptr;
+        for (int index = 0; index < 7; ++index) {
+            const auto bounds = hidden_skill_row_bounds(index);
+            addPicture(MULTI_CHAR('hd_hs00') + index, bounds, rowTexture);
+            addPicture(MULTI_CHAR('hd_hi00') + index,
+                JGeometry::TBox2<f32>(bounds.i.x + 13.0f, bounds.i.y + 5.0f,
+                    bounds.i.x + 43.0f, bounds.i.y + 37.0f), scrollTexture);
+            auto* ordinal = JKR_NEW J2DTextBox(MULTI_CHAR('hd_ho00') + index,
+                JGeometry::TBox2<f32>(bounds.i.x + 51.0f, bounds.i.y + 3.0f,
+                    bounds.f.x - 5.0f, bounds.i.y + 20.0f), nullptr,
+                "", 96, HBIND_LEFT, VBIND_CENTER);
+            ordinal->setFont(mDoExt_getMesgFont());
+            ordinal->setFontSize(11.0f, 11.0f);
+            group->appendChild(ordinal);
+            auto* name = JKR_NEW J2DTextBox(MULTI_CHAR('hd_hn00') + index,
+                JGeometry::TBox2<f32>(bounds.i.x + 61.0f, bounds.i.y + 18.0f,
+                    bounds.f.x - 5.0f, bounds.f.y - 2.0f), nullptr,
+                "", 96, HBIND_LEFT, VBIND_CENTER);
+            name->setFont(mDoExt_getMesgFont());
+            name->setFontSize(13.5f, 13.5f);
+            group->appendChild(name);
+        }
+
+        addPicture(MULTI_CHAR('hd_hsim'),
+            JGeometry::TBox2<f32>(247.0f, 72.0f, 575.0f, 272.0f),
+            resource_texture(s_hiddenSkillPanelResources[0]));
+        auto* detailName = JKR_NEW J2DTextBox(MULTI_CHAR('hd_hsdn'),
+            JGeometry::TBox2<f32>(248.0f, 278.0f, 582.0f, 316.0f), nullptr,
+            "", 96, HBIND_LEFT, VBIND_CENTER);
+        detailName->setFont(mDoExt_getMesgFont());
+        detailName->setFontSize(21.0f, 21.0f);
+        detailName->setFontColor(JUtility::TColor(91, 58, 19, 255),
+            JUtility::TColor(132, 88, 28, 255));
+        group->appendChild(detailName);
+        auto* description = JKR_NEW J2DTextBox(MULTI_CHAR('hd_hsds'),
+            JGeometry::TBox2<f32>(250.0f, 321.0f, 583.0f, 397.0f), nullptr,
+            "", 1024, HBIND_LEFT, VBIND_TOP);
+        description->setFont(mDoExt_getMesgFont());
+        description->setFontSize(12.0f, 12.0f);
+        description->setLineSpace(16.0f);
+        description->setFontColor(JUtility::TColor(83, 56, 21, 255),
+            JUtility::TColor(125, 86, 31, 255));
+        group->appendChild(description);
+        for (int index = 0; index < 12; ++index) {
+            if (J2DPicture* icon = addPicture(MULTI_CHAR('hd_hx00') + index,
+                    JGeometry::TBox2<f32>(0.0f, 0.0f, 16.0f, 16.0f),
+                    menu_face_button_texture(true))) {
+                icon->hide();
+            }
+        }
+
+        addPicture(MULTI_CHAR('hd_hsfl'),
+            JGeometry::TBox2<f32>(612.5f, 12.0f, 684.5f, 78.0f),
+            resource_texture(s_fileSelectPromptFlourishResource), 220);
+        addPicture(MULTI_CHAR('hd_hsab'),
+            JGeometry::TBox2<f32>(634.0f, 17.0f, 666.0f, 49.0f),
+            menu_face_button_texture(true));
+        addPicture(MULTI_CHAR('hd_hsbb'),
+            JGeometry::TBox2<f32>(622.0f, 40.0f, 654.0f, 72.0f),
+            menu_face_button_texture(false));
+        addPicture(MULTI_CHAR('hd_hsbt'),
+            JGeometry::TBox2<f32>(551.0f, 44.0f, 629.0f, 68.0f),
+            resource_texture(s_fileSelectBackLabelResource));
+    }
+
+    if (menu->mpParent != nullptr) menu->mpParent->hide();
+    if (menu->mpIconScreen != nullptr) menu->mpIconScreen->hide();
+    menu->setAButtonString(0);
+
+    fit_collection_submenu_overlay(group, MULTI_CHAR('hd_hsbg'),
+        MULTI_CHAR('hd_hsru'), MULTI_CHAR('hd_hsrl'));
+
+    for (int index = 0; index < 7; ++index) {
+        const bool unlocked = index < menu->mSkillNum;
+        J2DPane* framePane = group->search(MULTI_CHAR('hd_hs00') + index);
+        auto* frame = as_picture(framePane);
+        J2DPane* icon = group->search(MULTI_CHAR('hd_hi00') + index);
+        auto* ordinal = static_cast<J2DTextBox*>(group->search(MULTI_CHAR('hd_ho00') + index));
+        auto* name = static_cast<J2DTextBox*>(group->search(MULTI_CHAR('hd_hn00') + index));
+        if (unlocked) {
+            if (framePane != nullptr) framePane->show();
+            if (icon != nullptr) icon->show();
+            if (ordinal != nullptr) {
+                ordinal->setString(96, text_box_string(menu->mpFTagPicture[index][0]));
+                ordinal->show();
+            }
+            if (name != nullptr) {
+                name->setString(96, text_box_string(menu->mpFTagPicture[index][2]));
+                name->show();
+            }
+            const bool selected = index == menu->mIndex;
+            if (frame != nullptr) {
+                frame->setBlackWhite(
+                    selected ? JUtility::TColor(35, 35, 22, 255) : JUtility::TColor(5, 5, 3, 255),
+                    selected ? JUtility::TColor(226, 224, 185, 255) : JUtility::TColor(112, 112, 75, 255));
+            }
+            const JUtility::TColor dark = selected ?
+                JUtility::TColor(245, 244, 225, 255) : JUtility::TColor(190, 188, 168, 255);
+            const JUtility::TColor light = selected ?
+                JUtility::TColor(255, 255, 245, 255) : JUtility::TColor(225, 222, 198, 255);
+            if (ordinal != nullptr) ordinal->setFontColor(dark, light);
+            if (name != nullptr) name->setFontColor(dark, light);
+        } else {
+            if (framePane != nullptr) framePane->hide();
+            if (icon != nullptr) icon->hide();
+            if (ordinal != nullptr) ordinal->hide();
+            if (name != nullptr) name->hide();
+        }
+    }
+
+    const int selected = std::min<int>(menu->mIndex, 6);
+    if (auto* image = as_picture(group->search(MULTI_CHAR('hd_hsim')))) {
+        if (ResTIMG const* texture = resource_texture(s_hiddenSkillPanelResources[selected])) {
+            image->changeTexture(texture, 0);
+        }
+    }
+    if (auto* name = static_cast<J2DTextBox*>(group->search(MULTI_CHAR('hd_hsdn')))) {
+        name->setString(96, text_box_string(menu->mpFTagPicture[selected][2]));
+    }
+    if (auto* description = static_cast<J2DTextBox*>(group->search(MULTI_CHAR('hd_hsds')))) {
+        menu->mpString->getString(kHiddenSkillDescriptionIds[selected],
+            description, nullptr, nullptr, nullptr, 0);
+        update_hidden_skill_inline_icons(menu, group, description);
+    }
+    update_menu_face_button(menu->mpMenuScreen, MULTI_CHAR('hd_hsab'), true);
+    update_menu_face_button(menu->mpMenuScreen, MULTI_CHAR('hd_hsbb'), false);
+    position_hidden_skill_cursor(menu, group);
+}
+
+HookAction before_skill_wait_move(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Skill_c*>(args, 0);
+    if (menu == nullptr) return HOOK_CONTINUE;
+    if (s_hiddenSkillInput.menu != menu) {
+        s_hiddenSkillInput = {};
+        s_hiddenSkillInput.menu = menu;
+    }
+    const bool dpadUpHeld = mDoCPd_c::getHoldUp(PAD_1) != 0;
+    const bool dpadDownHeld = mDoCPd_c::getHoldDown(PAD_1) != 0;
+    const bool dpadUpTrig = dpadUpHeld && !s_hiddenSkillInput.dpadUpHeld;
+    const bool dpadDownTrig = dpadDownHeld && !s_hiddenSkillInput.dpadDownHeld;
+    s_hiddenSkillInput.dpadUpHeld = dpadUpHeld;
+    s_hiddenSkillInput.dpadDownHeld = dpadDownHeld;
+    if (mDoGph_gInf_c::getFader()->getStatus() == 1) {
+        if (mDoCPd_c::getTrigB(PAD_1)) {
+            menu->mpDrawCursor->offPlayAnime(0);
+            menu->mStatus = 3;
+        } else {
+            int next = menu->mIndex;
+            const bool up = dpadUpTrig || (!dpadUpHeld &&
+                menu->mpStick != nullptr && menu->mpStick->checkUpTrigger());
+            const bool down = dpadDownTrig || (!dpadDownHeld &&
+                menu->mpStick != nullptr && menu->mpStick->checkDownTrigger());
+            if (up && next > 0) --next;
+            if (down && next + 1 < menu->mSkillNum) ++next;
+            if (next != menu->mIndex) {
+                menu->mIndex = static_cast<u8>(next);
+                menu->changeActiveColor();
+                Z2GetAudioMgr()->seStart(Z2SE_SY_CURSOR_ITEM, nullptr, 0, 0,
+                    1.0f, 1.0f, -1.0f, -1.0f, 0);
+            }
+        }
+    }
+    return HOOK_SKIP_ORIGINAL;
 }
 
 void after_skill_create(ModContext*, void* args, void*, void*) {
@@ -9703,7 +11045,310 @@ void after_skill_create(ModContext*, void* args, void*, void*) {
     if (menu != nullptr) {
         apply_collection_submenu_button_layout(menu->mpIconScreen,
             menu->mpArchive, menu->mpString);
+        ensure_hidden_skills_overlay(menu);
     }
+}
+
+void after_skill_move(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Skill_c*>(args, 0);
+    if (menu == nullptr) return;
+    ensure_hidden_skills_overlay(menu);
+#if TARGET_PC
+    if (s_menuPointerBeginContext == nullptr || s_menuPointerState == nullptr ||
+        s_menuPointerSetHoverTarget == nullptr || s_menuPointerConsumeClick == nullptr) return;
+    s_menuPointerBeginContext(dusk::menu_pointer::Context::Collection);
+    const auto& pointer = s_menuPointerState();
+    if (!pointer.valid) return;
+    for (int index = 0; index < menu->mSkillNum; ++index) {
+        J2DPane* row = menu->mpMenuScreen != nullptr ?
+            menu->mpMenuScreen->search(MULTI_CHAR('hd_hs00') + index) : nullptr;
+        const auto bounds = collection_submenu_global_bounds(row);
+        if (pointer.x < bounds.i.x || pointer.x > bounds.f.x ||
+            pointer.y < bounds.i.y || pointer.y > bounds.f.y) continue;
+        s_menuPointerSetHoverTarget(
+            static_cast<dusk::menu_pointer::TargetId>(0x700 + index));
+        if (menu->mIndex != index) {
+            menu->mIndex = static_cast<u8>(index);
+            menu->changeActiveColor();
+        }
+        s_menuPointerConsumeClick();
+        break;
+    }
+#endif
+}
+
+constexpr const char* kGoldenBugTextureNames[MAX_INSECT_NUM] = {
+    "ari_osu_00.bti", "ari_mesu_00.bti",
+    "kagero_osu_00.bti", "kagero_mesu_00.bti",
+    "kabuto_osu_00.bti", "kabuto_mesu_00.bti",
+    "kamakiri_osu_00.bti", "kamakiri_mesu_00.bti",
+    "kuwagata_osu_00.bti", "kuwagata_mesu_00.bti",
+    "dangomushi_osu_00.bti", "dangomushi_mesu_00.bti",
+    "chocho_osu_00.bti", "chocho_mesu_00.bti",
+    "tentomushi_osu_00.bti", "tentomushi_mesu_00.bti",
+    "katatumuri_osu_00.bti", "katatumuri_mesu_00.bti",
+    "nanahushi_osu_00.bti", "nanahushi_mesu_00.bti",
+    "batta_osu_00.bti", "batta_mesu_00.bti",
+    "tonbo_osu_00.bti", "tonbo_mesu_00.bti",
+};
+
+constexpr const char* kGoldenBugSpecies[12] = {
+    "ant", "dayfly", "beetle",
+    "mantis", "stag beetle", "pill bug",
+    "butterfly", "ladybug", "snail",
+    "phasmid", "grasshopper", "dragonfly",
+};
+
+JGeometry::TBox2<f32> golden_bug_slot_bounds(int index) {
+    // Center the complete six-column grid between the parchment's left edge
+    // and the details divider.  Keeping this offset in the shared bounds
+    // helper moves the art, cursor anchors, native hit panes, and pointer hit
+    // targets together.
+    constexpr f32 centersX[6] = {-4.0f, 60.0f, 144.0f, 208.0f, 292.0f, 356.0f};
+    constexpr f32 centersY[4] = {123.0f, 199.0f, 275.0f, 351.0f};
+    const f32 x = centersX[index % 6];
+    const f32 y = centersY[index / 6];
+    return JGeometry::TBox2<f32>(x - 24.0f, y - 24.0f, x + 24.0f, y + 24.0f);
+}
+
+void position_golden_bug_cursor(dMenu_Insect_c* menu, J2DPane* group) {
+    if (menu == nullptr || group == nullptr || menu->mpDrawCursor == nullptr) return;
+    const int selected = menu->field_0xf4 + menu->field_0xf5 * 6;
+    J2DPane* frame = group->search(MULTI_CHAR('hd_gs00') + selected);
+    if (frame == nullptr) return;
+    position_cursor_outside_frame(menu->mpDrawCursor, frame, 4.0f, 3.0f);
+}
+
+void clean_golden_bug_description(J2DTextBox* description, bool female) {
+    if (description == nullptr || description->getStringPtr() == nullptr) return;
+    char* text = description->getStringPtr();
+    constexpr const char* phrase = "golden-bodied ";
+    char* marker = std::strstr(text, phrase);
+    if (marker == nullptr) return;
+    marker += std::strlen(phrase);
+    char* nextSpace = std::strchr(marker, ' ');
+    if (nextSpace == nullptr || nextSpace == marker) return;
+
+    // The native message embeds an out-font sex symbol. A plain J2DTextBox
+    // cannot render that control sequence, so replace it with an equivalent
+    // word while the proper symbol is drawn beside the species name.
+    const char* replacement = female ? "female" : "male";
+    const std::size_t replacementLength = std::strlen(replacement);
+    const std::size_t suffixLength = std::strlen(nextSpace);
+    std::memmove(marker + replacementLength, nextSpace, suffixLength + 1);
+    std::memcpy(marker, replacement, replacementLength);
+}
+
+HookAction before_insect_wait_move(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Insect_c*>(args, 0);
+    if (menu == nullptr) return HOOK_CONTINUE;
+
+    // Golden Bugs is now a single-page journal. Preserve native close and
+    // directional navigation, but deliberately omit the old A-button detail
+    // transition because the details are already visible on the page.
+    if (mDoGph_gInf_c::getFader()->getStatus() == 1) {
+        if (mDoCPd_c::getTrigB(PAD_1) || menu->field_0xf7 == 0) {
+            if (mDoCPd_c::getTrigB(PAD_1) && menu->field_0xf6 == 1) {
+                dMeter2Info_setInsectSelectType(0);
+            }
+            menu->mStatus = 3;
+            menu->mpDrawCursor->offPlayAnime(0);
+        } else {
+            menu->cursorMove();
+        }
+    }
+    return HOOK_SKIP_ORIGINAL;
+}
+
+void ensure_golden_bugs_overlay(dMenu_Insect_c* menu) {
+    if (menu == nullptr || menu->mpScreen == nullptr || menu->mpArchive == nullptr) {
+        return;
+    }
+
+    J2DPane* group = menu->mpScreen->search(MULTI_CHAR('hd_gbov'));
+    if (group == nullptr) {
+        group = JKR_NEW J2DPane(MULTI_CHAR('hd_gbov'),
+            JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f,
+                kCollectionSubmenuCanvasHeight));
+        menu->mpScreen->appendChild(group);
+
+        auto addPicture = [group](u64 tag, const JGeometry::TBox2<f32>& bounds,
+                              ResTIMG const* texture, u8 alpha = 255) -> J2DPicture* {
+            if (texture == nullptr) return nullptr;
+            auto* picture = JKR_NEW J2DPicture(tag, bounds, texture, nullptr);
+            configure_hd_picture(picture);
+            picture->setAlpha(alpha);
+            group->appendChild(picture);
+            return picture;
+        };
+
+        addPicture(MULTI_CHAR('hd_gbbg'),
+            JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f, 448.0f),
+            resource_texture(s_collectBackgroundResource));
+        addPicture(MULTI_CHAR('hd_gbru'),
+            JGeometry::TBox2<f32>(0.0f, 22.0f, 608.0f, 26.0f),
+            resource_texture(s_fishJournalRuleResource));
+        addPicture(MULTI_CHAR('hd_gbrl'),
+            JGeometry::TBox2<f32>(0.0f, 421.0f, 608.0f, 425.0f),
+            resource_texture(s_fishJournalRuleResource));
+        addPicture(MULTI_CHAR('hd_gbbk'),
+            JGeometry::TBox2<f32>(-58.0f, 32.0f, 666.0f, 416.0f),
+            resource_texture(s_collectParchmentResource));
+        addPicture(MULTI_CHAR('hd_gbbn'),
+            JGeometry::TBox2<f32>(-56.0f, 16.0f, 188.0f, 55.0f),
+            resource_texture(s_collectBannerResource));
+
+        auto* title = JKR_NEW J2DTextBox(MULTI_CHAR('hd_gbtt'),
+            JGeometry::TBox2<f32>(-46.0f, 23.0f, 178.0f, 59.0f), nullptr,
+            "Golden Bugs", 24, HBIND_CENTER, VBIND_CENTER);
+        title->setFont(mDoExt_getMesgFont());
+        title->setFontSize(20.0f, 20.0f);
+        title->setCharSpace(0.0f);
+        title->setFontColor(JUtility::TColor(245, 245, 238, 255),
+            JUtility::TColor(255, 255, 255, 255));
+        group->appendChild(title);
+
+        ResTIMG const* frameTexture = resource_texture(s_collectEquipmentFrameResource);
+        ResTIMG const* agithaTexture = collection_submenu_texture(menu->mpArchive, "ageha_01.bti");
+        for (int index = 0; index < MAX_INSECT_NUM; ++index) {
+            const JGeometry::TBox2<f32> bounds = golden_bug_slot_bounds(index);
+            if (J2DPicture* frame = addPicture(MULTI_CHAR('hd_gs00') + index,
+                    bounds, frameTexture)) {
+                frame->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+                    JUtility::TColor(112, 78, 35, 255));
+            }
+            const JGeometry::TBox2<f32> iconBounds(
+                bounds.i.x + 4.0f, bounds.i.y + 4.0f,
+                bounds.f.x - 4.0f, bounds.f.y - 4.0f);
+            addPicture(MULTI_CHAR('hd_gi00') + index, iconBounds,
+                collection_submenu_texture(menu->mpArchive,
+                    kGoldenBugTextureNames[index]));
+            addPicture(MULTI_CHAR('hd_ga00') + index,
+                JGeometry::TBox2<f32>(bounds.i.x - 8.0f, bounds.i.y - 10.0f,
+                    bounds.i.x + 16.0f, bounds.i.y + 14.0f), agithaTexture);
+        }
+
+        addPicture(MULTI_CHAR('hd_gbdv'),
+            JGeometry::TBox2<f32>(402.0f, 88.0f, 408.0f, 340.0f),
+            resource_texture(s_fishJournalSeamResource), 115);
+        addPicture(MULTI_CHAR('hd_gbic'),
+            JGeometry::TBox2<f32>(472.0f, 92.0f, 536.0f, 156.0f),
+            collection_submenu_texture(menu->mpArchive,
+                kGoldenBugTextureNames[0]));
+        addPicture(MULTI_CHAR('hd_gbdr'),
+            JGeometry::TBox2<f32>(432.0f, 194.0f, 574.0f, 218.0f),
+            resource_texture(s_fishJournalDividerResource), 190);
+
+        auto* name = JKR_NEW J2DTextBox(MULTI_CHAR('hd_gbnm'),
+            JGeometry::TBox2<f32>(448.0f, 158.0f, 582.0f, 192.0f), nullptr,
+            "", 64, HBIND_LEFT, VBIND_CENTER);
+        name->setFont(mDoExt_getSubFont());
+        name->setFontSize(18.0f, 18.0f);
+        name->setFontColor(JUtility::TColor(91, 58, 19, 255),
+            JUtility::TColor(132, 88, 28, 255));
+        group->appendChild(name);
+        addPicture(MULTI_CHAR('hd_gbsm'),
+            JGeometry::TBox2<f32>(420.0f, 159.0f, 448.0f, 187.0f),
+            resource_texture(s_goldenBugMaleResource));
+        addPicture(MULTI_CHAR('hd_gbsf'),
+            JGeometry::TBox2<f32>(420.0f, 159.0f, 448.0f, 187.0f),
+            resource_texture(s_goldenBugFemaleResource));
+
+        auto* description = JKR_NEW J2DTextBox(MULTI_CHAR('hd_gbds'),
+            JGeometry::TBox2<f32>(420.0f, 224.0f, 592.0f, 328.0f), nullptr,
+            "", 512, HBIND_LEFT, VBIND_TOP);
+        description->setFont(mDoExt_getMesgFont());
+        description->setFontSize(12.5f, 12.5f);
+        description->setLineSpace(16.0f);
+        description->setFontColor(JUtility::TColor(83, 56, 21, 255),
+            JUtility::TColor(125, 86, 31, 255));
+        group->appendChild(description);
+
+        addPicture(MULTI_CHAR('hd_gbfl'),
+            JGeometry::TBox2<f32>(612.5f, 12.0f, 684.5f, 78.0f),
+            resource_texture(s_fileSelectPromptFlourishResource), 220);
+        addPicture(MULTI_CHAR('hd_gbab'),
+            JGeometry::TBox2<f32>(634.0f, 17.0f, 666.0f, 49.0f),
+            menu_face_button_texture(true));
+        addPicture(MULTI_CHAR('hd_gbbb'),
+            JGeometry::TBox2<f32>(622.0f, 40.0f, 654.0f, 72.0f),
+            menu_face_button_texture(false));
+        addPicture(MULTI_CHAR('hd_gbbt'),
+            JGeometry::TBox2<f32>(551.0f, 44.0f, 629.0f, 68.0f),
+            resource_texture(s_fileSelectBackLabelResource));
+    }
+
+    // The HD replacement owns the base screen and prompt cluster. Native
+    // explanation overlays still draw normally after A is pressed.
+    if (menu->mpParent != nullptr) menu->mpParent->hide();
+    if (menu->mpIconScreen != nullptr) menu->mpIconScreen->hide();
+
+    fit_collection_submenu_overlay(group, MULTI_CHAR('hd_gbbg'),
+        MULTI_CHAR('hd_gbru'), MULTI_CHAR('hd_gbrl'));
+
+    const int selected = menu->field_0xf4 + menu->field_0xf5 * 6;
+    for (int index = 0; index < MAX_INSECT_NUM; ++index) {
+        const bool caught = menu->isGetInsect(index % 6, index / 6);
+        const bool given = menu->isGiveInsect(index % 6, index / 6);
+        if (J2DPane* icon = group->search(MULTI_CHAR('hd_gi00') + index)) {
+            caught ? icon->show() : icon->hide();
+        }
+        if (J2DPane* marker = group->search(MULTI_CHAR('hd_ga00') + index)) {
+            given ? marker->show() : marker->hide();
+        }
+        if (menu->mpINSParent[index] != nullptr) {
+            J2DPane* hitPane = menu->mpINSParent[index]->getPanePtr();
+            if (hitPane != nullptr) {
+                const auto bounds = golden_bug_slot_bounds(index);
+                hitPane->resize(bounds.getWidth(), bounds.getHeight());
+                hitPane->move(bounds.i.x, bounds.i.y);
+            }
+        }
+    }
+
+    const bool selectedCaught = menu->isGetInsect(menu->field_0xf4, menu->field_0xf5);
+    J2DPicture* detailIcon = as_picture(group->search(MULTI_CHAR('hd_gbic')));
+    auto* detailName = static_cast<J2DTextBox*>(
+        group->search(MULTI_CHAR('hd_gbnm')));
+    auto* description = static_cast<J2DTextBox*>(
+        group->search(MULTI_CHAR('hd_gbds')));
+    J2DPane* maleSymbol = group->search(MULTI_CHAR('hd_gbsm'));
+    J2DPane* femaleSymbol = group->search(MULTI_CHAR('hd_gbsf'));
+    if (selectedCaught) {
+        ResTIMG const* selectedTexture = collection_submenu_texture(menu->mpArchive,
+            kGoldenBugTextureNames[selected]);
+        if (detailIcon != nullptr && selectedTexture != nullptr) {
+            detailIcon->changeTexture(selectedTexture, 0);
+            detailIcon->show();
+        }
+        if (detailName != nullptr) {
+            detailName->setString(64, kGoldenBugSpecies[(selected / 2)]);
+            detailName->show();
+        }
+        const bool female = (selected & 1) != 0;
+        if (maleSymbol != nullptr) female ? maleSymbol->hide() : maleSymbol->show();
+        if (femaleSymbol != nullptr) female ? femaleSymbol->show() : femaleSymbol->hide();
+        if (description != nullptr && menu->mpString != nullptr) {
+            menu->mpString->getString(menu->getInsectItemID(menu->field_0xf4,
+                    menu->field_0xf5) + 0x265,
+                description, nullptr, nullptr, nullptr, 0);
+            clean_golden_bug_description(description, female);
+            description->show();
+        }
+        if (J2DPane* divider = group->search(MULTI_CHAR('hd_gbdr'))) divider->show();
+    } else {
+        if (detailIcon != nullptr) detailIcon->hide();
+        if (detailName != nullptr) detailName->hide();
+        if (maleSymbol != nullptr) maleSymbol->hide();
+        if (femaleSymbol != nullptr) femaleSymbol->hide();
+        if (description != nullptr) description->hide();
+        if (J2DPane* divider = group->search(MULTI_CHAR('hd_gbdr'))) divider->hide();
+    }
+
+    update_menu_face_button(menu->mpScreen, MULTI_CHAR('hd_gbab'), true);
+    update_menu_face_button(menu->mpScreen, MULTI_CHAR('hd_gbbb'), false);
+    menu->setAButtonString(0);
+    position_golden_bug_cursor(menu, group);
 }
 
 void after_insect_create(ModContext*, void* args, void*, void*) {
@@ -9711,7 +11356,45 @@ void after_insect_create(ModContext*, void* args, void*, void*) {
     if (menu != nullptr) {
         apply_collection_submenu_button_layout(menu->mpIconScreen,
             menu->mpArchive, menu->mpString);
+        ensure_golden_bugs_overlay(menu);
     }
+}
+
+void after_insect_move(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Insect_c*>(args, 0);
+    if (menu == nullptr) return;
+    ensure_golden_bugs_overlay(menu);
+
+#if TARGET_PC
+    if (s_menuPointerBeginContext == nullptr || s_menuPointerState == nullptr ||
+        s_menuPointerSetHoverTarget == nullptr || s_menuPointerConsumeClick == nullptr) {
+        return;
+    }
+    s_menuPointerBeginContext(dusk::menu_pointer::Context::Collection);
+    const dusk::menu_pointer::State& pointer = s_menuPointerState();
+    if (!pointer.valid || menu->mpScreen == nullptr) return;
+    J2DPane* group = menu->mpScreen->search(MULTI_CHAR('hd_gbov'));
+    if (group == nullptr) return;
+    for (int index = 0; index < MAX_INSECT_NUM; ++index) {
+        J2DPane* slot = group->search(MULTI_CHAR('hd_gs00') + index);
+        const auto bounds = collection_submenu_global_bounds(slot);
+        constexpr f32 padding = 6.0f;
+        if (pointer.x < bounds.i.x - padding || pointer.x > bounds.f.x + padding ||
+            pointer.y < bounds.i.y - padding || pointer.y > bounds.f.y + padding) {
+            continue;
+        }
+        s_menuPointerSetHoverTarget(
+            static_cast<dusk::menu_pointer::TargetId>(0x600 + index));
+        if (menu->field_0xf4 != index % 6 || menu->field_0xf5 != index / 6) {
+            menu->field_0xf4 = index % 6;
+            menu->field_0xf5 = index / 6;
+            position_golden_bug_cursor(menu, group);
+            menu->setAButtonString(0);
+        }
+        s_menuPointerConsumeClick();
+        break;
+    }
+#endif
 }
 
 void after_collect_move(ModContext*, void* args, void*, void*) {
@@ -9794,24 +11477,28 @@ HookAction before_collect_draw(ModContext*, void* args, void*, void*) {
 
 HookAction before_letter_draw(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Letter_c*>(args, 0);
+    ensure_letters_overlay(menu);
     refresh_collect_prompt_width(menu != nullptr ? menu->mpIconScreen : nullptr);
     return HOOK_CONTINUE;
 }
 
 HookAction before_fishing_draw(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Fishing_c*>(args, 0);
+    ensure_fish_journal_overlay(menu);
     refresh_collect_prompt_width(menu != nullptr ? menu->mpIconScreen : nullptr);
     return HOOK_CONTINUE;
 }
 
 HookAction before_skill_draw(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Skill_c*>(args, 0);
+    ensure_hidden_skills_overlay(menu);
     refresh_collect_prompt_width(menu != nullptr ? menu->mpIconScreen : nullptr);
     return HOOK_CONTINUE;
 }
 
 HookAction before_insect_draw(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Insect_c*>(args, 0);
+    ensure_golden_bugs_overlay(menu);
     refresh_collect_prompt_width(menu != nullptr ? menu->mpIconScreen : nullptr);
     return HOOK_CONTINUE;
 }
@@ -10151,11 +11838,11 @@ HookAction before_file_select_draw(ModContext*, void* args, void*, void*) {
     add_file_select_back_label(menu);
     add_file_select_prompt_flourish(menu);
     style_file_select_dynamic_text(menu);
+    update_file_select_row_selection(menu);
     style_file_select_metadata(menu);
     position_file_select_prompts(menu);
     add_file_select_detail_frame(menu);
     style_file_select_action_buttons(menu);
-    update_file_select_row_selection(menu);
     style_copy_destination_screen(menu);
     position_file_select_cursor(menu);
     // Copy and Erase confirmations share File Selection's native Yes/No
@@ -10230,9 +11917,9 @@ void after_save_menu_wide(ModContext*, void* args, void*, void*) {
     // and cursor afterward so they use the same final coordinate space as
     // File Selection.
     position_save_menu_prompts(menu);
+    update_save_menu_row_selection(menu);
     style_save_menu_metadata(menu);
     style_save_select_title(menu);
-    update_save_menu_row_selection(menu);
     if (menu->mSelIcon == nullptr) {
         return;
     }
@@ -10901,10 +12588,21 @@ HookAction before_gauge_screen_draw(ModContext*, void* args, void*, void*) {
 
     f32 left = 0.0f, top = 0.0f, right = 0.0f, bottom = 0.0f;
     bool hasBounds = false;
-    for (CPaneMgr* frame : {meter->mpMagicFrameL, meter->mpMagicBase, meter->mpMagicFrameR}) {
-        add_pane_current_global_bounds(frame, left, top, right, bottom, hasBounds);
+    // The 115-unit m_w_l_n/m_w_r_n containers have asymmetric empty space
+    // around their 26-unit ornament pictures. Centering those containers puts
+    // the visible meter 12 local units left of center (~20 px at 1080p).
+    // Measure the four actual ornament pictures and the fixed bar base, not
+    // the shrinking mm_00 fill or the offset drop-shadow pictures.
+    constexpr u64 frameTags[] = {
+        MULTI_CHAR('mw_ll'), MULTI_CHAR('mw_lu'),
+        MULTI_CHAR('mw_rl'), MULTI_CHAR('mw_ru'), MULTI_CHAR('mm_base'),
+    };
+    bool completeFrame = true;
+    for (u64 tag : frameTags) {
+        completeFrame &= add_pane_current_global_bounds(screen->search(tag),
+            left, top, right, bottom, hasBounds);
     }
-    if (hasBounds) {
+    if (completeFrame && hasBounds) {
         const MeterOffset delta = top_meter_offset(
             mDoGph_gInf_c::getSafeMinXF(), mDoGph_gInf_c::getSafeMaxXF(),
             mDoGph_gInf_c::getSafeMinYF(), left, top, right, bottom);
@@ -11063,6 +12761,48 @@ HookAction before_item_action_trigger(ModContext*, void* args, void* retval, voi
     return HOOK_SKIP_ORIGINAL;
 }
 
+MinimapReturnState s_minimapReturnState;
+dMw_c* s_minimapReturnWindow = nullptr;
+dMeterMap_c* s_minimapReturnMeter = nullptr;
+
+void preserve_map_minimap_preference(dMw_c* window) {
+    auto* meter = dMeter2Info_getMeterMapClass();
+    const bool active = window != nullptr &&
+        ((window->mMenuProc >= dMw_c::FMAP_OPEN && window->mMenuProc <= dMw_c::FMAP_CLOSE) ||
+         (window->mMenuProc >= dMw_c::DMAP_OPEN && window->mMenuProc <= dMw_c::DMAP_CLOSE));
+    // Do not carry a snapshot across a reset, warp/scene change, or new meter.
+    if (!active || meter == nullptr || window != s_minimapReturnWindow ||
+        meter != s_minimapReturnMeter) {
+        s_minimapReturnState.reset();
+        s_minimapReturnWindow = nullptr;
+        s_minimapReturnMeter = nullptr;
+    }
+    if (!active || meter == nullptr) return;
+
+    const bool opening = window->mMenuProc == dMw_c::FMAP_OPEN ||
+        window->mMenuProc == dMw_c::DMAP_OPEN;
+    // Status 2 is a player-opened map. Leave scripted map reveals (3–9)
+    // and their deliberate visibility changes under native game control.
+    if (!s_minimapReturnState.active() && opening && dMeter2Info_getMapStatus() == 2) {
+        s_minimapReturnState.begin(dComIfGp_checkMapShow());
+        s_minimapReturnWindow = window;
+        s_minimapReturnMeter = meter;
+    }
+    const bool closing = window->mMenuProc == dMw_c::FMAP_CLOSE ||
+        window->mMenuProc == dMw_c::DMAP_CLOSE;
+    if (const auto restore = s_minimapReturnState.close(closing,
+            dMeterMap_c::isEnableDispMapAndMapDispSizeTypeNo())) {
+        // Native close decides the sound/slide direction, but must not choose
+        // a new minimap preference. Restore before the next HUD update/draw.
+        if (restore->visible) meter->setDispPosInsideFlg_SE_On();
+        else meter->setDispPosOutsideFlg_SE_On();
+        dMeter2Info_setMapStatus(restore->visible ? 1 : 0);
+        // A stage without a minimap must not erase a saved "shown" preference.
+        if (restore->preference) dComIfGp_mapShow();
+        else dComIfGp_mapHide();
+    }
+}
+
 HookAction before_menu_window_execute(ModContext*, void* args, void*, void*) {
     s_menuWindowSuppressedHeld = 0;
     s_menuWindowSuppressedTrig = 0;
@@ -11071,6 +12811,7 @@ HookAction before_menu_window_execute(ModContext*, void* args, void*, void*) {
     s_dmapInputScope = nullptr;
     s_dmapBackTriggered = false;
     auto* window = mods::arg<dMw_c*>(args, 0);
+    preserve_map_minimap_preference(window);
     s_fmapInputScope = nullptr;
     s_fmapBackTriggered = false;
     if (window != nullptr && window->mpMenuFmap != nullptr &&
@@ -11138,7 +12879,8 @@ HookAction before_menu_window_execute(ModContext*, void* args, void*, void*) {
     return HOOK_CONTINUE;
 }
 
-void after_menu_window_execute(ModContext*, void*, void*, void*) {
+void after_menu_window_execute(ModContext*, void* args, void*, void*) {
+    preserve_map_minimap_preference(mods::arg<dMw_c*>(args, 0));
     s_fmapInputScope = nullptr;
     s_fmapBackTriggered = false;
     s_dmapInputScope = nullptr;
@@ -11605,6 +13347,54 @@ void initialize_face_button_textures() {
             &s_collectMenuButtonResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the Collection menu button frame");
     }
+    if (svc_resource->load(mod_ctx, "menu/fish-journal-seam.bti",
+            &s_fishJournalSeamResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Fish Journal book seam");
+    }
+    if (svc_resource->load(mod_ctx, "menu/fish-journal-selection.bti",
+            &s_fishJournalSelectionResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Fish Journal selection corners");
+    }
+    if (svc_resource->load(mod_ctx, "menu/fish-journal-divider.bti",
+            &s_fishJournalDividerResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Fish Journal divider");
+    }
+    if (svc_resource->load(mod_ctx, "menu/fish-journal-record-value.bti",
+            &s_fishJournalRecordValueResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Fish Journal record backing");
+    }
+    if (svc_resource->load(mod_ctx, "menu/fish-journal-rule.bti",
+            &s_fishJournalRuleResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Fish Journal screen rules");
+    }
+    if (svc_resource->load(mod_ctx, "menu/letters-corner.bti",
+            &s_lettersCornerResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Letters parchment ornaments");
+    }
+    if (svc_resource->load(mod_ctx, "menu/letters-scroll-arrow.bti",
+            &s_lettersScrollArrowResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Letters scrollbar arrows");
+    }
+    for (std::size_t index = 0; index < std::size(kLettersScrollStatePaths); ++index) {
+        if (svc_resource->load(mod_ctx, kLettersScrollStatePaths[index],
+                &s_lettersScrollStateResources[index]) != MOD_OK) {
+            svc_log->warn(mod_ctx, "Unable to load a Letters scrollbar state");
+        }
+    }
+    if (svc_resource->load(mod_ctx, "menu/golden-bug-male.bti",
+            &s_goldenBugMaleResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Golden Bugs male symbol");
+    }
+    if (svc_resource->load(mod_ctx, "menu/golden-bug-female.bti",
+            &s_goldenBugFemaleResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Golden Bugs female symbol");
+    }
+    for (std::size_t index = 0; index < std::size(kHiddenSkillPanelPaths); ++index) {
+        if (svc_resource->load(mod_ctx, kHiddenSkillPanelPaths[index],
+                &s_hiddenSkillPanelResources[index]) != MOD_OK) {
+            svc_log->warn(mod_ctx, "Unable to load a Hidden Skills demonstration panel");
+        }
+    }
     if (svc_resource->load(mod_ctx, "menu/file-select-background.bti",
             &s_fileSelectBackgroundResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the File Selection background");
@@ -11702,6 +13492,21 @@ void shutdown_face_button_textures() {
     free_resource(s_itemBankCircleResource);
     free_resource(s_itemBankShadowResource);
     free_resource(s_collectMenuButtonResource);
+    free_resource(s_fishJournalSeamResource);
+    free_resource(s_fishJournalSelectionResource);
+    free_resource(s_fishJournalDividerResource);
+    free_resource(s_fishJournalRecordValueResource);
+    free_resource(s_fishJournalRuleResource);
+    free_resource(s_lettersCornerResource);
+    free_resource(s_lettersScrollArrowResource);
+    for (ResourceBuffer& resource : s_lettersScrollStateResources) {
+        free_resource(resource);
+    }
+    free_resource(s_goldenBugMaleResource);
+    free_resource(s_goldenBugFemaleResource);
+    for (ResourceBuffer& resource : s_hiddenSkillPanelResources) {
+        free_resource(resource);
+    }
     free_resource(s_fileSelectBackgroundResource);
     free_resource(s_fileSelectRowResource);
     free_resource(s_fileSelectSelectedRowResource);
@@ -11726,6 +13531,9 @@ void shutdown_item_slot_resources() {
     s_itemHelpFitScale = 1.0f;
     s_gaugeDraw = {};
     s_inputGate = {};
+    s_minimapReturnState.reset();
+    s_minimapReturnWindow = nullptr;
+    s_minimapReturnMeter = nullptr;
     destroy_ring_z_prompt(s_ringZPrompt.ring);
     s_pendingAssign = {};
     s_activeFileSelect = nullptr;
@@ -11774,6 +13582,10 @@ void shutdown_item_slot_resources() {
     s_setVirtualActionBind = nullptr;
     s_getSdlGamepadAxis = nullptr;
     s_getSdlGamepadButton = nullptr;
+    s_menuPointerBeginContext = nullptr;
+    s_menuPointerState = nullptr;
+    s_menuPointerSetHoverTarget = nullptr;
+    s_menuPointerConsumeClick = nullptr;
     clear_z_heavy_boots_input_lock();
 }
 
@@ -11786,6 +13598,7 @@ void shutdown_wolf_action_icons() {
 
 ModResult install_item_slot_hooks(ModError* error) {
     resolve_action_binding_functions();
+    resolve_fish_journal_pointer_functions();
 
 #define ADD_PRE(type, callback, name) \
     if (const ModResult result = add_pre_hook<type>(name, callback, error); result != MOD_OK) { \
@@ -11859,12 +13672,21 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_PRE(CollectOutFontDrawHook, before_item_help_out_font_draw, "boomerang assignment icon spacing");
     ADD_POST(CollectOutFontDrawHook, after_item_help_out_font_draw, "item help icon position restore");
     ADD_POST(LetterCreateHook, after_letter_create, "letter menu buttons");
+    ADD_POST(LetterMoveHook, after_letter_move, "persistent HD letter journal");
+    ADD_PRE(LetterWaitMoveHook, before_letter_wait_move, "letter journal navigation");
     ADD_PRE(LetterDrawHook, before_letter_draw, "letter menu responsive buttons");
     ADD_POST(FishingCreateHook, after_fishing_create, "fish journal buttons");
+    ADD_POST(FishingMoveHook, after_fishing_move, "fish journal selection");
     ADD_PRE(FishingDrawHook, before_fishing_draw, "fish journal responsive buttons");
     ADD_POST(SkillCreateHook, after_skill_create, "hidden skills menu buttons");
+    ADD_PRE(SkillWaitMoveHook, before_skill_wait_move,
+        "hidden skills single-page input");
+    ADD_POST(SkillMoveHook, after_skill_move, "hidden skills HD layout and touch");
     ADD_PRE(SkillDrawHook, before_skill_draw, "hidden skills responsive buttons");
     ADD_POST(InsectCreateHook, after_insect_create, "golden bugs menu buttons");
+    ADD_PRE(InsectWaitMoveHook, before_insect_wait_move,
+        "golden bugs single-page input");
+    ADD_POST(InsectMoveHook, after_insect_move, "golden bugs HD layout and touch");
     ADD_PRE(InsectDrawHook, before_insect_draw, "golden bugs responsive buttons");
     ADD_POST(CollectMoveHook, after_collect_move, "collection menu frame styling");
     ADD_PRE(CollectDrawHook, before_collect_draw, "collection menu HD draw");
