@@ -165,6 +165,8 @@ int64_t hud_size_percent(HudSizeSetting setting) {
 
 bool hud_size_locked(HudSizeSetting setting) {
     return setting != HudSizeSetting::Overall &&
+        setting != HudSizeSetting::ActionText &&
+        setting != HudSizeSetting::DialogueText &&
         hud_size_percent(HudSizeSetting::Overall) != 100;
 }
 

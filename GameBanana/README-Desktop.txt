@@ -1,4 +1,4 @@
-Twilight HD HUD v1.5.1 — Touch Controls & Bug Fixes
+Twilight HD HUD v1.5.5
 
 Requires official Dusklight v1.4.1-141 or newer.
 
@@ -12,12 +12,12 @@ Supported platforms:
 - macOS Apple Silicon
 - Android ARM64
 
-New in v1.5.1:
-- Corrected touch routing for Collection, Midna, targeting, and the third item slot.
-- Hidden redundant native HUD controls during touch play and restored B/X/Y item artwork after touch controls are disabled.
-- Fixed the third-item assignment animation so the correct item travels to R/RB.
-- Aligned the overworld Poe Soul counter with its icon.
-- Preserved compatibility with Dawnlight's HUD Layout Editor.
+New in v1.5.5:
+- Refined D-pad and Midna/L-button sizing, layering, and vertical placement.
+- HUD sizing controls now resize icons without changing their associated text.
+- Corrected overworld and dungeon map Poe-count alignment.
+- Introduced TPHD-inspired item-description cards.
+- Included other minor bug fixes and improvements.
 
 Installation:
 1. Extract this ZIP and place the included .dusk file in the mods folder inside the active Dusklight data folder.
