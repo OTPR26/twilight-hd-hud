@@ -1,4 +1,4 @@
-Twilight HD HUD v1.5.5
+Twilight HD HUD v1.5.6 — Windows Load Hotfix
 
 Requires official Dusklight v1.4.1-141 or newer.
 
@@ -12,12 +12,9 @@ Supported platforms:
 
 Extract this ZIP before installing; upload or copy the .dusk file inside it.
 
-New in v1.5.5:
-- Refined D-pad and Midna/L-button sizing, layering, and vertical placement.
-- HUD sizing controls now resize icons without changing their associated text.
-- Corrected overworld and dungeon map Poe-count alignment.
-- Introduced TPHD-inspired item-description cards.
-- Included other minor bug fixes and improvements.
+New in v1.5.6:
+- Fixed a Windows startup failure caused by touch-only virtual-input observation hooks.
+- No HUD layout, artwork, or settings changes from v1.5.5.
 
 iPhone and iPad installation:
 1. Launch Dusklight once so its data folders are created.

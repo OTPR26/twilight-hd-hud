@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.5.6 - 2026-08-30
+
+- Fix a Windows startup failure caused by touch-only virtual-input observation
+  hooks being registered as mandatory desktop hooks.
+- Keep the v1.5.5 HUD layout, artwork, and settings unchanged.
+
 ## v1.5.5 - 2026-08-30
 
 - Refine D-pad and Midna/L-button sizing, layering, and vertical placement.
