@@ -1,7 +1,9 @@
 """Keep Items independent of transient system-bar insets and prompt distortion."""
 from pathlib import Path
 
-source = (Path(__file__).resolve().parents[1] / 'src/item_bank_screen.inc').read_text()
+root = Path(__file__).resolve().parents[1]
+source = (root / 'src/item_bank_screen.inc').read_text()
+hooks = (root / 'src/item_slot_hooks.cpp').read_text()
 assert 'getSafe' not in source
 assert 'current_collection_viewport()' not in source
 assert source.count('auto viewport = item_bank_content_viewport();') == 2
@@ -14,4 +16,7 @@ assert 'ring->mCenterPos' not in dimmer
 assert 'bank_assignment_prompt(i, textures[i]->width, textures[i]->height)' in source
 assert 'button->resize(bounds.width, bounds.height)' in source
 assert 'button->move(bounds.x, bounds.y)' in source
+assert 'void refresh_ring_z_assignment_texture(dMenu_Ring_c* ring)' in hooks
+assert 'ring->setSelectItem(kZItemSlot, item)' in hooks
+assert hooks.count('refresh_ring_z_assignment_texture(ring);') >= 3
 print('PASS: Items full-surface viewport/dimmer, native transitions, and uniform button fitting')

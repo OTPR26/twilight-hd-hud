@@ -13,13 +13,15 @@ constexpr bool menu_shortcuts_active(unsigned windowStatus, bool inputBlocked) {
 // bits before translating so simultaneous presses cannot cascade through twice.
 constexpr std::uint32_t menu_shortcut_buttons(std::uint32_t buttons,
     std::uint32_t dpadMenu, std::uint32_t down, std::uint32_t start,
-    std::uint32_t suppress = 0, bool swap = true) {
+    std::uint32_t suppress = 0, bool swap = true,
+    bool preserveVirtualCollection = false) {
     const auto source = buttons & ~suppress;
     // Even with swapping off, a custom Midna-on-Down binding relocates the
     // D-Pad menu shortcut to Right and must not also open Items on Down.
     return (source & ~(dpadMenu | down | start)) |
         ((source & dpadMenu) ? (swap ? start : down) : 0) |
-        ((source & start) ? (swap ? down : start) : 0);
+        ((source & start) ?
+            (preserveVirtualCollection ? start : (swap ? down : start)) : 0);
 }
 
 constexpr const char* dpad_menu_label(bool swap) {

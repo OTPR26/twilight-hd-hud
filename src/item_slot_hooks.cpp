@@ -19,6 +19,7 @@
 #include "wallet_description.hpp"
 #include "item_bank_layout.hpp"
 #include "service_imports.hpp"
+#include "touch_input_state.hpp"
 #include "ui_refinements.hpp"
 
 #include "global.h"
@@ -76,6 +77,7 @@
 #include "d/d_meter_button.h"
 #include "d/d_meter2_draw.h"
 #undef private
+#include "dolphin/pad.h"
 #include "m_Do/m_Do_controller_pad.h"
 #include "m_Do/m_Do_ext.h"
 #include "m_Do/m_Do_graphic.h"
@@ -91,6 +93,8 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 
@@ -230,6 +234,10 @@ DEFINE_HOOK(&daAlink_c::midnaTalkTrigger, MidnaTalkTriggerHook);
 DEFINE_HOOK(&daAlink_c::itemActionTrigger, ItemActionTriggerHook);
 DEFINE_HOOK(&daAlink_c::setStickData, SetStickDataHook);
 DEFINE_HOOK(&mDoCPd_c::read, PadReadHook);
+DEFINE_HOOK(&PADSetVirtualStatus, PadSetVirtualStatusHook);
+DEFINE_HOOK(&PADClearVirtualStatus, PadClearVirtualStatusHook);
+DEFINE_HOOK_SYMBOL("dusk::ui::midna_icon_source",
+    std::string(), TouchZIconSourceHook);
 DEFINE_HOOK(&daAlink_c::checkItemButtonChange, CheckItemButtonChangeHook);
 DEFINE_HOOK(&daAlink_c::checkItemChangeFromButton, CheckItemChangeFromButtonHook);
 DEFINE_HOOK(&daAlink_c::checkSetItemTrigger, CheckSetItemTriggerHook);
@@ -402,6 +410,14 @@ bool s_fixedToggleMinimapTrig = false;
 bool s_combinedMapMinimapTrig = false;
 bool s_rightShoulderHeld = false;
 bool s_rightShoulderTrig = false;
+TouchInputState s_touchInput;
+bool s_touchMidnaTrig = false;
+// midna_icon_source() is queried once per active touch-overlay update. Keep a
+// small grace window because the Rml and game HUD draws are not guaranteed to
+// occur in the same order every frame.
+u8 s_touchControlsActiveFrames = 0;
+dMeter2Draw_c* s_touchHudMeter = nullptr;
+bool s_touchControlsWereActive = false;
 bool s_fixedZlHeld = false;
 bool s_fixedZlTrig = false;
 bool s_fixedZrHeld = false;
@@ -718,6 +734,7 @@ void resolve_action_binding_functions() {
         svc_log->warn(mod_ctx,
             "Exact physical controller reads unavailable; using compatibility fallback");
     }
+
 }
 
 void resolve_fish_journal_pointer_functions() {
@@ -795,7 +812,9 @@ struct ItemNumTransformState {
 ItemNumTransformState s_wiiUItemNumTransform;
 
 bool consume_touch_midna_trigger() {
-    return false;
+    const bool triggered = s_touchMidnaTrig;
+    s_touchMidnaTrig = false;
+    return triggered;
 }
 
 bool z_item_menu_or_pause_context();
@@ -812,6 +831,79 @@ ResTIMG* z_hud_item_tex(const u8 page, const u8 layer) {
 
 u8 hud_texture_item(u8 itemNo) {
     return itemNo == dItemNo_LIGHT_ARROW_e ? dItemNo_BOW_e : itemNo;
+}
+
+HookAction before_touch_z_icon_source(
+    ModContext*, void*, void*, void*) {
+    s_touchControlsActiveFrames = 8;
+    // Observe the active touch presentation without changing Dusklight's
+    // Midna icon or the button's native behavior.
+    return HOOK_CONTINUE;
+}
+
+bool touch_controls_active() {
+    return !show_native_touch_replaced_hud(s_touchControlsActiveFrames != 0);
+}
+
+void refresh_native_face_button_items_after_touch(dMeter2Draw_c* meter) {
+    if (meter == nullptr || meter->mpScreen == nullptr || daPy_py_c::checkNowWolf()) {
+        return;
+    }
+
+    // Dusklight hides the native item-bearing panes while its touch overlay is
+    // active. Disabling touch does not rebuild those textures until the player
+    // reassigns an item. Mirror that native reassignment refresh once when the
+    // overlay disappears so B/X/Y immediately recover their current artwork.
+    const u8 sword = dComIfGs_getSelectEquipSword();
+    if (sword != dItemNo_NONE_e && sword != 0) {
+        if (J2DPane* pane = meter->mpScreen->search(MULTI_CHAR('item_b_n'))) {
+            pane->show();
+        }
+        meter->mButtonBItem = sword;
+        meter->changeTextureItemB(sword);
+    }
+
+    constexpr u64 itemTags[] = {
+        MULTI_CHAR('item_x_n'),
+        MULTI_CHAR('item_y_n'),
+    };
+    for (int slot = 0; slot < 2; ++slot) {
+        const u8 item = dComIfGp_getSelectItem(slot);
+        if (item == dItemNo_NONE_e || item == 0) {
+            continue;
+        }
+        if (J2DPane* pane = meter->mpScreen->search(itemTags[slot])) {
+            pane->show();
+        }
+        meter->changeTextureItemXY(slot, item);
+    }
+}
+
+void refresh_native_face_button_items_for_touch_transition(dMeter2Draw_c* meter) {
+    const bool touchActive = touch_controls_active();
+    const bool meterChanged = meter != s_touchHudMeter;
+    if (!touchActive && (meterChanged || s_touchControlsWereActive)) {
+        refresh_native_face_button_items_after_touch(meter);
+    }
+    s_touchHudMeter = meter;
+    s_touchControlsWereActive = touchActive;
+}
+
+HookAction before_pad_set_virtual_status(ModContext*, void* args, void*, void*) {
+    const u32 port = mods::arg<u32>(args, 0);
+    const auto* status = mods::arg<const PADStatus*>(args, 1);
+    if (port == PAD_1 && status != nullptr) {
+        s_touchInput.update(status->button, PAD_BUTTON_UP, PAD_BUTTON_START,
+            PAD_TRIGGER_Z, PAD_TRIGGER_L, PAD_TRIGGER_R);
+    }
+    return HOOK_CONTINUE;
+}
+
+HookAction before_pad_clear_virtual_status(ModContext*, void* args, void*, void*) {
+    if (mods::arg<u32>(args, 0) == PAD_1) {
+        s_touchInput.clear();
+    }
+    return HOOK_CONTINUE;
 }
 
 u8 hud_layout_item(u8 itemNo) {
@@ -7755,6 +7847,9 @@ void draw_wolf_action_icons(dMeter2Draw_c* meter) {
 }
 
 void draw_tphd_map_icon(dMeter2Draw_c* meter) {
+    if (touch_controls_active()) {
+        return;
+    }
     const bool fixedTphdBindings =
         controller_compatibility() == ControllerCompatibility::FixedTphd;
     const DpadDirection mapDirection = fixedTphdBindings ?
@@ -7875,6 +7970,14 @@ void align_dpad_labels(dMeter2Draw_c* meter) {
 
 void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
     if (meter == nullptr || meter->mpScreen == nullptr) {
+        return;
+    }
+
+    if (touch_controls_active()) {
+        if (meter->mpButtonCrossParent != nullptr) {
+            meter->mpButtonCrossParent->setAlpha(0);
+            meter->mpButtonCrossParent->hide();
+        }
         return;
     }
 
@@ -8962,7 +9065,7 @@ void position_midna_hud(dMeter2Draw_c* meter) {
         return;
     }
 
-    if (z_item_menu_or_pause_context() || !midna_unlocked()) {
+    if (touch_controls_active() || z_item_menu_or_pause_context() || !midna_unlocked()) {
         set_pane_tree_alpha_visible(midnaPane, false, 0);
         return;
     }
@@ -9069,7 +9172,7 @@ void update_midna_shoulder_badge(dMeter2Draw_c* meter) {
 
     constexpr u64 badgeTag = MULTI_CHAR('hd_mbtn');
     J2DPane* existingBadge = meter->mpScreen->search(badgeTag);
-    if (!midna_unlocked() || z_item_menu_or_pause_context() ||
+    if (touch_controls_active() || !midna_unlocked() || z_item_menu_or_pause_context() ||
         s_fileSelectScreenActive)
     {
         if (existingBadge != nullptr) {
@@ -9235,6 +9338,21 @@ void sync_play_select_item(int index) {
     }
 
     g_dComIfG_gameInfo.play.setSelectItem(index, resolved_select_item(index));
+}
+
+void refresh_ring_z_assignment_texture(dMenu_Ring_c* ring) {
+    if (ring == nullptr || ring->field_0x674[kZItemSlot] == 0) {
+        return;
+    }
+
+    // Native setJumpItem() passes field_0x6b4[2] directly to setSelectItem().
+    // That field is an inventory slot index, unlike the item ID supplied for
+    // X/Y, so the third-slot flight animation can display an unrelated item.
+    // Reload only the active Z/R animation with the resolved item ID.
+    const u8 item = resolved_select_item(kZItemSlot);
+    if (item != dItemNo_NONE_e && item != 0) {
+        ring->setSelectItem(kZItemSlot, item);
+    }
 }
 
 int find_select_button(daAlink_c* link, int itemNo) {
@@ -9431,6 +9549,7 @@ bool set_z_mix_item(dMenu_Ring_c* ring) {
     ring->field_0x6b3 = kZItemSlot;
     ring->field_0x674[kZItemSlot] = 1;
     ring->setJumpItem(false);
+    refresh_ring_z_assignment_texture(ring);
     return true;
 }
 
@@ -9502,6 +9621,7 @@ void assign_current_item(dMenu_Ring_c* ring, u8 targetSlot) {
     ring->field_0x6b3 = targetSlot;
     ring->field_0x674[targetSlot] = 1;
     ring->setJumpItem(true);
+    refresh_ring_z_assignment_texture(ring);
 }
 
 bool item_assign_allowed(dMenu_Ring_c* ring) {
@@ -9615,6 +9735,7 @@ void rotate_pending_duplicate(dMenu_Ring_c* ring) {
     if (sourceSlot != dItemNo_NONE_e) {
         ring->field_0x674[sourceSlot] = 1;
     }
+    refresh_ring_z_assignment_texture(ring);
     s_pendingAssign = {};
 }
 
@@ -9641,6 +9762,7 @@ void after_pad_read(ModContext*, void*, void*, void*) {
         s_fixedZrHeld = s_fixedZrTrig = false;
         s_fixedOpenMapTrig = s_fixedToggleMinimapTrig = false;
         s_combinedMapMinimapTrig = false;
+        s_touchMidnaTrig = false;
         return;
     }
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
@@ -9652,6 +9774,14 @@ void after_pad_read(ModContext*, void*, void*, void*) {
         daAlink_getAlinkActorClass() != nullptr, s_fileSelectScreenActive,
         z_item_menu_or_pause_context(), s_inputGate.blocked());
     const bool fixedMidnaAvailable = use_tphd_midna_binding() && gameplayShortcuts;
+    // Touch controls retain Dusklight's native GameCube semantics. Z calls
+    // Midna, while L remains available to its Hold/Switch/Hybrid targeting
+    // implementation.
+    if (gameplayShortcuts) {
+        s_touchMidnaTrig = s_touchInput.z_triggered();
+    } else {
+        s_touchMidnaTrig = false;
+    }
 
     // Capture the translated trigger bits before suppressing their GameCube
     // behavior. Dusklight's touch-controls pass clears virtual action binds
@@ -9667,12 +9797,17 @@ void after_pad_read(ModContext*, void*, void*, void*) {
     const u32 originalPressed = pad.mPressedButtonFlags;
     const bool combinedMapAndMinimap = !fixedTphdBindings &&
         followLayout.combinedMapAndMinimap;
+    const bool touchItemsTriggered = s_touchInput.items_triggered() &&
+        (originalPressed & PAD_BUTTON_UP) != 0;
     s_combinedMapMinimapTrig = fixedMapAvailable &&
-        combinedMapAndMinimap && (originalPressed & mapMask) != 0;
+        combinedMapAndMinimap && (originalPressed & mapMask) != 0 &&
+        !(touchItemsTriggered && (mapMask & PAD_BUTTON_UP) != 0);
     s_fixedOpenMapTrig = fixedMapAvailable && !combinedMapAndMinimap &&
-        (originalPressed & mapMask) != 0;
+        (originalPressed & mapMask) != 0 &&
+        !(touchItemsTriggered && (mapMask & PAD_BUTTON_UP) != 0);
     s_fixedToggleMinimapTrig = fixedMapAvailable && !combinedMapAndMinimap &&
-        (originalPressed & minimapMask) != 0;
+        (originalPressed & minimapMask) != 0 &&
+        !(touchItemsTriggered && (minimapMask & PAD_BUTTON_UP) != 0);
 
     // The fixed TPHD actions above consume these directions during gameplay.
     // Remove the original GameCube directions so Up cannot also open the item
@@ -9680,7 +9815,10 @@ void after_pad_read(ModContext*, void*, void*, void*) {
     // Preserve native behavior if Dusklight's virtual-action API is ever
     // unavailable instead of leaving the physical directions inert.
     if (fixedMapAvailable) {
-        const u32 consumedMapMask = mapMask | minimapMask;
+        u32 consumedMapMask = mapMask | minimapMask;
+        if (s_touchInput.items_held()) {
+            consumedMapMask &= ~PAD_BUTTON_UP;
+        }
         pad.mButtonFlags &= ~consumedMapMask;
         pad.mPressedButtonFlags &= ~consumedMapMask;
 
@@ -9712,8 +9850,8 @@ void after_pad_read(ModContext*, void*, void*, void*) {
     s_rightShoulderTrig = rightShoulderHeld && !s_rightShoulderHeld;
     s_rightShoulderHeld = rightShoulderHeld;
 
-    const bool physicalZlHeld = fixedTphdBindings &&
-        physical_axis_held(kSdlLeftTriggerAxis);
+    const bool physicalZlAxisHeld = physical_axis_held(kSdlLeftTriggerAxis);
+    const bool physicalZlHeld = fixedTphdBindings && physicalZlAxisHeld;
     s_fixedZlTrig = physicalZlHeld && !s_fixedZlHeld;
     s_fixedZlHeld = physicalZlHeld;
 
@@ -9752,6 +9890,7 @@ void after_pad_read(ModContext*, void*, void*, void*) {
                 pad.mTrigLockR = true;
             }
         }
+
     }
 
     // In Follow mode physical R is reserved either for the mod's third-item
@@ -9780,6 +9919,14 @@ void after_pad_read(ModContext*, void*, void*, void*) {
             pad.mPressedButtonFlags |= PAD_TRIGGER_R;
             pad.mTrigLockR = true;
         }
+    }
+
+    // Dusklight's touch Z is its native Midna button. Keep that virtual input
+    // out of the mod's third-item path; a simultaneously held physical right
+    // shoulder continues to provide the configured GameCube Z assignment.
+    if (s_touchInput.z_held() && !physicalRightShoulderHeld) {
+        pad.mButtonFlags &= ~PAD_TRIGGER_Z;
+        pad.mPressedButtonFlags &= ~PAD_TRIGGER_Z;
     }
 
 }
@@ -11650,7 +11797,8 @@ HookAction before_dmap_poe_icon_draw(ModContext*, void* args, void*, void*) {
         fmap != nullptr && mods::arg<J2DPicture*>(args, 0) == fmap->mpPoeCountIcon) {
         const float size = map_responsive_layout::scale(608 * mDoGph_gInf_c::hudAspectScaleUp);
         mods::arg_ref<f32>(args, 1) = fmap->mTransX + mDoGph_gInf_c::getSafeMinXF() +
-            608 * mDoGph_gInf_c::hudAspectScaleUp * 0.78f - 39 * size;
+            608 * mDoGph_gInf_c::hudAspectScaleUp * 0.78f -
+            overworld_map_layout::poeIconToText * size;
         mods::arg_ref<f32>(args, 2) = overworld_map_layout::poeY - 16 * size;
         mods::arg_ref<f32>(args, 3) = 30 * size;
         mods::arg_ref<f32>(args, 4) = 30 * size;
@@ -11670,7 +11818,8 @@ HookAction before_dmap_poe_text_draw(ModContext*, void* args, void*, void*) {
         fmap != nullptr && mods::arg<J2DTextBox*>(args, 0) == fmap->mpPoeCountPane) {
         mods::arg_ref<f32>(args, 1) += mDoGph_gInf_c::getSafeMinXF() +
             608 * mDoGph_gInf_c::hudAspectScaleUp * 0.78f - mDoGph_gInf_c::ScaleHUDXRight(485);
-        mods::arg_ref<f32>(args, 2) += overworld_map_layout::poeY - 380;
+        mods::arg_ref<f32>(args, 2) +=
+            overworld_map_layout::poeY + overworld_map_layout::poeTextYOffset - 380;
     }
     auto* map = s_dmapDrawing;
     if (map != nullptr && mods::arg<J2DTextBox*>(args, 0) == map->mpPoeCountPane) {
@@ -12473,6 +12622,7 @@ void after_meter_button_execute(ModContext*, void* args, void*, void*) {
 
 HookAction before_meter_draw(ModContext*, void* args, void*, void*) {
     auto* meter = mods::arg<dMeter2Draw_c*>(args, 0);
+    refresh_native_face_button_items_for_touch_transition(meter);
     update_z_hud_item(meter);
     restore_archive_face_button_diamond(meter);
     // Archive restoration resets the primary item-picture scale. Apply combo
@@ -12515,6 +12665,9 @@ void after_meter_draw(ModContext*, void* args, void*, void*) {
     restore_rupee_icon_draw();
     draw_wolf_action_icons(meter);
     draw_tphd_map_icon(meter);
+    if (s_touchControlsActiveFrames != 0) {
+        --s_touchControlsActiveFrames;
+    }
 }
 
 void after_meter_draw_button_z(ModContext*, void* args, void*, void*) {
@@ -12873,9 +13026,11 @@ HookAction before_menu_window_execute(ModContext*, void* args, void*, void*) {
     s_menuWindowSuppressedTrig = pad.mPressedButtonFlags;
     const bool swappedMenus = swap_menu_buttons();
     pad.mButtonFlags = menu_shortcut_buttons(pad.mButtonFlags, dpadMenuMask,
-        PAD_BUTTON_DOWN, PAD_BUTTON_START, suppressMask, swappedMenus);
+        PAD_BUTTON_DOWN, PAD_BUTTON_START, suppressMask, swappedMenus,
+        s_touchInput.collections_held());
     pad.mPressedButtonFlags = menu_shortcut_buttons(pad.mPressedButtonFlags, dpadMenuMask,
-        PAD_BUTTON_DOWN, PAD_BUTTON_START, suppressMask, swappedMenus);
+        PAD_BUTTON_DOWN, PAD_BUTTON_START, suppressMask, swappedMenus,
+        s_touchInput.collections_triggered());
     return HOOK_CONTINUE;
 }
 
@@ -13558,6 +13713,11 @@ void shutdown_item_slot_resources() {
     s_combinedMapMinimapTrig = false;
     s_rightShoulderHeld = false;
     s_rightShoulderTrig = false;
+    s_touchInput.clear();
+    s_touchMidnaTrig = false;
+    s_touchControlsActiveFrames = 0;
+    s_touchHudMeter = nullptr;
+    s_touchControlsWereActive = false;
     s_fixedZlHeld = false;
     s_fixedZlTrig = false;
     s_fixedZrHeld = false;
@@ -13612,6 +13772,23 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_PRE(GetSelectItemHook, before_get_select_item, "get selected item");
     ADD_POST(SetSelectItemHook, after_set_select_item, "set selected item");
     ADD_POST(PadReadHook, after_pad_read, "controller read");
+    ADD_PRE(PadSetVirtualStatusHook, before_pad_set_virtual_status,
+        "touch virtual input source");
+    ADD_PRE(PadClearVirtualStatusHook, before_pad_clear_virtual_status,
+        "touch virtual input clear");
+    // This host-side helper is optional on older Dusklight builds. Failure to
+    // resolve it must never abort registration of the mod's game hooks.
+    if (TouchZIconSourceHook::resolved_target() != nullptr) {
+        if (mods::hook::add_pre<TouchZIconSourceHook>(svc_hook,
+                before_touch_z_icon_source) != MOD_OK)
+        {
+            svc_log->warn(mod_ctx,
+                "Unable to observe the touch Z icon; touch HUD adaptation may be unavailable");
+        }
+    } else {
+        svc_log->warn(mod_ctx,
+            "Dusklight touch-icon observation unavailable; touch HUD adaptation may be unavailable");
+    }
     ADD_PRE(ItemActionTriggerHook, before_item_action_trigger,
         "boomerang ZR multi-target input");
     ADD_POST(SetStickDataHook, after_set_stick_data, "scoped third-item input");

@@ -18,6 +18,10 @@ int main() {
     assert(!menu_shortcuts_active(0, true)); // host settings/mod manager
     assert(menu_shortcut_buttons(down, down, down, start) == start);
     assert(menu_shortcut_buttons(start, down, down, start) == down);
+    // Dusklight's touch Collections control also emits virtual Start. Keep
+    // that semantic distinct from a physical Start/+ press, which is swapped
+    // to Items by the TPHD layout.
+    assert(menu_shortcut_buttons(start, down, down, start, 0, true, true) == start);
     assert(menu_shortcut_buttons(start | down, down, down, start) == (start | down));
     // Follow-mode Midna on Down relocates Collection to Right; Start still
     // opens Items, and the Midna press cannot also open either menu.

@@ -12,6 +12,8 @@ int main() {
     assert(content.y + content.height < frame.y + frame.height);
     assert(zoomBY + 8 < frame.y);
     assert(poeY > content.y && poeY < content.y + content.height);
+    assert(poeTextYOffset == 2);
+    assert(poeIconToText == 31);
     assert(portalY > content.y && portalY + 12 < content.y + content.height);
     for (float width = 320; width < 1064; width += 1) {
         const float left = (608 - width) / 2;

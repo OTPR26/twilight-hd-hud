@@ -6,6 +6,13 @@ Twilight HD HUD brings a *Twilight Princess HD*-inspired HUD and controller layo
 
 Dusklight **v1.4.1-141 or newer** is required. The mod is built and tested against the official Dusklight repository.
 
+Twilight HD HUD is designed to coexist with **Dawnlight**. Twilight HD HUD owns
+the TPHD artwork, menu presentation, prompts, and control behavior; Dawnlight's
+HUD Layout Editor may apply the user's final gameplay-HUD positions. Shared HUD
+hooks must remain at normal priority so Dawnlight can restore native state first
+and apply saved layout overrides last. Compatibility is reviewed during each
+release; see [COMPATIBILITY.md](COMPATIBILITY.md) for the maintenance checklist.
+
 ## Features
 
 - Wii U-inspired buttons, D-Pad, minimap, rupee placement
