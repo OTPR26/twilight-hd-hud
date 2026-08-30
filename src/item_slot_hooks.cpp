@@ -236,8 +236,10 @@ DEFINE_HOOK(&daAlink_c::midnaTalkTrigger, MidnaTalkTriggerHook);
 DEFINE_HOOK(&daAlink_c::itemActionTrigger, ItemActionTriggerHook);
 DEFINE_HOOK(&daAlink_c::setStickData, SetStickDataHook);
 DEFINE_HOOK(&mDoCPd_c::read, PadReadHook);
+#if !defined(_WIN32)
 DEFINE_HOOK(&PADSetVirtualStatus, PadSetVirtualStatusHook);
 DEFINE_HOOK(&PADClearVirtualStatus, PadClearVirtualStatusHook);
+#endif
 DEFINE_HOOK_SYMBOL("dusk::ui::midna_icon_source",
     std::string(), TouchZIconSourceHook);
 DEFINE_HOOK(&daAlink_c::checkItemButtonChange, CheckItemButtonChangeHook);
@@ -891,6 +893,7 @@ void refresh_native_face_button_items_for_touch_transition(dMeter2Draw_c* meter)
     s_touchControlsWereActive = touchActive;
 }
 
+#if !defined(_WIN32)
 HookAction before_pad_set_virtual_status(ModContext*, void* args, void*, void*) {
     const u32 port = mods::arg<u32>(args, 0);
     const auto* status = mods::arg<const PADStatus*>(args, 1);
@@ -907,6 +910,7 @@ HookAction before_pad_clear_virtual_status(ModContext*, void* args, void*, void*
     }
     return HOOK_CONTINUE;
 }
+#endif
 
 u8 hud_layout_item(u8 itemNo) {
     return itemNo == dItemNo_HAWK_ARROW_e ? dItemNo_BOW_e : hud_texture_item(itemNo);
@@ -14118,10 +14122,16 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_PRE(GetSelectItemHook, before_get_select_item, "get selected item");
     ADD_POST(SetSelectItemHook, after_set_select_item, "set selected item");
     ADD_POST(PadReadHook, after_pad_read, "controller read");
+#if !defined(_WIN32)
+    // Windows' runtime detour backend cannot patch these small host input
+    // helpers reliably. They only observe touch-overlay shortcuts, so omitting
+    // them on Windows preserves the complete desktop HUD instead of making
+    // optional touch adaptation a fatal mod-load dependency.
     ADD_PRE(PadSetVirtualStatusHook, before_pad_set_virtual_status,
         "touch virtual input source");
     ADD_PRE(PadClearVirtualStatusHook, before_pad_clear_virtual_status,
         "touch virtual input clear");
+#endif
     // This host-side helper is optional on older Dusklight builds. Failure to
     // resolve it must never abort registration of the mod's game hooks.
     if (TouchZIconSourceHook::resolved_target() != nullptr) {

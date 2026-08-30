@@ -52,6 +52,7 @@ jobs:
           python3 tests/rupee_minimap_structure_test.py
           python3 tests/map_responsive_structure_test.py
           python3 tests/menu_input_structure_test.py
+          python3 tests/touch_hook_structure_test.py
           python3 tests/file_select_structure_test.py
           python3 tests/meter_center_structure_test.py
           python3 tests/option_confirmation_structure_test.py

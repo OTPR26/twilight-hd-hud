@@ -1,7 +1,6 @@
-## Twilight HD HUD v1.5.5
+## Twilight HD HUD v1.5.6
 
-Refinements to scaling, artwork, spacing, and responsive behavior.
-
+- Hotfix for Windows.
 - Refined D-pad and Midna/L-button sizing, layering, and vertical placement.
 - HUD sizing controls now resize icons without changing their associated text.
 - Corrected overworld and dungeon map Poe-count alignment.
