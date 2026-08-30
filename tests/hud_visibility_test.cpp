@@ -16,6 +16,9 @@ struct Pane {
 };
 
 int main() {
+    assert(show_native_touch_replaced_hud(false));
+    assert(!show_native_touch_replaced_hud(true));
+
     Pane root;
     Pane keyGroup{&root};
     Pane rupees{&keyGroup};

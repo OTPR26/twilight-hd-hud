@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.5.1 - 2026-08-29
+
+- Correct touch-control routing for Collection, Midna, targeting, and the third item slot.
+- Hide redundant native HUD controls while the touch overlay is active and restore B/X/Y item artwork after touch controls are disabled.
+- Fix the third-item assignment animation so the correct item travels to R/RB.
+- Align the overworld Poe Soul counter with its icon.
+- Preserve Dawnlight HUD Layout Editor overrides through an explicit shared-HUD compatibility contract.
+
 ## v1.5.0 - 2026-08-29
 
 - Add TPHD-inspired Fish Journal, Golden Bugs, Hidden Skills, and Letters collection submenus.

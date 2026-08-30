@@ -1,4 +1,4 @@
-Twilight HD HUD v1.5.0 — Collection Submenus
+Twilight HD HUD v1.5.1 — Touch Controls & Bug Fixes
 
 Requires official Dusklight v1.4.1-141 or newer.
 
@@ -12,12 +12,12 @@ Supported platforms:
 
 Extract this ZIP before installing; upload or copy the .dusk file inside it.
 
-New in v1.5.0:
-- TPHD-inspired Fish Journal, Golden Bugs, Hidden Skills, and Letters.
-- Touch, D-Pad, and analog-stick navigation across Collection submenus.
-- Centered oil, oxygen, and lantern meters across display sizes.
-- Fixed File Selection D-Pad navigation and preserved the minimap's hidden state after closing a map.
-- Additional input, layout, cursor, and cross-platform stability fixes.
+New in v1.5.1:
+- Corrected touch routing for Collection, Midna, targeting, and the third item slot.
+- Hidden redundant native HUD controls during touch play and restored B/X/Y item artwork after touch controls are disabled.
+- Fixed the third-item assignment animation so the correct item travels to R/RB.
+- Aligned the overworld Poe Soul counter with its icon.
+- Preserved compatibility with Dawnlight's HUD Layout Editor.
 
 iPhone and iPad installation:
 1. Launch Dusklight once so its data folders are created.

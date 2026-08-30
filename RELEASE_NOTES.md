@@ -1,7 +1,7 @@
-## v1.5.0 — Collection Submenus
+## v1.5.1 — Touch Controls & Bug Fixes
 
-- TPHD-inspired Fish Journal, Golden Bugs, Hidden Skills, and Letters.
-- Support for touch, D-Pad, and analog-stick navigation across Collection submenus.
-- Centered oil, oxygen, and lantern meters consistently across display sizes.
-- Fixed File Selection D-Pad navigation and preserved the minimap's hidden state after closing a map.
-- Additional input, layout, cursor, and cross-platform stability fixes.
+- Corrected touch-control routing for Collection, Midna, targeting, and the third item slot.
+- Hidden redundant native HUD controls while the touch overlay is active and restored B/X/Y item artwork after touch controls are disabled.
+- Fixed the third-item assignment animation so the correct item travels to R/RB.
+- Aligned the overworld Poe Soul counter with its icon.
+- Preserved compatibility with Dawnlight's HUD Layout Editor.
