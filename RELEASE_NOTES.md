@@ -1,7 +1,9 @@
-## v1.5.1 — Touch Controls & Bug Fixes
+## Twilight HD HUD v1.5.5
 
-- Corrected touch-control routing for Collection, Midna, targeting, and the third item slot.
-- Hidden redundant native HUD controls while the touch overlay is active and restored B/X/Y item artwork after touch controls are disabled.
-- Fixed the third-item assignment animation so the correct item travels to R/RB.
-- Aligned the overworld Poe Soul counter with its icon.
-- Preserved compatibility with Dawnlight's HUD Layout Editor.
+Refinements to scaling, artwork, spacing, and responsive behavior.
+
+- Refined D-pad and Midna/L-button sizing, layering, and vertical placement.
+- HUD sizing controls now resize icons without changing their associated text.
+- Corrected overworld and dungeon map Poe-count alignment.
+- Introduced TPHD-inspired item-description cards.
+- Other minor bug fixes and improvements.

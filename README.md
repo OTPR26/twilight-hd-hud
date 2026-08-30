@@ -22,10 +22,10 @@ release; see [COMPATIBILITY.md](COMPATIBILITY.md) for the maintenance checklist.
 - ABXY, BAYX, BAYX Flipped, PlayStation-symbol, and blank button-label options
 - Four text fonts: Original, Zen Kaku Gothic New, M PLUS 2, and Dusklight's Fira Sans family.
 - Editable HUD sizes from 50% to 125% in 1% steps, with reset-to-100% buttons.
-  Overall HUD Size overrides all groups when it is not 100%, disabling the
-  individual controls. At 100%, saved Controller Diamond, D-Pad, Hearts,
-  Action Text, Dialogue Text, Rupee, and Minimap
-  percentages apply independently, without multiplication. Changes apply live.
+  Overall HUD Size overrides visual HUD groups when it is not 100%, without
+  changing text. Action Text and Dialogue Text remain independent. At 100%,
+  saved Controller Diamond, D-Pad, Hearts, Rupee, and Minimap percentages apply
+  independently, without multiplication. Changes apply live.
 - *Twilight Princess HD*-style panels for shared three-choice dialogue screens
 - TPHD-style Collection screen with parchment descriptions, decorated equipment
   frames, and a forward-facing Link model that retains Dusklight's rotation controls
@@ -76,7 +76,7 @@ Items to apply the change. X, Y, and R item assignment and supported combination
 retain the game's inventory behavior.
 
 By default, **Start / +** opens Items and **D-Pad Down** opens Collection/Save.
-Turn **TPD  Items / Collection Buttons** off in Twilight HD HUD Settings to
+Turn **TPHD Items / Collection Buttons** off in Twilight HD HUD Settings to
 restore **D-Pad Down → Items** and **Start / + → Collection/Save** while keeping
 the TPHD Bank layout. The preference is saved and the HUD label updates when
 you return to gameplay; no restart is needed.
@@ -122,9 +122,10 @@ artwork. Text spacing and line wrapping are unchanged.
 
 The **HUD Sizing** tab accepts whole percentages from **50% to 125%**. Set
 **Overall HUD Size** to 100% to adjust the controller diamond, D-Pad, hearts,
-action text, dialogue text, rupees, and minimap
-separately. Any other overall value overrides those controls without multiplying
-their saved percentages. Each control has a reset-to-100% button. Use
+rupees, and minimap separately. Any other overall value overrides those visual
+controls without multiplying their saved percentages. D-Pad and controller
+diamond sizing changes icons, not their labels; Action Text and Dialogue Text
+remain independent of Overall. Each control has a reset-to-100% button. Use
 Dusklight's **Minimal HUD** setting to hide the HUD.
 
 ## Controller layouts

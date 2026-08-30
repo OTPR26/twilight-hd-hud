@@ -44,6 +44,7 @@
 #include "JSystem/J2DGraph/J2DScreen.h"
 #include "JSystem/J2DGraph/J2DPicture.h"
 #include "JSystem/J2DGraph/J2DTextBox.h"
+#include "JSystem/J2DGraph/J2DWindow.h"
 #include "JSystem/J2DGraph/J2DOrthoGraph.h"
 #include "JSystem/JKernel/JKRExpHeap.h"
 #include "JSystem/JUtility/JUTFont.h"
@@ -152,6 +153,7 @@ DEFINE_HOOK(&JMessage::TControl::setMessageCode_inSequence_, ItemHelpMessageHook
 DEFINE_HOOK(&dMeterButton_c::_execute, MeterButtonExecuteHook);
 DEFINE_HOOK(&dMeterButton_c::draw, MeterButtonDrawHook);
 DEFINE_HOOK(&dMeter2Draw_c::draw, MeterDrawHook);
+DEFINE_HOOK(&dMeter2Draw_c::drawButtonCross, MeterDrawButtonCrossHook);
 DEFINE_HOOK(&dMeter2Draw_c::drawButtonZ, MeterDrawButtonZHook);
 DEFINE_HOOK(&dMeter2_c::moveButtonCross, MeterMoveButtonCrossHook);
 DEFINE_HOOK(&dMeter2Draw_c::drawKanteraScreen, MeterGaugeScreenHook);
@@ -1424,6 +1426,260 @@ dMsgString_c* s_itemHelpFitOwner = nullptr;
 u32 s_itemHelpFitMessage = 0;
 float s_itemHelpFitScale = 1.0f;
 
+constexpr u64 kItemExplainParchmentTag = MULTI_CHAR('hd_iebg');
+constexpr u64 kItemExplainDividerTag = MULTI_CHAR('hd_ied2');
+constexpr u64 kItemExplainTitleTag = MULTI_CHAR('hd_iett');
+constexpr u64 kItemExplainCornerTag = MULTI_CHAR('hd_ic00');
+
+void set_text_binding(J2DTextBox* text, J2DTextBoxHBinding horizontal,
+    J2DTextBoxVBinding vertical) {
+    if (text == nullptr) return;
+    text->mFlags = (text->mFlags & ~0x0f) |
+        (static_cast<u8>(horizontal) << 2) | static_cast<u8>(vertical);
+}
+
+bool preserve_item_explain_picture(dMenu_ItemExplain_c* menu, J2DPane* pane,
+    J2DPane* itemIcon, J2DPane* itemGlow, J2DPane* itemNumber,
+    J2DPicture* parchment, J2DPicture* divider) {
+    if (pane == parchment || pane == divider || pane == itemIcon ||
+        pane == itemGlow || pane == itemNumber || pane == menu->mpBackTex ||
+        pane->mInfoTag == MULTI_CHAR('i_icon_1') ||
+        pane->mInfoTag == MULTI_CHAR('i_icon_2') ||
+        pane->mInfoTag == MULTI_CHAR('i_icon_3')) {
+        return true;
+    }
+    for (J2DPicture* number : menu->mpItemNumTex) {
+        if (pane == number) return true;
+    }
+    for (J2DPicture* itemLayer : menu->mpExpItemPane) {
+        if (pane == itemLayer) return true;
+    }
+    return false;
+}
+
+void hide_item_explain_native_art(dMenu_ItemExplain_c* menu, J2DPane* pane,
+    J2DPane* itemIcon, J2DPane* itemGlow, J2DPane* itemNumber,
+    J2DPicture* parchment, J2DPicture* divider) {
+    if (pane == nullptr) return;
+
+    const bool preserve = preserve_item_explain_picture(menu, pane, itemIcon,
+        itemGlow, itemNumber, parchment, divider);
+
+    if (J2DPicture* picture = as_picture(pane);
+        picture != nullptr && picture != parchment && picture != divider && !preserve) {
+        // The stock flourishes use compact local bounds and are enlarged by
+        // their parents, so size-based filtering leaves them visible. Keep the
+        // card's functional pictures explicitly and suppress every other
+        // native picture layer.
+        picture->hide();
+    }
+    if (pane->getTypeID() == 17 && !preserve) {
+        // The original item card border is a J2DWindow. Its corner and title
+        // textures are drawn by the window itself rather than child pictures,
+        // which is why hiding the picture layers alone leaves stray flourishes.
+        const JGeometry::TBox2<f32> bounds = pane->getBounds();
+        if (bounds.getWidth() > 36.0f || bounds.getHeight() > 36.0f) {
+            pane->hide();
+            return;
+        }
+    }
+    for (J2DPane* child = pane->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane()) {
+        hide_item_explain_native_art(menu, child, itemIcon, itemGlow,
+            itemNumber, parchment, divider);
+    }
+}
+
+void find_item_explain_backing(J2DPane* pane, J2DPane* itemIcon,
+    J2DPane* itemGlow, J2DPicture* oldOverlay, J2DPicture*& best, f32& bestArea) {
+    if (pane == nullptr || pane == itemIcon || pane == itemGlow) return;
+    if (J2DPicture* picture = as_picture(pane);
+        picture != nullptr && picture != oldOverlay) {
+        const JGeometry::TBox2<f32> bounds = picture->getBounds();
+        const f32 area = bounds.getWidth() * bounds.getHeight();
+        if (area > bestArea) {
+            best = picture;
+            bestArea = area;
+        }
+    }
+    for (J2DPane* child = pane->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane()) {
+        find_item_explain_backing(child, itemIcon, itemGlow, oldOverlay,
+            best, bestArea);
+    }
+}
+
+void style_item_explain_card(dMenu_ItemExplain_c* menu) {
+    if (menu == nullptr || menu->mpInfoScreen == nullptr || menu->mpParent[0] == nullptr) {
+        return;
+    }
+
+    J2DPane* root = menu->mpParent[0]->getPanePtr();
+    if (root == nullptr) return;
+
+    J2DPane* itemIcon = menu->mpInfoIcon != nullptr ?
+        menu->mpInfoIcon->getPanePtr() : nullptr;
+    J2DPane* itemGlow = menu->mpInfoScreen->search(MULTI_CHAR('i_i_back'));
+    J2DPane* itemNumber = menu->mpInfoScreen->search(MULTI_CHAR('info_n1'));
+
+    // Earlier previews added a separate parchment child. Hide it if this
+    // screen survived a live mod reload; fresh screens never create one.
+    auto* oldOverlay = as_picture(menu->mpInfoScreen->search(kItemExplainParchmentTag));
+    if (oldOverlay != nullptr) oldOverlay->hide();
+
+    auto* parchment = as_picture(
+        menu->mpInfoScreen->searchUserInfo(kItemExplainParchmentTag));
+    if (parchment == nullptr) {
+        f32 largestArea = 0.0f;
+        find_item_explain_backing(root, itemIcon, itemGlow, oldOverlay,
+            parchment, largestArea);
+        if (parchment != nullptr) parchment->setUserInfo(kItemExplainParchmentTag);
+    }
+    if (parchment == nullptr) return;
+
+    if (ResTIMG const* texture = resource_texture(s_collectParchmentResource)) {
+        parchment->changeTexture(texture, 0);
+        parchment->setTexCoord(parchment->getTexture(0), BIND15, MIRROR0, false);
+        parchment->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+            JUtility::TColor(255, 255, 255, 255));
+        parchment->setCornerColor(JUtility::TColor(255, 255, 255, 255));
+    }
+
+    J2DPane* cardParent = parchment->getParentPane();
+    if (cardParent == nullptr) cardParent = root;
+    const JGeometry::TBox2<f32> card = parchment->getBounds();
+    const f32 cardWidth = card.getWidth();
+    const f32 cardHeight = card.getHeight();
+
+    auto* divider = as_picture(menu->mpInfoScreen->search(kItemExplainDividerTag));
+    if (divider == nullptr && cardParent != nullptr) {
+        if (ResTIMG const* texture = resource_texture(s_fishJournalDividerResource)) {
+            divider = JKR_NEW J2DPicture(kItemExplainDividerTag,
+                JGeometry::TBox2<f32>(card.i.x + cardWidth * 0.39f,
+                    card.i.y + cardHeight * 0.18f,
+                    card.i.x + cardWidth * 0.61f,
+                    card.i.y + cardHeight * 0.24f),
+                texture, nullptr);
+            divider->setTexCoord(divider->getTexture(0), BIND15, MIRROR0, false);
+            divider->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+                JUtility::TColor(132, 91, 42, 255));
+            divider->setCornerColor(JUtility::TColor(255, 255, 255, 190));
+            cardParent->appendChild(divider);
+        }
+    }
+    if (divider != nullptr) {
+        divider->move(card.i.x + cardWidth * 0.39f,
+            card.i.y + cardHeight * 0.18f);
+        divider->resize(cardWidth * 0.22f, cardHeight * 0.06f);
+    }
+
+    // The stock card artwork is split across several sibling pane trees. Walk
+    // the complete information screen so its title rail and corner flourishes
+    // cannot remain around the replacement parchment.
+    hide_item_explain_native_art(menu, menu->mpInfoScreen, itemIcon, itemGlow,
+        itemNumber, parchment, divider);
+
+    // Item descriptions in TPHD use bare parchment. Remove the four custom
+    // ornaments from live-reloaded screens as well as omitting them on newly
+    // created cards.
+    for (int cornerIndex = 0; cornerIndex < 4; ++cornerIndex) {
+        if (J2DPane* corner = menu->mpInfoScreen->search(
+                kItemExplainCornerTag + cornerIndex)) {
+            corner->hide();
+        }
+    }
+    parchment->show();
+    if (divider != nullptr) divider->show();
+    if (itemIcon != nullptr) {
+        // Native item help scales artwork from the loaded texture dimensions.
+        // Recompute that authored scale instead of multiplying the live pane so
+        // the card can be restyled every frame without accumulating growth.
+        const f32 hioScale = g_drawHIO.mItemScaleAdjustON ?
+            g_drawHIO.mItemScalePercent / 100.0f : 1.0f;
+        if (menu->mpExpItemTex[0] != nullptr) {
+            itemIcon->scale(menu->mpExpItemTex[0]->width / 48.0f * hioScale *
+                    kItemHelpArtworkScale,
+                menu->mpExpItemTex[0]->height / 48.0f * hioScale *
+                    kItemHelpArtworkScale);
+        }
+        itemIcon->show();
+    }
+    if (itemGlow != nullptr) {
+        itemGlow->scale(kItemHelpArtworkScale, kItemHelpArtworkScale);
+        itemGlow->show();
+    }
+
+    auto* body = menu->mpInfoText != nullptr ?
+        static_cast<J2DTextBox*>(menu->mpInfoText->getPanePtr()) : nullptr;
+    if (body != nullptr) {
+        body->setFont(mDoExt_getSubFont());
+        if (menu->mpInfoString != nullptr && menu->mpInfoString->mpRefer != nullptr) {
+            // Keep the message parser and renderer on the same font metrics.
+            // Otherwise inline controller glyphs retain the wider stock-font
+            // positions and collide with the following punctuation and words.
+            menu->mpInfoString->mpRefer->mpFont = mDoExt_getSubFont();
+        }
+        body->setFontSize(14.5f, 14.5f);
+        body->setCharSpace(0.0f);
+        body->setLineSpace(18.5f);
+        body->setFontColor(JUtility::TColor(76, 54, 28, 255),
+            JUtility::TColor(108, 76, 36, 255));
+        set_text_binding(body, HBIND_LEFT, VBIND_TOP);
+        body->show();
+    }
+
+    // This authored title group owns the stock corner scrollwork and short
+    // horizontal title rails. The replacement title is attached to the card
+    // parent, so the complete native group can be suppressed safely.
+    if (menu->mpLabel != nullptr) menu->mpLabel->hide();
+
+    J2DTextBox* nativeTitle = nullptr;
+    for (int index = 0; index < 4; ++index) {
+        auto* layer = menu->mpNameText[index] != nullptr ?
+            static_cast<J2DTextBox*>(menu->mpNameText[index]->getPanePtr()) : nullptr;
+        if (layer == nullptr) continue;
+        if (index == 3) nativeTitle = layer;
+        layer->hide();
+    }
+
+    auto* title = static_cast<J2DTextBox*>(
+        menu->mpInfoScreen->search(kItemExplainTitleTag));
+    if (title == nullptr && cardParent != nullptr) {
+        title = JKR_NEW J2DTextBox(kItemExplainTitleTag,
+            JGeometry::TBox2<f32>(card.i.x + cardWidth * 0.12f,
+                card.i.y + cardHeight * 0.06f,
+                card.i.x + cardWidth * 0.88f,
+                card.i.y + cardHeight * 0.19f),
+            nullptr, "", 64, HBIND_CENTER, VBIND_CENTER);
+        title->setFont(mDoExt_getSubFont());
+        cardParent->appendChild(title);
+    }
+    if (title != nullptr) {
+        title->move(card.i.x + cardWidth * 0.12f,
+            card.i.y + cardHeight * 0.06f);
+        title->resize(cardWidth * 0.76f, cardHeight * 0.13f);
+        title->setString(64, nativeTitle != nullptr ? text_box_string(nativeTitle) : "");
+        title->setFontSize(kItemHelpTitleFontSize, kItemHelpTitleFontSize);
+        title->setCharSpace(0.0f);
+        title->setFontColor(JUtility::TColor(112, 69, 20, 255),
+            JUtility::TColor(139, 89, 28, 255));
+        set_text_binding(title, HBIND_CENTER, VBIND_CENTER);
+        title->show();
+    }
+}
+
+HookAction before_item_explain_screen_draw(ModContext*, void* args, void*, void*) {
+    auto* screen = mods::arg<J2DScreen*>(args, 0);
+    if (s_activeItemExplanation != nullptr &&
+        screen == s_activeItemExplanation->mpInfoScreen) {
+        // The native message parser refreshes font colors and pane state after
+        // the item draw hook starts. Reapply the TPHD treatment at the actual
+        // screen draw boundary so those authored defaults cannot win back.
+        style_item_explain_card(s_activeItemExplanation);
+    }
+    return HOOK_CONTINUE;
+}
+
 void apply_item_help_fit() {
     if (s_itemHelpDrawText == nullptr) return;
     s_itemHelpDrawText->setFontSize(s_itemHelpOriginalFont.mSizeX * s_itemHelpFitScale,
@@ -1493,6 +1749,7 @@ void apply_item_explain_button_layout(dMenu_ItemExplain_c* menu) {
         switch (item_help_button(type, combination, boomerang)) {
         case ItemHelpButton::Action: replacement = menu_face_button_texture(true); break;
         case ItemHelpButton::Back: replacement = menu_face_button_texture(false); break;
+        case ItemHelpButton::Stick: break;
         case ItemHelpButton::ItemX: replacement = item_assignment_button_texture(true); break;
         case ItemHelpButton::ItemY: replacement = item_assignment_button_texture(false); break;
         case ItemHelpButton::Target: replacement = styled_zl_button_texture(); break;
@@ -1511,6 +1768,7 @@ void apply_item_explain_button_layout(dMenu_ItemExplain_c* menu) {
 struct ItemHelpIconPosition {
     COutFontSet_c* icon = nullptr;
     f32 x = 0.0f;
+    f32 y = 0.0f;
 };
 std::array<ItemHelpIconPosition, 35> s_itemHelpIconPositions{};
 std::size_t s_itemHelpIconPositionCount = 0;
@@ -1519,14 +1777,31 @@ HookAction before_item_help_out_font_draw(ModContext*, void* args, void*, void*)
     auto* strings = mods::arg<dMsgString_c*>(args, 0);
     auto* text = mods::arg<J2DTextBox*>(args, 1);
     auto* menu = s_activeItemExplanation;
-    if (menu == nullptr || menu->field_0xe1 != dItemNo_BOOMERANG_e ||
-        strings != menu->mpInfoString || text == nullptr || text != s_itemHelpDrawText ||
+    if (menu == nullptr || strings != menu->mpInfoString ||
+        text == nullptr || text != s_itemHelpDrawText ||
         strings->mpOutFont == nullptr) return HOOK_CONTINUE;
 
+    const bool combination = item_help_uses_bow_combination(menu->field_0xe1);
+    const bool boomerang = menu->field_0xe1 == dItemNo_BOOMERANG_e;
+    const bool clawshot = menu->field_0xe1 == dItemNo_HOOKSHOT_e ||
+        menu->field_0xe1 == dItemNo_W_HOOKSHOT_e;
+    unsigned stickOccurrence = 0;
     for (auto* icon : strings->mpOutFont->mpOfs) {
-        if (icon == nullptr || icon->getTextBoxPtr() != text || icon->getType() != 7) continue;
-        s_itemHelpIconPositions[s_itemHelpIconPositionCount++] = {icon, icon->getPosX()};
-        icon->mPosX = item_help_icon_x(icon->getPosX(), icon->getSizeX(), icon->getType(), true);
+        if (icon == nullptr || icon->getTextBoxPtr() != text) continue;
+        const int type = icon->getType();
+        ItemHelpButton button = item_help_button(type, combination, boomerang);
+        if (button == ItemHelpButton::None ||
+            s_itemHelpIconPositionCount >= s_itemHelpIconPositions.size()) continue;
+        if (button == ItemHelpButton::Stick &&
+            !item_help_shift_stick(clawshot, stickOccurrence++)) {
+            // Preserve the second Clawshot glyph's already-correct native
+            // horizontal and vertical placement.
+            continue;
+        }
+        s_itemHelpIconPositions[s_itemHelpIconPositionCount++] =
+            {icon, icon->getPosX(), icon->getPosY()};
+        icon->mPosX = item_help_icon_x(icon->getPosX(), icon->getSizeX(), button);
+        icon->mPosY = item_help_icon_y(icon->getPosY(), icon->getSizeY(), button);
     }
     return HOOK_CONTINUE;
 }
@@ -1536,6 +1811,7 @@ void after_item_help_out_font_draw(ModContext*, void*, void*, void*) {
     // so the optical offset never accumulates or leaks into the next card.
     for (std::size_t i = 0; i < s_itemHelpIconPositionCount; ++i) {
         s_itemHelpIconPositions[i].icon->mPosX = s_itemHelpIconPositions[i].x;
+        s_itemHelpIconPositions[i].icon->mPosY = s_itemHelpIconPositions[i].y;
     }
     s_itemHelpIconPositionCount = 0;
 }
@@ -7445,6 +7721,30 @@ void restore_archive_face_button_diamond(dMeter2Draw_c* meter) {
 
     apply_button_layout_preference(meter);
     apply_flipped_diamond_positions(meter);
+
+    // mpButtonParent scales the complete diamond, including every action-label
+    // parent. Counter only those label groups so Diamond Size and Overall HUD
+    // Size remain icon controls. Dawnlight can provide finer text overrides.
+    const f32 diamondTextCounter = 1.0f / hud_scales().controllerDiamond;
+    for (CPaneMgr* text : {meter->mpTextA, meter->mpTextB,
+             meter->mpTextXY[0], meter->mpTextXY[1], meter->mpTextXY[2]})
+    {
+        if (text != nullptr) {
+            text->scale(text->getScaleX() * diamondTextCounter,
+                text->getScaleY() * diamondTextCounter);
+        }
+    }
+    // These backing/shadow label panes are not passed through
+    // restore_archive_pane() above, so use their authored scales directly.
+    // Multiplying their live scale here would shrink them again every frame.
+    for (CPaneMgr* text : {meter->mpBTextA, meter->mpBTextB,
+             meter->mpBTextXY[0], meter->mpBTextXY[1], meter->mpBTextXY[2]})
+    {
+        if (text != nullptr) {
+            text->scale(text->getInitScaleX() * diamondTextCounter,
+                text->getInitScaleY() * diamondTextCounter);
+        }
+    }
 }
 
 void apply_wii_u_item_num_layout(dMeter2Draw_c* meter) {
@@ -7592,13 +7892,12 @@ void apply_wii_u_r_button_art(dMeter2Draw_c* meter) {
     }
 }
 
-void apply_wii_u_archive_layout_corrections(dMeter2Draw_c* meter) {
+void apply_wii_u_dpad_transform(dMeter2Draw_c* meter) {
     if (meter == nullptr) {
         return;
     }
 
     const HudScales scales = hud_scales();
-    const f32 scale = scales.overall;
     // Scaling the D-Pad parent also enlarges the vertical distance from its
     // anchor. At 125% that pulls the top of the TPHD stack back into the life
     // meter. Compensate only for the amount above 100%, keeping the established
@@ -7608,16 +7907,6 @@ void apply_wii_u_archive_layout_corrections(dMeter2Draw_c* meter) {
     // Leave vertical room when either independently sized cluster grows.
     const f32 scaledDpadYOffset =
         std::max(dpadAboveOne, scales.hearts - 1.0f) * 64.0f;
-
-    if (meter->mpButtonParent != nullptr) {
-        meter->mpButtonParent->scale(meter->mpButtonParent->getInitScaleX() * scales.controllerDiamond,
-            meter->mpButtonParent->getInitScaleY() * scales.controllerDiamond);
-    }
-
-    apply_hud_pane_transform(HudPaneSlot::ButtonZ, meter->mpButtonXY[2], true, 31.0f,
-        -4.0f, 0.45f);
-    apply_hud_pane_transform(HudPaneSlot::TextZ, meter->mpTextXY[2], true, 31.0f,
-        -4.0f, 0.45f);
 
     // Keep both layouts in the transform tracker so changing compatibility at
     // runtime first restores the archive-authored pose instead of accumulating
@@ -7633,8 +7922,30 @@ void apply_wii_u_archive_layout_corrections(dMeter2Draw_c* meter) {
         apply_hud_pane_transform(HudPaneSlot::DPad,
             meter->mpButtonCrossParent, true,
             -22.0f + scaledDpadXOffset, -282.0f + scaledDpadYOffset,
-            1.62f * scales.dpad);
+            1.96f * scales.dpad);
     }
+}
+
+void apply_wii_u_archive_layout_corrections(dMeter2Draw_c* meter) {
+    if (meter == nullptr) {
+        return;
+    }
+
+    const HudScales scales = hud_scales();
+    const f32 scale = scales.overall;
+
+    if (meter->mpButtonParent != nullptr) {
+        meter->mpButtonParent->scale(
+            meter->mpButtonParent->getInitScaleX() * scales.controllerDiamond,
+            meter->mpButtonParent->getInitScaleY() * scales.controllerDiamond);
+    }
+
+    apply_hud_pane_transform(HudPaneSlot::ButtonZ, meter->mpButtonXY[2], true,
+        31.0f, -4.0f, 0.45f);
+    apply_hud_pane_transform(HudPaneSlot::TextZ, meter->mpTextXY[2], true, 31.0f,
+        -4.0f, 0.45f);
+
+    apply_wii_u_dpad_transform(meter);
     apply_hud_pane_transform(HudPaneSlot::Hearts, meter->mpLifeParent, true, -22.0f,
         -19.0f, scales.hearts);
     // Keep the icon, frame, and digit layers on their common animated parent.
@@ -8050,7 +8361,10 @@ void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
     // copies stay registered. A compact group scale gives the lighter Wii U
     // presentation without creating separated black shadows.
     const bool legacyFollowLayout = use_legacy_follow_dpad_layout();
-    const f32 textScale = legacyFollowLayout ? 0.42f : 0.30f;
+    // The TPHD icon comparison calls for a 1.96 fixed-layout cross. Counter
+    // that parent change here so the authored text remains unchanged.
+    const f32 textScale = (legacyFollowLayout ? 0.42f : 0.248f) /
+        hud_scales().dpad;
     if (meter->mpTextI != nullptr) {
         meter->mpTextI->scale(textScale, textScale);
         // In Follow mode, mirror the user's Call Midna assignment. The stock
@@ -9081,9 +9395,9 @@ void position_midna_hud(dMeter2Draw_c* meter) {
 
     const bool legacyFollowLayout = use_legacy_follow_dpad_layout();
     J2DPane* anchorPane = nullptr;
-    f32 positionX = 9.0f;
+    f32 positionX = 8.0f;
     f32 positionY = -34.0f;
-    constexpr f32 dpadVisualScale = 1.62f;
+    constexpr f32 dpadVisualScale = 1.96f;
     f32 parentScale = dpadVisualScale;
     bool ignoreAnchorAlpha = false;
 
@@ -9092,8 +9406,10 @@ void position_midna_hud(dMeter2Draw_c* meter) {
         // Midna independently. Disable inherited alpha below so the D-Pad's
         // stock pulse/fade still cannot hide the fixed L prompt.
         anchorPane = meter->mpScreen->search(MULTI_CHAR('juji_n'));
-        positionX = 9.0f;
-        positionY = -32.0f;
+        positionX = 8.0f;
+        // TPHD leaves a compact but visible gap between the bottom of the
+        // combined Midna/L badge and the map parchment.
+        positionY = -30.0f;
         parentScale = dpadVisualScale;
         ignoreAnchorAlpha = true;
     } else if (nativeButton == kSdlRightShoulderButton &&
@@ -9152,7 +9468,7 @@ void position_midna_hud(dMeter2Draw_c* meter) {
     // visual size when HUD Size or the D-Pad scale changes.
     const f32 midnaVisualScale = legacyFollowLayout &&
         nativeButton != kSdlLeftShoulderButton &&
-        nativeButton != kSdlRightShoulderButton ? 0.95f : 0.72f;
+        nativeButton != kSdlRightShoulderButton ? 0.95f : 0.90f;
     const f32 scale = g_drawHIO.mMidnaIconScale *
         (midnaVisualScale / parentScale);
     midnaPane->scale(scale, scale);
@@ -9202,8 +9518,14 @@ void update_midna_shoulder_badge(dMeter2Draw_c* meter) {
     }
 
     auto* badge = as_picture(existingBadge);
-    constexpr f32 badgeSize = 28.0f;
-    constexpr f32 effectiveMidnaScale = 0.72f;
+    // In TPHD the L disc is the backing silhouette for Midna's portrait and
+    // remains slightly larger than her visible mask. Keep its size independent
+    // from Midna's pane so enlarging the portrait cannot bury the assignment.
+    // This texture contains a wide rendered shoulder-button silhouette inside
+    // its nominal pane; 35 local units yields a backing roughly as wide as the
+    // map parchment instead of stretching into a full-width white bar.
+    constexpr f32 badgeSize = 35.0f;
+    constexpr f32 effectiveMidnaScale = 0.90f;
     const f32 localSize = badgeSize / effectiveMidnaScale;
     // This picture is now a child of Midna's pane, whose authored visible
     // art sits below the pane's geometric center. Compensate in local space
@@ -12164,6 +12486,14 @@ void after_ring_draw(ModContext*, void* args, void*, void*) {
 HookAction before_item_explain_draw(ModContext*, void* args, void*, void*) {
     s_activeItemExplanation = mods::arg<dMenu_ItemExplain_c*>(args, 0);
     auto* menu = s_activeItemExplanation;
+    if (menu != nullptr && menu->mpBackTex != nullptr) {
+        // The native card uses a 150/255 black dimmer. Match the Items menu's
+        // lighter treatment: 40% opacity (approximately 60% transparent),
+        // while retaining the stock opening/closing fade progression.
+        const f32 openAmount = 1.0f - std::clamp(menu->getAlphaRatio(), 0.0f, 1.0f);
+        menu->mpBackTex->setAlpha(static_cast<u8>(102.0f * openAmount));
+    }
+    style_item_explain_card(menu);
     s_itemHelpDrawText = menu != nullptr && menu->mpInfoText != nullptr ?
         static_cast<J2DTextBox*>(menu->mpInfoText->getPanePtr()) : nullptr;
     if (s_itemHelpDrawText != nullptr) {
@@ -12806,6 +13136,22 @@ HookAction before_message_screen_draw(ModContext*, void* args, void*, void*) {
 
 void after_meter_midna_alpha(ModContext*, void* args, void*, void*) {
     position_midna_hud(mods::arg<dMeter2Draw_c*>(args, 0));
+}
+
+void after_meter_draw_button_cross(ModContext*, void* args, void*, void*) {
+    auto* meter = mods::arg<dMeter2Draw_c*>(args, 0);
+    // Dusklight recomputes this pane from the live user HUD scale whenever the
+    // viewport/aspect changes. Reapply the TPHD icon-only sizing immediately
+    // after that native refresh so 16:9 cannot restore the smaller archive
+    // scale. Discard the transform tracker's old snapshot first: this call has
+    // just established a fresh native base pose, even when the resulting
+    // values happen to resemble the previously tracked pose. The text
+    // counter-scale remains inside apply_wii_u_dpad_style().
+    hud_pane_state(HudPaneSlot::DPad) = {};
+    apply_wii_u_dpad_transform(meter);
+    apply_wii_u_dpad_style(meter);
+    position_midna_hud(meter);
+    update_midna_shoulder_badge(meter);
 }
 
 HookAction before_meter_map_draw(ModContext*, void* args, void*, void*) {
@@ -13815,6 +14161,8 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_POST(MeterButtonDrawHook, after_meter_button_draw, "restore native action text size");
     ADD_PRE(MeterDrawHook, before_meter_draw, "HUD draw (before)");
     ADD_POST(MeterDrawHook, after_meter_draw, "HUD draw (after)");
+    ADD_POST(MeterDrawButtonCrossHook, after_meter_draw_button_cross,
+        "persistent TPHD D-pad scale after viewport refresh");
     ADD_PRE(MeterDrawButtonZHook, before_meter_draw_button_z,
         "disable item-ring Z action label");
     ADD_POST(MeterDrawButtonZHook, after_meter_draw_button_z,
@@ -13822,6 +14170,8 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_POST(MeterMoveButtonCrossHook, after_meter_move_button_cross, "D-pad update");
     ADD_PRE(MeterGaugeScreenHook, before_meter_gauge_screen, "oil and oxygen meter setup");
     ADD_PRE(ScreenDrawHook, before_gauge_screen_draw, "top-center oil and oxygen meters");
+    ADD_PRE(ScreenDrawHook, before_item_explain_screen_draw,
+        "TPHD item description presentation");
     ADD_POST(MeterGaugeScreenHook, after_meter_gauge_screen, "oil and oxygen meter restore");
     ADD_PRE(MessageScreenDrawHook, before_message_screen_draw, "Howl button prompt");
     ADD_POST(MessageScreenDrawHook, after_message_screen_draw, "Restore dialogue draw geometry");
@@ -13846,7 +14196,7 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_PRE(CollectTextEscapeHook, before_collection_text_escape, "collection inline slot start");
     ADD_POST(CollectTextEscapeHook, after_collection_text_escape, "collection inline slot end");
     ADD_PRE(CollectOutFontDrawHook, before_collection_out_font_draw, "collection final inline alignment");
-    ADD_PRE(CollectOutFontDrawHook, before_item_help_out_font_draw, "boomerang assignment icon spacing");
+    ADD_PRE(CollectOutFontDrawHook, before_item_help_out_font_draw, "item help icon spacing");
     ADD_POST(CollectOutFontDrawHook, after_item_help_out_font_draw, "item help icon position restore");
     ADD_POST(LetterCreateHook, after_letter_create, "letter menu buttons");
     ADD_POST(LetterMoveHook, after_letter_move, "persistent HD letter journal");

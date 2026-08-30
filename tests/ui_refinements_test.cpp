@@ -118,7 +118,16 @@ int main() {
     assert(item_help_fit_scale(0.0f, 440.0f) == 1.0f);
 
     assert(item_help_button(0, false) == ItemHelpButton::Action);
+    assert(kItemHelpArtworkScale == 1.5f);
+    assert(kItemHelpTitleFontSize == 28.0f);
     assert(item_help_button(1, false) == ItemHelpButton::Back);
+    assert(item_help_button(2, false) == ItemHelpButton::Stick);
+    assert(item_help_button(9, false) == ItemHelpButton::Stick);
+    assert(item_help_button(69, false) == ItemHelpButton::Stick);
+    assert(item_help_shift_stick(false, 0));
+    assert(item_help_shift_stick(false, 1));
+    assert(item_help_shift_stick(true, 0));
+    assert(!item_help_shift_stick(true, 1));
     assert(item_help_button(3, false) == ItemHelpButton::Target);
     assert(item_help_button(4, false) == ItemHelpButton::Shoulder);
     assert(item_help_button(4, true) == ItemHelpButton::Target);
@@ -135,18 +144,42 @@ int main() {
     for (float scale : {0.5f, 0.75f, 1.0f, 1.5f, 2.0f}) {
         const float x = 100.0f * scale;
         const float width = 20.0f * scale;
-        assert(std::fabs(item_help_icon_x(x, width, 7, true) - 92.0f * scale) < 0.001f);
-        assert(item_help_icon_x(x, width, 7, false) == x);
-        assert(item_help_icon_x(x, width, 4, true) == x);
-        for (int type : {0, 1, 3, 5, 6, 8, 32}) {
-            assert(item_help_icon_x(x, width, type, true) == x);
+        assert(std::fabs(item_help_icon_x(x, width, ItemHelpButton::Back) -
+            94.0f * scale) < 0.001f);
+        for (ItemHelpButton button : {ItemHelpButton::ItemX, ItemHelpButton::ItemY}) {
+            assert(std::fabs(item_help_icon_x(x, width, button) - 92.0f * scale) < 0.001f);
         }
+        assert(std::fabs(item_help_icon_x(x, width, ItemHelpButton::Action) -
+            93.0f * scale) < 0.001f);
+        assert(std::fabs(item_help_icon_x(x, width, ItemHelpButton::Stick) -
+            92.0f * scale) < 0.001f);
+        assert(std::fabs(item_help_icon_x(x, width, ItemHelpButton::Target) -
+            88.0f * scale) < 0.001f);
+        assert(std::fabs(item_help_icon_x(x, width, ItemHelpButton::Trigger) -
+            96.0f * scale) < 0.001f);
+        for (ItemHelpButton button : {ItemHelpButton::Shoulder}) {
+            assert(std::fabs(item_help_icon_x(x, width, button) - 92.0f * scale) < 0.001f);
+        }
+        assert(item_help_icon_x(x, width, ItemHelpButton::None) == x);
+        for (ItemHelpButton button : {ItemHelpButton::Back,
+                 ItemHelpButton::ItemX, ItemHelpButton::ItemY, ItemHelpButton::Shoulder}) {
+            assert(std::fabs(item_help_icon_y(x, width, button) - 98.0f * scale) < 0.001f);
+        }
+        assert(std::fabs(item_help_icon_y(x, width, ItemHelpButton::Action) -
+            95.0f * scale) < 0.001f);
+        assert(std::fabs(item_help_icon_y(x, width, ItemHelpButton::Stick) -
+            93.0f * scale) < 0.001f);
+        for (ItemHelpButton button : {ItemHelpButton::Target, ItemHelpButton::Trigger}) {
+            assert(std::fabs(item_help_icon_y(x, width, button) - 94.0f * scale) < 0.001f);
+        }
+        assert(item_help_icon_y(x, width, ItemHelpButton::None) == x);
     }
-    assert(item_help_icon_x(100.0f, 0.0f, 7, true) == 100.0f);
-    for (int type = 8; type < 70; ++type) {
+    assert(item_help_icon_x(100.0f, 0.0f, ItemHelpButton::Shoulder) == 100.0f);
+    assert(item_help_icon_y(100.0f, 0.0f, ItemHelpButton::Shoulder) == 100.0f);
+    assert(item_help_button(8, true) == ItemHelpButton::None);
+    for (int type = 10; type < 69; ++type) {
         assert(item_help_button(type, true) == ItemHelpButton::None);
     }
-    assert(item_help_button(2, true) == ItemHelpButton::None);
 
     assert(show_ring_assignment_prompts(false, 0));
     assert(!show_ring_assignment_prompts(true, 0));

@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.5.5 - 2026-08-30
+
+- Refine D-pad and Midna/L-button sizing, layering, and vertical placement.
+- Make HUD sizing controls resize icons without changing their associated text.
+- Correct overworld and dungeon map Poe-count alignment.
+- Introduce TPHD-inspired item-description cards.
+- Include other minor bug fixes and improvements.
+
 ## v1.5.1 - 2026-08-29
 
 - Correct touch-control routing for Collection, Midna, targeting, and the third item slot.

@@ -37,13 +37,13 @@ int main() {
     for (int master = 50; master <= 125; ++master)
     for (int dialogue = 50; dialogue <= 125; ++dialogue) {
         const auto result = compose_hud_scales(master, 83, 92, 75, 87, dialogue);
-        assert(result.dialogueText == (master == 100 ? dialogue : master) / 100.0f);
-        assert(result.actionText == (master == 100 ? 87 : master) / 100.0f);
+        assert(result.dialogueText == dialogue / 100.0f);
+        assert(result.actionText == 0.87f);
     }
     for (int master = 50; master <= 125; ++master)
     for (int action = 50; action <= 125; ++action) {
         const auto result = compose_hud_scales(master, 83, 92, 75, action);
-        assert(result.actionText == (master == 100 ? action : master) / 100.0f);
+        assert(result.actionText == action / 100.0f);
         assert(result.controllerDiamond == (master == 100 ? 83 : master) / 100.0f);
         const auto factor = action_text_multiplier(result.actionText);
         assert(factor >= 0.4f && factor <= 1.0f);

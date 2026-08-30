@@ -138,7 +138,7 @@ ModResult build_hud_tab(
         return MOD_ERROR;
     UiControlDesc swap = UI_CONTROL_DESC_INIT;
     swap.kind = UI_CONTROL_TOGGLE;
-    swap.label = "TPD  Items / Collection Buttons";
+    swap.label = "TPHD Items / Collection Buttons";
     swap.help_rml = "On: D-Pad Down opens Collection/Save; Start / + opens Items.<br/>"
         "Off: D-Pad Down opens Items; Start / + opens Collection/Save.";
     swap.binding = UI_BINDING_CONFIG_VAR;
@@ -167,8 +167,9 @@ ModResult build_hud_sizing_tab(
     if (add_section(ctx, left, "HUD Sizing") != MOD_OK ||
         add_text(ctx, left,
             "Enter 50-125%, or adjust left/right in 1% steps. Changes apply live. "
-            "Overall overrides all groups unless it is 100%; returning to 100% "
-            "restores your individual values. Use Dusklight's Minimal HUD option to hide the HUD.")
+            "Overall overrides visual HUD groups unless it is 100%; text scales remain independent. "
+            "Returning to 100% restores your individual icon values. Use Dusklight's Minimal HUD "
+            "option to hide the HUD.")
             != MOD_OK) return MOD_ERROR;
 
     static HudSizeSetting settings[] = {HudSizeSetting::Overall,
@@ -189,11 +190,11 @@ ModResult build_hud_sizing_tab(
         "Reset Rupees to 100%", "Reset Minimap to 100%",
     };
     constexpr const char* help[] = {
-        "Any value other than 100% overrides all groups. Individual controls show that value "
-        "and are disabled. Reset Overall to restore your saved individual sizes.",
-        "Sizes the face-button/item cluster, ammo, and Wolf Link action icons. "
+        "Any value other than 100% overrides visual HUD groups, but never text. Icon controls show "
+        "that value and are disabled. Reset Overall to restore their saved individual sizes.",
+        "Sizes the face-button/item cluster, ammo, and Wolf Link action icons without changing text. "
         "Set Overall to 100% to edit this percentage.",
-        "Sizes the D-pad, labels, and map icon. Set Overall to 100% to edit this percentage.",
+        "Sizes the D-pad and map icon without changing labels. Set Overall to 100% to edit this percentage.",
         "Sizes gameplay hearts, not save-menu hearts. Set Overall to 100% to edit this percentage.",
         "Sizes bottom-center action text. 100% uses the TPHD-style size; 125% restores the previous size.",
         "Sizes dialogue text. 100% uses the TPHD-style size.",

@@ -2,7 +2,12 @@
 
 namespace twilight_hd_hud {
 
-enum class ItemHelpButton { None, Action, Back, ItemX, ItemY, Shoulder, Target, Trigger };
+enum class ItemHelpButton {
+    None, Action, Back, Stick, ItemX, ItemY, Shoulder, Target, Trigger
+};
+
+constexpr float kItemHelpArtworkScale = 1.5f;
+constexpr float kItemHelpTitleFontSize = 28.0f;
 
 // Native out-font glyph IDs. Only item-help text uses this mapping; ordinary
 // dialogue retains its own controls and illustrations.
@@ -10,6 +15,14 @@ constexpr ItemHelpButton item_help_button(int type, bool bowCombination, bool bo
     switch (type) {
     case 0: return ItemHelpButton::Action;
     case 1: return ItemHelpButton::Back;
+    case 2: return ItemHelpButton::Stick;
+    // With pointer input disabled, the same aiming instruction is rendered as
+    // the animated stick-cross glyph instead of the Wii reticule glyph.
+    case 9: return ItemHelpButton::Stick;
+    // The aiming symbol used by Slingshot and Hero's Bow is sourced from the
+    // Wii reticule tag even when the active controller UI presents it as the
+    // right stick.
+    case 69: return ItemHelpButton::Stick;
     case 3: return ItemHelpButton::Target;
     case 4: return boomerang ? ItemHelpButton::Trigger :
         bowCombination ? ItemHelpButton::Target : ItemHelpButton::Shoulder;
@@ -20,11 +33,67 @@ constexpr ItemHelpButton item_help_button(int type, bool bowCombination, bool bo
     }
 }
 
-// Only the Gale Boomerang's inserted third-assignment glyph needs its gap
-// tightened. Leave the native R targeting glyph and all following text alone.
-// Out-font coordinates are local to the text box, so the shift scales with it.
-constexpr float item_help_icon_x(float x, float width, int type, bool boomerang) {
-    return boomerang && type == 7 && width > 0.0f ? x - width * 0.4f : x;
+constexpr bool item_help_shift_stick(bool clawshot, unsigned occurrence) {
+    // The Clawshot help text reuses the animated aiming glyph twice. Its first
+    // occurrence has the same excessive leading gap as Bow/Slingshot, while
+    // the second occurrence is authored at the correct position already.
+    return !clawshot || occurrence == 0;
+}
+
+// The replacement glyph artwork is wider than the message cell reserved by
+// the TPHD body font. Pull every supported glyph left inside that cell so its
+// visible right edge does not collide with punctuation or the following word.
+// Wide shoulder/trigger/target caps need more compensation than the circular
+// face buttons, while the native stick art has its own asymmetric texture box.
+// Coordinates are local to the text box, so this scales with the card and with
+// crowded-card font fitting.
+constexpr float item_help_icon_x(float x, float width, ItemHelpButton button) {
+    if (width <= 0.0f) return x;
+    switch (button) {
+    case ItemHelpButton::Action:
+        return x - width * 0.35f;
+    case ItemHelpButton::Back:
+        return x - width * 0.3f;
+    case ItemHelpButton::ItemX:
+    case ItemHelpButton::ItemY:
+        return x - width * 0.4f;
+    case ItemHelpButton::Stick:
+        return x - width * 0.4f;
+    case ItemHelpButton::Target:
+        return x - width * 0.6f;
+    case ItemHelpButton::Trigger:
+        return x - width * 0.2f;
+    case ItemHelpButton::Shoulder:
+        return x - width * 0.4f;
+    case ItemHelpButton::None:
+        return x;
+    }
+    return x;
+}
+
+// Out-font pictures are positioned from their texture box rather than the
+// visible cap/glyph. Their lower shadow makes the replacement controls read a
+// little below the TPHD text baseline. The tall native stick and the shallow
+// ZL/ZR caps need slightly different optical corrections.
+constexpr float item_help_icon_y(float y, float height, ItemHelpButton button) {
+    if (height <= 0.0f) return y;
+    switch (button) {
+    case ItemHelpButton::Action:
+        return y - height * 0.25f;
+    case ItemHelpButton::Stick:
+        return y - height * 0.35f;
+    case ItemHelpButton::Target:
+    case ItemHelpButton::Trigger:
+        return y - height * 0.3f;
+    case ItemHelpButton::Back:
+    case ItemHelpButton::ItemX:
+    case ItemHelpButton::ItemY:
+    case ItemHelpButton::Shoulder:
+        return y - height * 0.1f;
+    case ItemHelpButton::None:
+        return y;
+    }
+    return y;
 }
 
 constexpr bool show_ring_assignment_prompts(bool wolf, int explanationStatus) {

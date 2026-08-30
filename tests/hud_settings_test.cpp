@@ -96,7 +96,7 @@ static ModResult window(ModContext*, const UiWindowDesc* desc, UiWindowHandle* h
     assert(controls.size() == 6);
     const auto& swap = controls[5];
     assert(swap.kind == UI_CONTROL_TOGGLE);
-    assert(std::string(swap.label) == "TPD  Items / Collection Buttons");
+    assert(std::string(swap.label) == "TPHD Items / Collection Buttons");
     assert(swap.binding == UI_BINDING_CONFIG_VAR);
     assert(swap.config_var == swap_menu_buttons_config_var());
     assert(std::string(swap.help_rml) ==
@@ -210,11 +210,17 @@ int main() {
         assert(controls[i + 1].kind == UI_CONTROL_BUTTON);
     }
     enter(controls[0], 125);
-    for (std::size_t i = 2; i < controls.size(); i += 2) {
+    for (std::size_t i : {2u, 4u, 6u, 12u, 14u}) {
         assert(displayed(controls[i]) == 125);
         assert(controls[i].is_disabled(nullptr, controls[i].user_data));
         assert(controls[i + 1].is_disabled(nullptr, controls[i + 1].user_data));
     }
+    for (std::size_t i : {8u, 10u}) {
+        assert(!controls[i].is_disabled(nullptr, controls[i].user_data));
+        assert(!controls[i + 1].is_disabled(nullptr, controls[i + 1].user_data));
+    }
+    assert(displayed(controls[8]) == 87);
+    assert(displayed(controls[10]) == 92);
     // Even stale reset callbacks cannot overwrite a locked custom value.
     controls[3].on_pressed(nullptr, controls[3].user_data);
     controls[13].on_pressed(nullptr, controls[13].user_data);

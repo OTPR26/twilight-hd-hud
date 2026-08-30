@@ -42,8 +42,10 @@ constexpr HudScales compose_hud_scales(std::int64_t overall,
         hud_size_multiplier(effective_hud_percent(overall, diamond)),
         hud_size_multiplier(effective_hud_percent(overall, dpad)),
         hud_size_multiplier(effective_hud_percent(overall, hearts)),
-        hud_size_multiplier(effective_hud_percent(overall, actionText)),
-        hud_size_multiplier(effective_hud_percent(overall, dialogueText)),
+        // Overall HUD Size is an icon/layout control. Text remains independent
+        // so changing the visual HUD cannot silently change readability.
+        hud_size_multiplier(actionText),
+        hud_size_multiplier(dialogueText),
         hud_size_multiplier(effective_hud_percent(overall, rupees)),
         hud_size_multiplier(effective_hud_percent(overall, minimap))};
 }
