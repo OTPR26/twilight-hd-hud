@@ -94,6 +94,34 @@ int main() {
         const auto original = verb + icon(15) + " or " + icon(16) + " to use it.";
         assert(three_button_item_help(original + '\0') == verb + trio + " to use it.");
     }
+    const auto soup = "Set it to and drink it with " + icon(15) + " or " +
+        icon(16) + " to restore 2 hearts.";
+    assert(three_button_item_help(soup + '\0') ==
+        "Set it to and drink it with " + trio + " to restore 2 hearts.");
+    const auto superbSoup = "Set it to and drink it with " + icon(16) + " or " +
+        icon(15) + " to replenish 8 hearts.";
+    const auto multilineSuperbSoup = "Set it to and drink it with\n" + icon(16) + " or " +
+        icon(15) + " to replenish 8 hearts.";
+    assert(three_button_item_help(superbSoup + '\0') ==
+        "Set it to and drink it with " + trio + " to replenish 8 hearts.");
+    const std::string layoutTag("\x1a\x06\0\x01\x02\x03", 6);
+    const auto taggedSoup = "Set it to and drink it with " + layoutTag + icon(16) +
+        layoutTag + " or " + layoutTag + icon(15) + " to replenish 8 hearts.";
+    const auto taggedPhraseSoup = "Set it " + layoutTag + "to and " + layoutTag +
+        "drink it with " + layoutTag + icon(16) + layoutTag + " or " + layoutTag +
+        icon(15) + " to replenish 8 hearts.";
+    assert(three_button_item_help(taggedSoup + '\0').empty());
+    assert(three_button_soup_item_help(taggedSoup + '\0') ==
+        "Set it to and drink it with " + trio + " to replenish 8 hearts.");
+    assert(three_button_soup_item_help(taggedPhraseSoup + '\0') ==
+        "Set it " + layoutTag + "to and " + layoutTag + "drink it with " + trio +
+        " to replenish 8 hearts.");
+    assert(three_button_soup_item_help(superbSoup + '\0') ==
+        "Set it to and drink it with " + trio + " to replenish 8 hearts.");
+    assert(three_button_soup_item_help(multilineSuperbSoup + '\0') ==
+        "Set it to and drink it with\n" + trio + " to replenish 8 hearts.");
+    assert(three_button_soup_item_help(("Unrelated " + icon(16) + " or " + icon(15)) +
+        '\0').empty());
     const auto twoPairs = icon(15) + " or " + icon(16) + ".\nAgain: " + icon(47) + " or " + icon(46);
     assert(three_button_item_help(twoPairs + '\0') == trio + ".\nAgain: " + trio);
     for (const std::string gap : {" \nor ", " or\n ", "\n  or "}) {

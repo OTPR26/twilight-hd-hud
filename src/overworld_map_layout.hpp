@@ -16,7 +16,7 @@ constexpr float portalY = 382;
 constexpr float poeY = 104;
 // The overworld count's native baseline sits slightly above the icon center.
 // Lower only the text so it matches the dungeon-map counter presentation.
-constexpr float poeTextYOffset = 4;
+constexpr float poeTextYOffset = 5;
 // The Poe icon is 30 px wide. Leave the same one-pixel icon-to-count gap as
 // the dungeon map instead of the former detached eight-pixel extra spacing.
 constexpr float poeIconToText = 31;

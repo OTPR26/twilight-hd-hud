@@ -12,7 +12,7 @@ int main() {
     assert(content.y + content.height < frame.y + frame.height);
     assert(zoomBY + 8 < frame.y);
     assert(poeY > content.y && poeY < content.y + content.height);
-    assert(poeTextYOffset == 4);
+    assert(poeTextYOffset == 5);
     assert(poeIconToText == 31);
     assert(portalY > content.y && portalY + 12 < content.y + content.height);
     for (float width = 320; width < 1064; width += 1) {
@@ -43,6 +43,8 @@ int main() {
     }
     using namespace twilight_hd_hud;
     constexpr unsigned up = 8, leftButton = 1, directions = 15;
+    assert(field_map_suppressed_directions(false, directions) == directions);
+    assert(field_map_suppressed_directions(true, directions) == 0);
     for (unsigned buttons = 0; buttons < 0x2000; ++buttons) {
         const auto navigation = dungeon_map_navigation_buttons(buttons, directions);
         assert((navigation & directions) == 0); // no D-pad cursor movement

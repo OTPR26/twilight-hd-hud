@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.6.0 - 2026-08-31
+
+- Improved item-acquisition cards with a cleaner, more readable TPHD-inspired font.
+- Added the complete Y, X, or R assignment row to applicable item cards.
+- Stabilized the third-item HUD icon across room transitions and made it fade
+  correctly whenever the equipped item cannot be used.
+- Further refined contextual action-prompt sizing.
+- Restored D-Pad selection in portal-warp Yes/No confirmations.
+- Fine-tuned the overworld-map Poe Soul fraction alignment.
+
 ## v1.5.6 - 2026-08-30
 
 - Fix a Windows startup failure caused by touch-only virtual-input observation

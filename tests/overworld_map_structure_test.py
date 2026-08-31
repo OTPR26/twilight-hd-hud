@@ -28,6 +28,8 @@ execute = hooks.split('HookAction before_menu_window_execute(', 1)[1].split(
 assert 'window->mMenuProc == dMw_c::FMAP_MOVE' in execute
 assert 's_fmapBackTriggered = dungeon_map_back_requested' in execute
 assert '!fmap_accepts_back(window->mpMenuFmap)' in execute
+assert 'PROC_PORTAL_WARP_SELECT' in execute
+assert 'field_map_suppressed_directions(' in execute
 assert execute.index('s_fmapInputScope = window->mpMenuFmap') < execute.index('menu_shortcuts_active(')
 status = hooks.split('HookAction before_fmap_next_status(', 1)[1].split(
     'HookAction before_dmap_next_status(', 1)[0]

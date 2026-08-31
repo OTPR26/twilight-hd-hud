@@ -21,5 +21,7 @@ int main() {
             assert(near(t.position_x(400), 960 + (400 - 960) * t.scale));
     }
     assert(near(dialogue_text_multiplier(1) * 1036, 704.48f));
+    assert(near(dialogue_text_multiplier(1, 1.25f) * 1.25f, 0.68f));
+    assert(near(dialogue_text_multiplier(1, 0.8f), 0.68f));
     std::cout << "PASS: dialogue size, center, glow/symbol alignment and percentage range\n";
 }
