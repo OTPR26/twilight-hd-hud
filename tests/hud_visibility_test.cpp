@@ -18,6 +18,10 @@ struct Pane {
 int main() {
     assert(show_native_touch_replaced_hud(false));
     assert(!show_native_touch_replaced_hud(true));
+    assert(third_slot_item_usable(0x42, 0xFF, 0x04, 0x04));
+    assert(!third_slot_item_usable(0x42, 0xFF, 0x00, 0x04));
+    assert(!third_slot_item_usable(0x00, 0xFF, 0x04, 0x04));
+    assert(!third_slot_item_usable(0xFF, 0xFF, 0x04, 0x04));
 
     Pane root;
     Pane keyGroup{&root};

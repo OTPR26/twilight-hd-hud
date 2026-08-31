@@ -27,10 +27,23 @@ void scale_dialogue_for_draw(dMsgScrnBase_c* screen) {
         talk->mpTm_c[0] == nullptr) return;
     auto* mainText = talk->mpTm_c[0]->getPanePtr();
     if (mainText == nullptr) return;
+    int characterCount = 0;
+    float sourceMessageScale = 1.0f;
+    if (talk->mCharInfoPtr != nullptr) {
+        // The first rendered character carries the message's initial/top-level
+        // scale. This is 1.0 for ordinary dialogue and larger for a handful of
+        // GC-authored character lines. Later inline emphasis is intentionally
+        // not used to resize the whole message.
+        characterCount = std::clamp<int>(
+            *reinterpret_cast<s16*>(talk->mCharInfoPtr + 150), 0, 150);
+        if (characterCount > 0 && talk->mCharInfoPtr[0].field_0x08 > 0.0f) {
+            sourceMessageScale = talk->mCharInfoPtr[0].field_0x08;
+        }
+    }
     CPaneMgr manager;
     const Vec anchor = manager.getGlobalVtxCenter(mainText, false, 0);
     const dialogue_text_layout::Transform transform{anchor.x, anchor.y,
-        dialogue_text_multiplier(hud_scales().dialogueText)};
+        dialogue_text_multiplier(hud_scales().dialogueText, sourceMessageScale)};
     auto& state = s_dialogueDrawState;
     state.talk = talk;
     for (int i = 0; i < 14; ++i) {
@@ -48,9 +61,7 @@ void scale_dialogue_for_draw(dMsgScrnBase_c* screen) {
             transform.position_y(center.y) - resized.y);
     }
     if (talk->mCharInfoPtr != nullptr) {
-        // The native talk renderer stores the active count after 150 entries.
-        state.characterCount = std::clamp<int>(
-            *reinterpret_cast<s16*>(talk->mCharInfoPtr + 150), 0, 150);
+        state.characterCount = characterCount;
         for (int i = 0; i < state.characterCount; ++i) {
             auto& character = talk->mCharInfoPtr[i];
             state.characters[i] = {character.field_0x00, character.field_0x04,
@@ -79,6 +90,10 @@ void scale_dialogue_for_draw(dMsgScrnBase_c* screen) {
 }
 
 void after_message_screen_draw(ModContext*, void* args, void*, void*) {
+    if (dynamic_cast<dMsgScrnItem_c*>(mods::arg<dMsgScrnBase_c*>(args, 0)) != nullptr) {
+        end_item_prompt_font();
+    }
+    restore_item_get_assignment_icons();
     auto& state = s_dialogueDrawState;
     if (state.talk == nullptr || state.talk != mods::arg<dMsgScrnBase_c*>(args, 0)) return;
     for (const auto& saved : state.panes) {

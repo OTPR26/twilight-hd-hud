@@ -24,6 +24,15 @@ int main(int argc, char** argv) {
             bytes[offset] ^= 0x01;
         }
     }
+    const auto squeezed = place(100, 24, 24, 0, 3, 24, false, 22, true,
+        firaOpticalScale);
+    const auto midpoint = place(100, 24, 24, 0, 3, 24, false, 22, true,
+        firaOpticalScale, 0.5f);
+    const auto natural = place(100, 24, 24, 0, 3, 24, false, 22, true,
+        firaOpticalScale, 1.0f);
+    assert(midpoint.scaleX > squeezed.scaleX && midpoint.scaleX < natural.scaleX);
+    assert(midpoint.x < squeezed.x && midpoint.x > natural.x);
+    assert(nearbyint(midpoint.scaleX * 2) == nearbyint(squeezed.scaleX + natural.scaleX));
     assert(supported('A') && supported(0xe9) && supported(0xff));
     assert(!supported(-1) && !supported(0x19) && !supported(0x81) && !supported(0x100));
     assert(!supported(0x82a0));

@@ -8,6 +8,9 @@ enum class ItemHelpButton {
 
 constexpr float kItemHelpArtworkScale = 1.5f;
 constexpr float kItemHelpTitleFontSize = 28.0f;
+constexpr float kItemHelpBodyFontSize = 14.5f;
+constexpr float kItemHelpBodyLineSpace = 18.5f;
+constexpr float kItemHelpRubyFontSize = kItemHelpBodyFontSize * 0.5f;
 
 // Native out-font glyph IDs. Only item-help text uses this mapping; ordinary
 // dialogue retains its own controls and illustrations.

@@ -39,6 +39,7 @@
 #include "d/d_pane_class.h"
 #include "d/d_msg_object.h"
 #include "d/d_msg_scrn_howl.h"
+#include "d/d_msg_scrn_item.h"
 #include "d/d_msg_scrn_talk.h"
 #include "JSystem/J2DGraph/J2DPane.h"
 #include "JSystem/J2DGraph/J2DScreen.h"
@@ -150,6 +151,8 @@ DEFINE_HOOK(&dMenu_Ring_c::isMixItemOn, RingIsMixItemOnHook);
 DEFINE_HOOK(&dMenu_Ring_c::isMixItemOff, RingIsMixItemOffHook);
 DEFINE_HOOK(&dMenu_ItemExplain_c::draw, ItemExplainDrawHook);
 DEFINE_HOOK(&JMessage::TControl::setMessageCode_inSequence_, ItemHelpMessageHook);
+DEFINE_HOOK(&dMsgObject_c::setMessageIndex, ItemGetMessageIndexHook);
+DEFINE_HOOK(&dMsgObject_c::setMessageIndexDemo, ItemGetMessageIndexDemoHook);
 DEFINE_HOOK(&dMeterButton_c::_execute, MeterButtonExecuteHook);
 DEFINE_HOOK(&dMeterButton_c::draw, MeterButtonDrawHook);
 DEFINE_HOOK(&dMeter2Draw_c::draw, MeterDrawHook);
@@ -158,6 +161,7 @@ DEFINE_HOOK(&dMeter2Draw_c::drawButtonZ, MeterDrawButtonZHook);
 DEFINE_HOOK(&dMeter2_c::moveButtonCross, MeterMoveButtonCrossHook);
 DEFINE_HOOK(&dMeter2Draw_c::drawKanteraScreen, MeterGaugeScreenHook);
 DEFINE_HOOK(&J2DScreen::draw, ScreenDrawHook);
+DEFINE_HOOK(&dMsgObject_c::_draw, MessageObjectDrawHook);
 DEFINE_HOOK(&dMsgScrnBase_c::draw, MessageScreenDrawHook);
 DEFINE_HOOK(&dMeter2Draw_c::setButtonIconMidonaAlpha, MeterMidnaAlphaHook);
 DEFINE_HOOK(&dMeterMap_c::draw, MeterMapDrawHook);
@@ -275,6 +279,7 @@ alignas(32) u8 s_zHudItemTexBuf[2][2][0xC00];
 u8 s_zHudItemTexPage = 0;
 u8 s_zHudLastItem = dItemNo_NONE_e;
 dMeter2Draw_c* s_zHudItemMeter = nullptr;
+bool s_zHudItemUsable = false;
 J2DPicture* s_zItemNumTex[3] = {};
 J2DPicture* s_rupeeDigitTex[4] = {};
 J2DPicture* s_wiiURButtonPicture = nullptr;
@@ -1057,16 +1062,25 @@ void apply_hud_pane_transform(HudPaneTransformState& state, J2DPane* pane, const
         return;
     }
 
-    if (state.active && state.pane == pane &&
-        nearly_equal(pane->getTranslateX(), state.appliedX) &&
-        nearly_equal(pane->getTranslateY(), state.appliedY) &&
-        nearly_equal(pane->getScaleX(), state.appliedScaleX) &&
-        nearly_equal(pane->getScaleY(), state.appliedScaleY))
-    {
-        const f32 appliedScale = state.scale > 0.0f ? state.scale : 1.0f;
-        pane->translate(pane->getTranslateX() - state.offsetX,
-            pane->getTranslateY() - state.offsetY);
-        pane->scale(pane->getScaleX() / appliedScale, pane->getScaleY() / appliedScale);
+    if (state.active && state.pane == pane) {
+        // Native room/HUD transitions can animate translation without
+        // rebuilding scale (and vice versa). Restore each component that is
+        // still ours independently; requiring the complete pose to match
+        // causes an existing 0.45 R scale to be treated as the next frame's
+        // base and multiplied down to 0.2025.
+        if (nearly_equal(pane->getTranslateX(), state.appliedX) &&
+            nearly_equal(pane->getTranslateY(), state.appliedY))
+        {
+            pane->translate(pane->getTranslateX() - state.offsetX,
+                pane->getTranslateY() - state.offsetY);
+        }
+        if (nearly_equal(pane->getScaleX(), state.appliedScaleX) &&
+            nearly_equal(pane->getScaleY(), state.appliedScaleY))
+        {
+            const f32 appliedScale = state.scale > 0.0f ? state.scale : 1.0f;
+            pane->scale(pane->getScaleX() / appliedScale,
+                pane->getScaleY() / appliedScale);
+        }
     }
 
     if (!enabled) {
@@ -1423,6 +1437,7 @@ bool item_help_uses_bow_combination(u8 item) {
 
 dMenu_ItemExplain_c* s_activeItemExplanation = nullptr;
 std::string s_itemHelpText;
+std::string s_itemGetHelpText;
 J2DTextBox* s_itemHelpDrawText = nullptr;
 J2DTextBox::TFontSize s_itemHelpOriginalFont;
 float s_itemHelpOriginalSpacing = 0.0f;
@@ -1623,9 +1638,9 @@ void style_item_explain_card(dMenu_ItemExplain_c* menu) {
             // positions and collide with the following punctuation and words.
             menu->mpInfoString->mpRefer->mpFont = mDoExt_getSubFont();
         }
-        body->setFontSize(14.5f, 14.5f);
+        body->setFontSize(kItemHelpBodyFontSize, kItemHelpBodyFontSize);
         body->setCharSpace(0.0f);
-        body->setLineSpace(18.5f);
+        body->setLineSpace(kItemHelpBodyLineSpace);
         body->setFontColor(JUtility::TColor(76, 54, 28, 255),
             JUtility::TColor(108, 76, 36, 255));
         set_text_binding(body, HBIND_LEFT, VBIND_TOP);
@@ -1691,13 +1706,77 @@ void apply_item_help_fit() {
     s_itemHelpDrawText->setCharSpace(s_itemHelpOriginalSpacing * s_itemHelpFitScale);
 }
 
+void style_item_get_text(dMsgScrnItem_c* itemScreen,
+    jmessage_tReference* reference = nullptr) {
+    if (itemScreen == nullptr) return;
+
+    JUTFont* font = mDoExt_getSubFont();
+    itemScreen->field_0x54 = font;
+    itemScreen->mFontSize.mSizeX = kItemHelpBodyFontSize;
+    itemScreen->mFontSize.mSizeY = kItemHelpBodyFontSize;
+    itemScreen->mRubySize = kItemHelpRubyFontSize;
+    itemScreen->mLineSpace = kItemHelpBodyLineSpace;
+    itemScreen->mCharSpace = 0.0f;
+    itemScreen->mRubyCharSpace = 0.0f;
+
+    // All three authored layers draw the same item-get copy: the visible text
+    // and its two shadow/outline passes. Keep them on identical metrics so the
+    // smaller Dusklight body font remains crisp rather than producing a stock-
+    // sized halo around it. Ruby panes are handled separately at half size.
+    for (int index = 0; index < 7; ++index) {
+        if (itemScreen->mpTm_c[index] != nullptr) {
+            auto* text = static_cast<J2DTextBox*>(
+                itemScreen->mpTm_c[index]->getPanePtr());
+            if (text != nullptr) {
+                text->setFont(font);
+                text->setFontSize(kItemHelpBodyFontSize, kItemHelpBodyFontSize);
+                text->setCharSpace(0.0f);
+                text->setLineSpace(kItemHelpBodyLineSpace);
+            }
+        }
+        if (itemScreen->mpTmr_c[index] != nullptr) {
+            auto* ruby = static_cast<J2DTextBox*>(
+                itemScreen->mpTmr_c[index]->getPanePtr());
+            if (ruby != nullptr) {
+                ruby->setFont(font);
+                ruby->setFontSize(kItemHelpRubyFontSize, kItemHelpRubyFontSize);
+                ruby->setCharSpace(0.0f);
+                ruby->setLineSpace(kItemHelpBodyLineSpace);
+            }
+        }
+    }
+
+    // The message parser owns the inline controller-glyph positions. Update
+    // its metrics at the same time as the panes so X/Y/R and the surrounding
+    // words are laid out against the smaller font instead of merely drawn in it.
+    if (reference != nullptr) {
+        reference->setFont(font);
+        reference->setFontSizeX(kItemHelpBodyFontSize);
+        reference->setFontSizeY(kItemHelpBodyFontSize);
+        reference->setRubySize(kItemHelpRubyFontSize);
+        reference->setLineSpace(kItemHelpBodyLineSpace);
+        reference->setCharSpace(0.0f);
+        reference->setRubyCharSpace(0.0f);
+    }
+}
+
 void after_item_help_message(ModContext*, void* args, void* result, void*) {
     auto* control = mods::arg<JMessage::TControl*>(args, 0);
     auto* menu = s_activeItemExplanation;
-    if (result == nullptr || !*static_cast<bool*>(result) || menu == nullptr ||
-        menu->mpInfoString == nullptr ||
-        menu->mpInfoText == nullptr || control != menu->mpInfoString->mpCtrl ||
-        menu->mpInfoString->mpRefer->getPanePtr() != menu->mpInfoText->getPanePtr() ||
+    const bool menuItemHelp = menu != nullptr && menu->mpInfoString != nullptr &&
+        menu->mpInfoText != nullptr && control == menu->mpInfoString->mpCtrl &&
+        menu->mpInfoString->mpRefer->getPanePtr() == menu->mpInfoText->getPanePtr();
+    dMsgObject_c* messageObject = dMsgObject_getMsgObjectClass();
+    auto* itemGetScreen = messageObject != nullptr ?
+        dynamic_cast<dMsgScrnItem_c*>(messageObject->getScrnDrawPtrLocal()) : nullptr;
+    // Some item-get messages clear the transient message-kind flag before the
+    // sequence processor reaches their inline button tags. The concrete item
+    // screen remains authoritative for the entire card lifetime.
+    const bool itemGetHelp = itemGetScreen != nullptr;
+    if (itemGetHelp) {
+        style_item_get_text(itemGetScreen, messageObject->mpRefer);
+    }
+    if (result == nullptr || !*static_cast<bool*>(result) ||
         control->pResourceCache_ == nullptr || control->pMessageText_begin_ == nullptr) return;
 
     const auto* resource = control->pResourceCache_;
@@ -1711,12 +1790,13 @@ void after_item_help_message(ModContext*, void* args, void* result, void*) {
     auto replacement = three_button_item_help({control->pMessageText_begin_,
         blockSize - 8 - (text - start)});
     if (replacement.empty()) return;
+    if (!menuItemHelp && !itemGetHelp) return;
     s_itemHelpText = std::move(replacement);
 
     // Measure with the game's font/tag parser, including dynamic item counts.
     // Only crowded cards shrink, uniformly, retaining their authored line breaks.
     // This separate reference cannot clear or duplicate the real inline icons.
-    if (s_itemHelpDrawText != nullptr) {
+    if (menuItemHelp && s_itemHelpDrawText != nullptr) {
         auto* reference = menu->mpInfoString->mpRefer;
         jmessage_string_tReference fitReference;
         fitReference.setResourceContainer(reference->getResourceContainer());
@@ -1734,6 +1814,72 @@ void after_item_help_message(ModContext*, void* args, void* result, void*) {
     // The original archive and other dialogue remain unchanged.
     control->pMessageText_begin_ = s_itemHelpText.c_str();
     control->pMessageText_current_ = s_itemHelpText.c_str();
+}
+
+bool rewrite_soup_item_get_message(JMessage::TControl* control) {
+    if (control == nullptr || control->pSequenceProcessor_ == nullptr ||
+        control->pResourceCache_ == nullptr || control->pEntry_ == nullptr) {
+        return false;
+    }
+
+    // Once this control is consuming our private copy, leave it alone. Item-get
+    // rendering calls this path every frame; resetting the sequence repeatedly
+    // is what previously made its inline icons alternate between two layouts.
+    if (control->pMessageText_begin_ == s_itemGetHelpText.c_str()) return false;
+
+    const auto* resource = control->pResourceCache_;
+    // Soup item-get wording is English-only. Keep the read inside the selected
+    // message archive's DAT1 block and never reinterpret UTF-16 resources.
+    if (resource->oParse_THeader_.get_encoding() == 2 || resource->pMessageText_ == nullptr) {
+        return false;
+    }
+    const JMessage::data::TParse_TBlock_messageText block(resource->pMessageText_ - 8);
+    const auto blockSize = block.get_size();
+    const auto* source = resource->getMessageText_messageEntry(control->pEntry_);
+    const auto start = reinterpret_cast<std::uintptr_t>(resource->pMessageText_);
+    const auto text = reinterpret_cast<std::uintptr_t>(source);
+    if (source == nullptr || blockSize < 8 || text < start || text - start >= blockSize - 8) {
+        return false;
+    }
+
+    auto replacement = three_button_soup_item_help({source,
+        blockSize - 8 - (text - start)});
+    if (replacement.empty()) {
+        return false;
+    }
+
+    // setMessageID has already initialized the sequence processor with the
+    // archive text by this point. Reset and reinitialize it once with our
+    // private copy so the third R tag participates in parsing, wrapping, and
+    // out-font creation instead of merely changing a pointer after parsing.
+    s_itemGetHelpText = std::move(replacement);
+    control->pSequenceProcessor_->reset();
+    control->pMessageText_begin_ = s_itemGetHelpText.c_str();
+    control->pszText_update_current_ = nullptr;
+    control->pMessageText_current_ = s_itemGetHelpText.c_str();
+    control->oStack_renderingProcessor_.clear();
+    control->pSequenceProcessor_->setBegin_messageEntryText(
+        resource, control->pEntry_, s_itemGetHelpText.c_str());
+
+    // Match TControl::setMessageCode_inSequence_: make both native begin/current
+    // pointers ready, then allow dMsgObject's normal update to populate
+    // pszText_update_current_. Advancing here consumes the wrong phase of the
+    // item-get sequence and can expose stale shared text such as area names.
+    return true;
+}
+
+void after_item_get_message_index(ModContext*, void* args, void*, void*) {
+    auto* messageObject = mods::arg<dMsgObject_c*>(args, 0);
+    if (messageObject != nullptr) {
+        rewrite_soup_item_get_message(messageObject->mpCtrl);
+    }
+}
+
+void after_item_get_message_index_demo(ModContext*, void* args, void*, void*) {
+    auto* messageObject = mods::arg<dMsgObject_c*>(args, 0);
+    if (messageObject != nullptr) {
+        rewrite_soup_item_get_message(messageObject->mpCtrl);
+    }
 }
 
 void apply_item_explain_button_layout(dMenu_ItemExplain_c* menu) {
@@ -1769,26 +1915,117 @@ void apply_item_explain_button_layout(dMenu_ItemExplain_c* menu) {
     }
 }
 
+void apply_item_get_assignment_buttons(dMsgScrnItem_c* itemScreen) {
+    if (itemScreen == nullptr || itemScreen->mpOutFont == nullptr) return;
+    const std::array<std::pair<int, ResTIMG const*>, 3> buttons{{
+        {5, item_assignment_button_texture(true)},
+        {6, item_assignment_button_texture(false)},
+        {7, styled_r_button_texture()},
+    }};
+    for (const auto& [type, texture] : buttons) {
+        J2DPicture* picture = itemScreen->mpOutFont->mpPane[type];
+        if (picture == nullptr || texture == nullptr) continue;
+        picture->changeTexture(texture, 0);
+        set_neutral_picture_colors(picture);
+    }
+}
+
 struct ItemHelpIconPosition {
     COutFontSet_c* icon = nullptr;
     f32 x = 0.0f;
     f32 y = 0.0f;
+    f32 width = 0.0f;
+    f32 height = 0.0f;
 };
 std::array<ItemHelpIconPosition, 35> s_itemHelpIconPositions{};
 std::size_t s_itemHelpIconPositionCount = 0;
+std::array<ItemHelpIconPosition, 35> s_itemGetIconPositions{};
+std::size_t s_itemGetIconPositionCount = 0;
+
+void lift_item_get_assignment_icons(dMsgScrnItem_c* itemScreen) {
+    if (itemScreen == nullptr || itemScreen->mpOutFont == nullptr ||
+        s_itemGetIconPositionCount != 0) return;
+    for (auto* icon : itemScreen->mpOutFont->mpOfs) {
+        if (icon == nullptr || s_itemGetIconPositionCount >= s_itemGetIconPositions.size()) {
+            continue;
+        }
+        const int type = icon->getType();
+        if (type != 5 && type != 6 && type != 7) continue;
+        s_itemGetIconPositions[s_itemGetIconPositionCount++] =
+            {icon, icon->getPosX(), icon->getPosY(), icon->getSizeX(), icon->getSizeY()};
+
+        const f32 originalHeight = icon->getSizeY();
+        if (type == 7) {
+            // Out-font symbols reserve a square cell. Shoulder-button art is
+            // rectangular, so fitting its native aspect ratio inside that cell
+            // prevents the R texture from being vertically stretched.
+            const ResTIMG* texture = styled_r_button_texture();
+            if (texture != nullptr && texture->width != 0 && texture->height != 0) {
+                const f32 boxWidth = icon->getSizeX();
+                const f32 boxHeight = icon->getSizeY();
+                const f32 textureAspect = static_cast<f32>(texture->width) /
+                    static_cast<f32>(texture->height);
+                const f32 boxAspect = boxWidth / boxHeight;
+                f32 width = boxWidth;
+                f32 height = boxHeight;
+                if (textureAspect > boxAspect) {
+                    height = width / textureAspect;
+                } else {
+                    width = height * textureAspect;
+                }
+                icon->mPosX += (boxWidth - width) * 0.5f;
+                icon->mPosY += (boxHeight - height) * 0.5f;
+                icon->mSizeX = width;
+                icon->mSizeY = height;
+            }
+        }
+        icon->mPosY -= originalHeight * 0.40f;
+    }
+}
+
+void restore_item_get_assignment_icons() {
+    for (std::size_t index = 0; index < s_itemGetIconPositionCount; ++index) {
+        auto& saved = s_itemGetIconPositions[index];
+        saved.icon->mPosX = saved.x;
+        saved.icon->mPosY = saved.y;
+        saved.icon->mSizeX = saved.width;
+        saved.icon->mSizeY = saved.height;
+        saved = {};
+    }
+    s_itemGetIconPositionCount = 0;
+}
+
 
 HookAction before_item_help_out_font_draw(ModContext*, void* args, void*, void*) {
     auto* strings = mods::arg<dMsgString_c*>(args, 0);
     auto* text = mods::arg<J2DTextBox*>(args, 1);
     auto* menu = s_activeItemExplanation;
-    if (menu == nullptr || strings != menu->mpInfoString ||
-        text == nullptr || text != s_itemHelpDrawText ||
+    const bool menuItemHelp = menu != nullptr && strings == menu->mpInfoString &&
+        text != nullptr && text == s_itemHelpDrawText;
+    dMsgObject_c* messageObject = dMsgObject_getMsgObjectClass();
+    auto* itemScreen = messageObject != nullptr ?
+        dynamic_cast<dMsgScrnItem_c*>(messageObject->getScrnDrawPtrLocal()) : nullptr;
+    bool itemGetHelp = itemScreen != nullptr && messageObject->mpMsgString == strings;
+    if (itemGetHelp) {
+        itemGetHelp = false;
+        for (int index = 0; index < 7; ++index) {
+            if ((itemScreen->mpTm_c[index] != nullptr &&
+                    itemScreen->mpTm_c[index]->getPanePtr() == text) ||
+                (itemScreen->mpTmr_c[index] != nullptr &&
+                    itemScreen->mpTmr_c[index]->getPanePtr() == text)) {
+                itemGetHelp = true;
+                break;
+            }
+        }
+    }
+    if ((!menuItemHelp && !itemGetHelp) || text == nullptr ||
         strings->mpOutFont == nullptr) return HOOK_CONTINUE;
 
-    const bool combination = item_help_uses_bow_combination(menu->field_0xe1);
-    const bool boomerang = menu->field_0xe1 == dItemNo_BOOMERANG_e;
-    const bool clawshot = menu->field_0xe1 == dItemNo_HOOKSHOT_e ||
-        menu->field_0xe1 == dItemNo_W_HOOKSHOT_e;
+    const bool combination = menuItemHelp &&
+        item_help_uses_bow_combination(menu->field_0xe1);
+    const bool boomerang = menuItemHelp && menu->field_0xe1 == dItemNo_BOOMERANG_e;
+    const bool clawshot = menuItemHelp && (menu->field_0xe1 == dItemNo_HOOKSHOT_e ||
+        menu->field_0xe1 == dItemNo_W_HOOKSHOT_e);
     unsigned stickOccurrence = 0;
     for (auto* icon : strings->mpOutFont->mpOfs) {
         if (icon == nullptr || icon->getTextBoxPtr() != text) continue;
@@ -1796,6 +2033,8 @@ HookAction before_item_help_out_font_draw(ModContext*, void* args, void*, void*)
         ItemHelpButton button = item_help_button(type, combination, boomerang);
         if (button == ItemHelpButton::None ||
             s_itemHelpIconPositionCount >= s_itemHelpIconPositions.size()) continue;
+        if (itemGetHelp && button != ItemHelpButton::ItemX &&
+            button != ItemHelpButton::ItemY && button != ItemHelpButton::Shoulder) continue;
         if (button == ItemHelpButton::Stick &&
             !item_help_shift_stick(clawshot, stickOccurrence++)) {
             // Preserve the second Clawshot glyph's already-correct native
@@ -1804,8 +2043,10 @@ HookAction before_item_help_out_font_draw(ModContext*, void* args, void*, void*)
         }
         s_itemHelpIconPositions[s_itemHelpIconPositionCount++] =
             {icon, icon->getPosX(), icon->getPosY()};
-        icon->mPosX = item_help_icon_x(icon->getPosX(), icon->getSizeX(), button);
-        icon->mPosY = item_help_icon_y(icon->getPosY(), icon->getSizeY(), button);
+        if (menuItemHelp) {
+            icon->mPosX = item_help_icon_x(icon->getPosX(), icon->getSizeX(), button);
+            icon->mPosY = item_help_icon_y(icon->getPosY(), icon->getSizeY(), button);
+        }
     }
     return HOOK_CONTINUE;
 }
@@ -7793,24 +8034,26 @@ void apply_wii_u_r_button_art(dMeter2Draw_c* meter) {
         return;
     }
 
-    if (s_wiiURButtonMeter != meter) {
+    auto* currentRPicture = as_picture(
+        meter->mpScreen->search(MULTI_CHAR('zbtn')));
+    if (s_wiiURButtonMeter != meter ||
+        s_wiiURButtonPicture != currentRPicture)
+    {
         s_wiiURButtonMeter = meter;
-        s_wiiURButtonPicture = nullptr;
+        s_wiiURButtonPicture = currentRPicture;
     }
 
     ResTIMG const* texture = styled_r_button_texture();
-    if (s_wiiURButtonPicture == nullptr) {
-        s_wiiURButtonPicture = as_picture(meter->mpScreen->search(MULTI_CHAR('zbtn')));
-        if (texture != nullptr && s_wiiURButtonPicture != nullptr) {
-            s_wiiURButtonPicture->changeTexture(texture, 0);
-            if (s_wiiURButtonPicture->getTexture(0) != nullptr) {
-                s_wiiURButtonPicture->setTexCoord(
-                    s_wiiURButtonPicture->getTexture(0), BIND15, MIRROR0, false);
-            }
-            resize_pane_around_center(s_wiiURButtonPicture, 64.0f, 64.0f);
-        }
-    } else if (texture != nullptr) {
+    if (texture != nullptr && s_wiiURButtonPicture != nullptr) {
         s_wiiURButtonPicture->changeTexture(texture, 0);
+        if (s_wiiURButtonPicture->getTexture(0) != nullptr) {
+            s_wiiURButtonPicture->setTexCoord(
+                s_wiiURButtonPicture->getTexture(0), BIND15, MIRROR0, false);
+        }
+        // Scene changes may rebuild this pane at the same address as the old
+        // one. Reassert the authored canvas every frame so pointer reuse cannot
+        // silently restore the smaller stock Z dimensions.
+        resize_pane_around_center(s_wiiURButtonPicture, 64.0f, 64.0f);
     }
 
     const u8 itemNo = dComIfGp_getSelectItem(kZItemSlot);
@@ -7828,7 +8071,11 @@ void apply_wii_u_r_button_art(dMeter2Draw_c* meter) {
         meter->mpButtonXY[2]->show();
         if (s_wiiURButtonPicture != nullptr) {
             s_wiiURButtonPicture->show();
-            s_wiiURButtonPicture->setAlpha(255);
+            // mpButtonXY[2] receives the native usable/unusable alpha below.
+            // This picture can be that same authored pane, so forcing 255 here
+            // would immediately undo the disabled-state fade.
+            s_wiiURButtonPicture->setAlpha(midnaUsesR ? 255 :
+                meter->mpButtonXY[2]->getAlpha());
         }
         if (midnaUsesR) {
             // Keep the authored R button/pane as the custom-action anchor,
@@ -9205,8 +9452,7 @@ void update_z_hud_item_alpha(dMeter2Draw_c* meter) {
         g_drawHIO.mButtonZItemBaseAlpha * (buttonAlpha * meter->mpLightXY[2]->getInitAlpha()));
     u8 buttonBaseAlpha = clamp_hud_alpha(255.0f * buttonAlpha);
 
-    if (dComIfGp_getSelectItem(kZItemSlot) == dItemNo_NONE_e ||
-        dComIfGp_getSelectItem(kZItemSlot) == 0)
+    if (!s_zHudItemUsable)
     {
         itemAlpha = g_drawHIO.mButtonXYItemDimAlpha;
         itemBaseAlpha = g_drawHIO.mButtonXYItemDimAlpha;
@@ -9367,7 +9613,6 @@ void update_z_hud_item(dMeter2Draw_c* meter) {
     // TPHD's third assignment has no item halo. Midna's separate icon and
     // the first two item slots retain their own native lighting.
     meter->mpLightXY[2]->hide();
-    dMeter2Info_onUseButton(METER2_USEBUTTON_Z);
     change_z_hud_item_texture(meter, itemNo);
     layout_z_hud_item(meter, itemNo);
     update_z_hud_item_alpha(meter);
@@ -12684,10 +12929,9 @@ void apply_context_button_layout(dMeterButton_c* buttons) {
         }
     }
 
-    // TPHD uses ZR for the original GameCube R actions shown while aiming:
-    // adding Gale Boomerang targets and switching the bow's arrow type. The
-    // same context layout still serves legitimate R prompts elsewhere, so
-    // use RB outside aiming on Xbox, and preserve the archive art otherwise.
+    // TPHD maps the original GameCube contextual R action to ZR. This covers
+    // aiming as well as world interactions such as Push and Pull, while item
+    // assignment prompts remain on their separate R-specific layout path.
     J2DPicture* rButton = as_picture(
         buttons->mpButtonScreen->search(MULTI_CHAR('r_btn_b')));
     if (s_contextRButtonScreen != buttons->mpButtonScreen) {
@@ -12699,17 +12943,16 @@ void apply_context_button_layout(dMeterButton_c* buttons) {
         s_contextRPictureStateCount = 0;
     }
 
-    daAlink_c* link = daAlink_getAlinkActorClass();
-    const bool zrAimAction = link != nullptr &&
-        (link->checkBoomerangReadyAnime() || link->checkBowAnime());
-    if (rButton != nullptr && (zrAimAction || uses_xbox_prompts(button_layout()))) {
+    const bool contextualRAction =
+        buttons->field_0x4be[0] == dMeterButton_c::BUTTON_R_e ||
+        buttons->field_0x4be[1] == dMeterButton_c::BUTTON_R_e;
+    if (rButton != nullptr && contextualRAction) {
         if (!s_contextRButtonReplaced && buttons->mpButtonR != nullptr) {
             s_contextRPictureStateCount = 0;
             capture_context_r_pictures(
                 buttons->mpButtonR->getPanePtr(), rButton);
         }
-        if (ResTIMG const* zrTexture = zrAimAction ?
-                styled_zr_button_texture() : styled_r_button_texture()) {
+        if (ResTIMG const* zrTexture = styled_zr_button_texture()) {
             set_menu_face_button_texture(
                 buttons->mpButtonScreen, MULTI_CHAR('r_btn_b'), zrTexture);
             set_neutral_picture_colors(rButton);
@@ -12770,21 +13013,24 @@ std::array<ActionTextDrawState, 10> s_actionTextDrawState{};
 struct ActionPromptDrawState {
     J2DPane* buttonGroup = nullptr;
     J2DPane* textGroup = nullptr;
-    J2DPicture* picture = nullptr;
+    J2DPane* scalePane = nullptr;
     float buttonX = 0, buttonY = 0, textX = 0, textY = 0;
-    float pictureX = 0, pictureY = 0, scaleX = 1, scaleY = 1;
+    float scalePaneX = 0, scalePaneY = 0, scaleX = 1, scaleY = 1;
 };
-ActionPromptDrawState s_actionPromptDrawState{};
+std::array<ActionPromptDrawState, 2> s_actionPromptDrawStates{};
 
 void restore_action_prompt_draw() {
-    auto& state = s_actionPromptDrawState;
-    if (state.picture != nullptr) {
-        state.picture->scale(state.scaleX, state.scaleY);
-        state.picture->translate(state.pictureX, state.pictureY);
-        state.buttonGroup->translate(state.buttonX, state.buttonY);
-        state.textGroup->translate(state.textX, state.textY);
+    for (auto& state : s_actionPromptDrawStates) {
+        if (state.scalePane != nullptr) {
+            state.scalePane->scale(state.scaleX, state.scaleY);
+            state.scalePane->translate(state.scalePaneX, state.scalePaneY);
+            if (state.buttonGroup != state.scalePane) {
+                state.buttonGroup->translate(state.buttonX, state.buttonY);
+            }
+            state.textGroup->translate(state.textX, state.textY);
+        }
+        state = {};
     }
-    state = {};
 }
 
 void shift_action_pane(J2DPane* pane, float dx, float dy) {
@@ -12836,16 +13082,29 @@ void restore_rupee_icon_draw() {
 }
 
 void arrange_action_prompt_for_draw(dMeterButton_c* buttons) {
-    if (buttons == nullptr || buttons->mpButtonScreen == nullptr ||
-        buttons->mpButtonA == nullptr) return;
-    auto* picture = as_picture(buttons->mpButtonScreen->search(MULTI_CHAR('a_btn1')));
-    auto* buttonGroup = buttons->mpButtonA->getPanePtr();
-    if (picture == nullptr || buttonGroup == nullptr) return;
+    if (buttons == nullptr || buttons->mpButtonScreen == nullptr) return;
+    bool arrangedA = false;
+    bool arrangedR = false;
     for (int row = 0; row < 2; ++row) {
-        // Only the contextual confirm prompt. Keep B, aiming, fishing and the
-        // upper-right controller diamond on their existing layout paths.
-        if (buttons->field_0x4be[row] != dMeterButton_c::BUTTON_A_e ||
+        // TPHD presents contextual A and ZR prompts to the left of their
+        // labels. The bottle-use prompt is an item silhouette instead of a
+        // controller glyph, but follows the same compact action-row sizing.
+        // Keep B, fishing and the upper-right controller diamond on their
+        // existing layout paths.
+        const auto button = buttons->field_0x4be[row];
+        const bool isA = button == dMeterButton_c::BUTTON_A_e;
+        const bool isR = button == dMeterButton_c::BUTTON_R_e;
+        const bool isBottle = button == dMeterButton_c::BUTTON_BIN_e;
+        if ((!isA && !isR && !isBottle) || (isA && arrangedA) || (isR && arrangedR) ||
             buttons->mpText[row] == nullptr || buttons->mTextScale[row] <= 0) continue;
+        CPaneMgr* buttonManager = isA ? buttons->mpButtonA :
+            isR ? buttons->mpButtonR : buttons->mpButtonBin;
+        const u64 pictureTag = isA ? MULTI_CHAR('a_btn1') : MULTI_CHAR('r_btn_b');
+        auto* buttonGroup = buttonManager != nullptr ? buttonManager->getPanePtr() : nullptr;
+        auto* picture = isBottle ? nullptr :
+            as_picture(buttons->mpButtonScreen->search(pictureTag));
+        J2DPane* scalePane = isBottle ? buttonGroup : picture;
+        if (scalePane == nullptr || buttonGroup == nullptr) continue;
         auto* text = buttons->mpTextBox[row * 5];
         auto* textGroup = buttons->mpText[row]->getPanePtr();
         if (text == nullptr || textGroup == nullptr || buttons->field_0x29c[row] <= 0) continue;
@@ -12856,10 +13115,11 @@ void arrange_action_prompt_for_draw(dMeterButton_c* buttons) {
         const float nativeWidth = buttons->field_0x29c[row] *
             matrix[0][0] / buttons->mTextScale[row];
         const Vec textBR = manager.getGlobalVtx(text, &matrix, 3, false, 0);
-        const Vec iconTL = manager.getGlobalVtx(picture, &matrix, 0, false, 0);
-        const Vec iconBR = manager.getGlobalVtx(picture, &matrix, 3, false, 0);
+        const Vec iconTL = manager.getGlobalVtx(scalePane, &matrix, 0, false, 0);
+        const Vec iconBR = manager.getGlobalVtx(scalePane, &matrix, 3, false, 0);
         const float canvasWidth = iconBR.x - iconTL.x;
-        if (canvasWidth <= 0 || nativeWidth <= 0) return;
+        const float canvasHeight = iconBR.y - iconTL.y;
+        if (canvasWidth <= 0 || canvasHeight <= 0 || nativeWidth <= 0) return;
         const float textWidth = nativeWidth * action_text_multiplier(hud_scales().actionText);
         const float binding = text->getHBinding() == HBIND_LEFT ? 0.0f :
             text->getHBinding() == HBIND_RIGHT ? 1.0f : 0.5f;
@@ -12868,24 +13128,53 @@ void arrange_action_prompt_for_draw(dMeterButton_c* buttons) {
         const Vec iconCenter{(iconTL.x + iconBR.x) * 0.5f,
             (iconTL.y + iconBR.y) * 0.5f, 0};
         // Preserve the native row's animated center and vertical placement.
+        float scale = isA ? action_prompt_layout::kButtonScale :
+            action_prompt_layout::kTriggerScale;
+        float coverage = isA ? action_prompt_layout::kFaceCoverage :
+            action_prompt_layout::kTriggerCoverage;
+        if (isBottle) {
+            // Match the bottle silhouette to the visible face of the known-good
+            // A/Open prompt. Unlike the A texture, the bottle has no broad
+            // transparent canvas margin, so comparing full pane heights would
+            // leave it visibly oversized.
+            auto* aPicture = as_picture(
+                buttons->mpButtonScreen->search(MULTI_CHAR('a_btn1')));
+            if (aPicture == nullptr) continue;
+            const Vec aTL = manager.getGlobalVtx(aPicture, &matrix, 0, false, 0);
+            const Vec aBR = manager.getGlobalVtx(aPicture, &matrix, 3, false, 0);
+            const float targetHeight = (aBR.y - aTL.y) *
+                action_prompt_layout::kButtonScale *
+                action_prompt_layout::kFaceCoverage *
+                action_prompt_layout::kBottleScale;
+            scale = targetHeight / canvasHeight;
+            coverage = 1.0f;
+        }
+        // The stock R pane is much wider than it is tall. The replacement ZR
+        // texture is a square canvas containing a naturally wide trigger cap;
+        // correct the pane aspect before scaling or that cap is stretched a
+        // second time and appears oversized/squashed.
+        const float scaleX = isR ? scale * canvasHeight / canvasWidth : scale;
+        const float visibleWidth = canvasWidth * scaleX * coverage;
         const float center = (nativeLeft + iconCenter.x +
-            canvasWidth * action_prompt_layout::kFaceCoverage * 0.5f) * 0.5f;
-        const auto layout = action_prompt_layout::arrange(center, canvasWidth, textWidth);
-        s_actionPromptDrawState = {buttonGroup, textGroup, picture,
+            canvasWidth * coverage * 0.5f) * 0.5f;
+        const auto layout = action_prompt_layout::arrange_visible(
+            center, visibleWidth, textWidth);
+        auto& state = s_actionPromptDrawStates[row];
+        state = {buttonGroup, textGroup, scalePane,
             buttonGroup->getTranslateX(), buttonGroup->getTranslateY(),
             textGroup->getTranslateX(), textGroup->getTranslateY(),
-            picture->getTranslateX(), picture->getTranslateY(),
-            picture->getScaleX(), picture->getScaleY()};
-        const auto& state = s_actionPromptDrawState;
+            scalePane->getTranslateX(), scalePane->getTranslateY(),
+            scalePane->getScaleX(), scalePane->getScaleY()};
         // Scale the picture, not its animated parent: repeat-press pulses and
         // native fades keep working, and the Action Text slider stays text-only.
-        picture->scale(state.scaleX * action_prompt_layout::kButtonScale,
-            state.scaleY * action_prompt_layout::kButtonScale);
-        const Vec resizedCenter = manager.getGlobalVtxCenter(picture, false, 0);
-        shift_action_pane(picture, iconCenter.x - resizedCenter.x, iconCenter.y - resizedCenter.y);
+        // The bottle group itself is the visual pane, so it is scaled directly.
+        scalePane->scale(state.scaleX * scaleX, state.scaleY * scale);
+        const Vec resizedCenter = manager.getGlobalVtxCenter(scalePane, false, 0);
+        shift_action_pane(scalePane,
+            iconCenter.x - resizedCenter.x, iconCenter.y - resizedCenter.y);
         shift_action_pane(buttonGroup, layout.buttonCenter - iconCenter.x, 0);
         shift_action_pane(textGroup, layout.textLeft - scaledLeft, 0);
-        break; // A has one shared native button group, even with two labels.
+        isA ? arrangedA = true : arrangedR = true;
     }
 }
 
@@ -13121,9 +13410,29 @@ void hide_other_howl_pictures(J2DPane* pane, J2DPicture* button) {
 
 #include "dialogue_text_screen.inc"
 
+HookAction before_message_object_draw(ModContext*, void* args, void*, void*) {
+    auto* messageObject = mods::arg<dMsgObject_c*>(args, 0);
+    auto* itemScreen = messageObject != nullptr ?
+        dynamic_cast<dMsgScrnItem_c*>(messageObject->getScrnDrawPtrLocal()) : nullptr;
+    if (itemScreen != nullptr) {
+        // dMsgObject renders/parses text before the screen's own draw method.
+        // Establish the smaller font metrics here so line wrapping and inline
+        // X/Y/R coordinates are generated correctly, not corrected afterward.
+        style_item_get_text(itemScreen, messageObject->mpRefer);
+        apply_item_get_assignment_buttons(itemScreen);
+    }
+    return HOOK_CONTINUE;
+}
+
 HookAction before_message_screen_draw(ModContext*, void* args, void*, void*) {
-    scale_dialogue_for_draw(mods::arg<dMsgScrnBase_c*>(args, 0));
-    auto* howl = dynamic_cast<dMsgScrnHowl_c*>(mods::arg<dMsgScrnBase_c*>(args, 0));
+    auto* messageScreen = mods::arg<dMsgScrnBase_c*>(args, 0);
+    scale_dialogue_for_draw(messageScreen);
+    auto* itemScreen = dynamic_cast<dMsgScrnItem_c*>(messageScreen);
+    if (itemScreen != nullptr) begin_item_prompt_font();
+    style_item_get_text(itemScreen);
+    apply_item_get_assignment_buttons(itemScreen);
+    lift_item_get_assignment_icons(itemScreen);
+    auto* howl = dynamic_cast<dMsgScrnHowl_c*>(messageScreen);
     if (howl == nullptr || howl->mpButtonIcon[1] == nullptr) return HOOK_CONTINUE;
     J2DPane* group = howl->mpButtonIcon[1]->getPanePtr();
     J2DPicture* button = first_picture_pane(group);
@@ -13324,7 +13633,11 @@ HookAction before_menu_window_execute(ModContext*, void* args, void*, void*) {
         s_fmapBackTriggered = dungeon_map_back_requested(window->mMenuProc == dMw_c::FMAP_MOVE,
             s_inputGate.blocked(), !fmap_accepts_back(window->mpMenuFmap),
             pad.mPressedButtonFlags, PAD_BUTTON_UP);
-        s_menuWindowRestoreMask = PAD_BUTTON_UP | PAD_BUTTON_DOWN | PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT;
+        const u32 directions = PAD_BUTTON_UP | PAD_BUTTON_DOWN |
+            PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT;
+        s_menuWindowRestoreMask = field_map_suppressed_directions(
+            window->mpMenuFmap->mProcess == dMenu_Fmap_c::PROC_PORTAL_WARP_SELECT,
+            directions);
         s_menuWindowSuppressedHeld = pad.mButtonFlags;
         s_menuWindowSuppressedTrig = pad.mPressedButtonFlags;
         pad.mButtonFlags = dungeon_map_navigation_buttons(pad.mButtonFlags, s_menuWindowRestoreMask);
@@ -13607,13 +13920,20 @@ HookAction before_set_heavy_boots(ModContext*, void* args, void* retval, void*) 
 void after_player_execute(ModContext*, void* args, void*, void*) {
     auto* link = mods::arg<daAlink_c*>(args, 0);
     if (link == nullptr || link->checkWolf()) {
+        s_zHudItemUsable = false;
+        dMeter2Info_offUseButton(METER2_USEBUTTON_Z);
         return;
     }
 
     tick_z_heavy_boots_guard(link);
     sync_play_select_item(kZItemSlot);
-    if (resolved_select_item(kZItemSlot) != dItemNo_NONE_e) {
+    s_zHudItemUsable = third_slot_item_usable(
+        resolved_select_item(kZItemSlot), dItemNo_NONE_e,
+        link->mUseButtonFlags, daAlink_c::BTN_Z);
+    if (s_zHudItemUsable) {
         dMeter2Info_onUseButton(METER2_USEBUTTON_Z);
+    } else {
+        dMeter2Info_offUseButton(METER2_USEBUTTON_Z);
     }
 }
 
@@ -14031,6 +14351,9 @@ void shutdown_item_slot_resources() {
     destroy_item_bank();
     s_activeItemExplanation = nullptr;
     s_itemHelpText.clear();
+    s_itemGetHelpText.clear();
+    s_itemGetIconPositions = {};
+    s_itemGetIconPositionCount = 0;
     s_itemHelpFitOwner = nullptr;
     s_itemHelpDrawText = nullptr;
     s_itemHelpFitScale = 1.0f;
@@ -14162,6 +14485,10 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_POST(ItemExplainDrawHook, after_item_explain_draw, "item description scope cleanup");
     ADD_POST(ItemHelpMessageHook, after_item_help_message, "three-button item instructions");
     ADD_POST(ItemHelpMessageHook, after_collection_wallet_message, "live wallet capacity description");
+    ADD_POST(ItemGetMessageIndexHook, after_item_get_message_index,
+        "three-button soup item-get instructions");
+    ADD_POST(ItemGetMessageIndexDemoHook, after_item_get_message_index_demo,
+        "three-button demo soup item-get instructions");
     ADD_PRE(MeterButtonExecuteHook, before_meter_button_execute,
         "disable legacy item-ring Z overlay");
     ADD_POST(MeterButtonExecuteHook, after_meter_button_execute,
@@ -14183,6 +14510,8 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_PRE(ScreenDrawHook, before_item_explain_screen_draw,
         "TPHD item description presentation");
     ADD_POST(MeterGaugeScreenHook, after_meter_gauge_screen, "oil and oxygen meter restore");
+    ADD_PRE(MessageObjectDrawHook, before_message_object_draw,
+        "item-get text and inline button metrics");
     ADD_PRE(MessageScreenDrawHook, before_message_screen_draw, "Howl button prompt");
     ADD_POST(MessageScreenDrawHook, after_message_screen_draw, "Restore dialogue draw geometry");
     ADD_POST(MeterMidnaAlphaHook, after_meter_midna_alpha, "Midna icon opacity");

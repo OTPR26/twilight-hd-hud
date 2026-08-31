@@ -71,10 +71,12 @@ struct Placement { float x; float scaleX; };
 
 inline Placement place(float x, float scaleX, int nativeCell, int nativeBearing,
     int nativeWidth, int newWidth, bool fixed, int fixedWidth, bool subsequent,
-    float rasterScale = opticalScale) {
+    float rasterScale = opticalScale, float overflowBlend = 0.0f) {
     const float available = (fixed ? fixedWidth : nativeWidth) * scaleX / nativeCell;
     const float natural = newWidth * scaleX * rasterScale / cell;
-    const float fit = natural > 0 ? std::min(1.0f, available / natural) : 1.0f;
+    const float fitted = natural > 0 ? std::min(1.0f, available / natural) : 1.0f;
+    const float blend = std::clamp(overflowBlend, 0.0f, 1.0f);
+    const float fit = fitted + (1.0f - fitted) * blend;
     const float indent = (fixed || !subsequent) ? nativeBearing * scaleX / nativeCell : 0;
     return {x + indent + (available - natural * fit) * 0.5f, scaleX * rasterScale * fit};
 }
