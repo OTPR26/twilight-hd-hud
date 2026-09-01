@@ -120,7 +120,10 @@ def make_midna_choice_row(selected: bool) -> Image.Image:
         image = Image.alpha_composite(image, fill)
 
     draw = ImageDraw.Draw(image)
-    draw.line(polygon + [polygon[0]], fill=(176, 171, 94, 255), width=2,
+    # The panel is rendered at roughly 60% of this texture's native width.
+    # A three-pixel source stroke therefore lands at the slightly heavier
+    # two-pixel visual weight used by TPHD instead of collapsing to a hairline.
+    draw.line(polygon + [polygon[0]], fill=(176, 171, 94, 255), width=3,
               joint="curve")
     return image
 

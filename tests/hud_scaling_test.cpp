@@ -31,6 +31,9 @@ int main() {
     assert(rupee_icon_right(530, 4, 1) == 530);
     assert(rupee_digit_size(1) == 11 && rupee_digit_step(1) == 13 && rupee_digit_gap(1) == 5);
     assert(minimap_multiplier(1) == 0.70f);
+    assert(dpad_left_anchor_offset(0.50f) == 0.0f);
+    assert(dpad_left_anchor_offset(1.00f) == 0.0f);
+    assert(dpad_left_anchor_offset(1.25f) == 20.0f);
     assert(std::fabs(action_text_multiplier(1.0f) - 0.8f) < 0.0001f);
     assert(std::fabs(action_text_multiplier(1.25f) - 1.0f) < 0.0001f);
     assert(std::fabs(dialogue_text_multiplier(1.0f) - 0.68f) < 0.0001f);

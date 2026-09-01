@@ -52,6 +52,14 @@ constexpr HudScales compose_hud_scales(std::int64_t overall,
 
 constexpr float minimap_multiplier(float settingScale) { return 0.70f * settingScale; }
 
+// The D-pad group scales around its authored center. Above 100%, translate it
+// right by half of the added visual width so its left edge remains on the life
+// meter's safe-area column instead of expanding off the screen. Midna's L
+// prompt is parented to the same anchor and therefore follows this correction.
+constexpr float dpad_left_anchor_offset(float settingScale) {
+    return (settingScale > 1.0f ? settingScale - 1.0f : 0.0f) * 80.0f;
+}
+
 // Digit dimensions are in draw coordinates; the icon inherits Overall from
 // the shared rupee/key parent. Compensate only the icon, leaving keys alone.
 constexpr float rupee_icon_multiplier(float overall, float rupees) { return rupees / overall; }

@@ -1,4 +1,4 @@
-# Twilight HD HUD
+# Twilight HD
 
 A focused Twilight Princess HD-style HUD and controller-layout package for clean upstream
 Dusklight builds.

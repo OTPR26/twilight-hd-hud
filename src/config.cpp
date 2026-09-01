@@ -111,7 +111,7 @@ ModResult register_config(ModError* error) {
         register_menu_swap() != MOD_OK)
     {
         return mods::set_error(
-            error, MOD_ERROR, "failed to register Twilight HD HUD settings");
+            error, MOD_ERROR, "failed to register Twilight HD settings");
     }
     return MOD_OK;
 }

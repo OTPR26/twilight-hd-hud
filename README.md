@@ -1,12 +1,12 @@
-# Twilight HD HUD
+# Twilight HD
 
-Twilight HD HUD brings a *Twilight Princess HD*-inspired HUD and controller layout to [Dusklight](https://github.com/TwilitRealm/dusklight).
+Twilight HD brings a *Twilight Princess HD*-inspired HUD and controller layout to [Dusklight](https://github.com/TwilitRealm/dusklight).
 
 ## Compatibility
 
 Dusklight **v1.4.1-141 or newer** is required. The mod is built and tested against the official Dusklight repository.
 
-Twilight HD HUD is designed to coexist with **Dawnlight**. Twilight HD HUD owns
+Twilight HD is designed to coexist with **Dawnlight**. Twilight HD owns
 the TPHD artwork, menu presentation, prompts, and control behavior; Dawnlight's
 HUD Layout Editor may apply the user's final gameplay-HUD positions. Shared HUD
 hooks must remain at normal priority so Dawnlight can restore native state first
@@ -60,23 +60,23 @@ Download the package for the device running Dusklight. The packages contain the 
 1. Download the latest `.dusk` file from [Releases](../../releases/latest).
 2. Place it in the `mods` folder inside the active Dusklight data folder.
 3. Restart Dusklight or reload mods from its mod manager.
-4. Open the Twilight HD HUD settings panel to choose a button-label layout and HUD size.
+4. Open the Twilight HD settings panel to choose a button-label layout and HUD size.
 
 On macOS, the active data folder is normally under `~/Library/Application Support/TwilitRealm/Dusklight`. On Android, use the `mods` folder inside the Dusklight data folder selected by the app.
 
 If you download a ZIP, extract it first and install the `.dusk` file inside.
-When updating, remove the previous Twilight HD HUD package and keep only one
+When updating, remove the previous Twilight HD package and keep only one
 version in `mods`. Do not remove your saves, settings, or controller profiles.
 
 ## Items screen
 
 The new **TPHD Bank** is the default. Select **Items Screen > Original Wheel**
-in Twilight HD HUD Settings to use the original layout instead; close and reopen
+in Twilight HD Settings to use the original layout instead; close and reopen
 Items to apply the change. X, Y, and R item assignment and supported combinations
 retain the game's inventory behavior.
 
 By default, **Start / +** opens Items and **D-Pad Down** opens Collection/Save.
-Turn **TPHD Items / Collection Buttons** off in Twilight HD HUD Settings to
+Turn **TPHD Items / Collection Buttons** off in Twilight HD Settings to
 restore **D-Pad Down → Items** and **Start / + → Collection/Save** while keeping
 the TPHD Bank layout. The preference is saved and the HUD label updates when
 you return to gameplay; no restart is needed.
@@ -95,7 +95,7 @@ No controller profile is rewritten.
 3. Open the Files app and browse to **On My iPhone** or **On My iPad > Dusklight > mods**.
 4. Copy the downloaded `.dusk` file into `mods`.
 5. Return to Dusklight, then restart the app or reload mods from the mod manager.
-6. Enable Twilight HD HUD and open its settings panel to choose a button-label layout and HUD size.
+6. Enable Twilight HD and open its settings panel to choose a button-label layout and HUD size.
 
 If the Dusklight folder is not visible in Files, use the app's file-transfer page and upload the `.dusk` file to **Mods** instead.
 
@@ -105,7 +105,7 @@ If the Dusklight folder is not visible in Files, use the app's file-transfer pag
 2. In Dusklight on Apple TV, open the file-transfer page and turn on local-network transfer.
 3. Enter the complete address shown on the television in a web browser, including the colon before the port number.
 4. Under **Mods**, choose the downloaded `.dusk` file and upload it.
-5. On Apple TV, rescan or reload mods, then enable Twilight HD HUD.
+5. On Apple TV, rescan or reload mods, then enable Twilight HD.
 6. Restart Dusklight if the mod does not appear immediately.
 
 The transfer page is available only while Dusklight is open, and both devices must remain on the same local network.
@@ -114,7 +114,7 @@ The package does not contain game files. A compatible, legally obtained disc ima
 
 ## Fonts and HUD size
 
-Open **Twilight HD HUD Settings** to choose a text font. **Original** keeps the
+Open **Twilight HD Settings** to choose a text font. **Original** keeps the
 game's font; the other three options use open-source fonts. Fully quit and
 restart Dusklight after changing fonts. Western-language message text is
 supported; decorative fonts and unsupported characters keep their original

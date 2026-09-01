@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.6.5 - 2026-08-31
+
+- Built in check for updates function.
+- Android specific HUD refinement.
+- Other small refinements.
+
 ## v1.6.0 - 2026-08-31
 
 - Improved item-acquisition cards with a cleaner, more readable TPHD-inspired font.
