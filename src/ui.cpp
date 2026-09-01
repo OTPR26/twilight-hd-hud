@@ -156,8 +156,12 @@ ModResult update_mod_panel(ModContext* ctx, void*, ModError*) {
             result.latestVersion + "</b>";
     }
 
+#ifdef UI_DIALOG_ACTION_INIT
     UiDialogAction action = UI_DIALOG_ACTION_INIT;
     action.label = "OK";
+#else
+    UiDialogAction action{"OK", nullptr, nullptr, false};
+#endif
     UiDialogDesc desc = UI_DIALOG_DESC_INIT;
     desc.title = title;
     desc.body_rml = body.c_str();
