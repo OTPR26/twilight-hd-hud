@@ -8,6 +8,7 @@
 
 ModContext* mod_ctx = nullptr;
 const ConfigService* svc_config = nullptr;
+const HostService* svc_host = nullptr;
 const UiService* svc_ui = nullptr;
 namespace twilight_hd_hud { ModResult register_ui(ModError*); }
 using namespace twilight_hd_hud;

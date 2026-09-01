@@ -8154,7 +8154,7 @@ void apply_wii_u_dpad_transform(dMeter2Draw_c* meter) {
     // meter. Compensate only for the amount above 100%, keeping the established
     // 100% positions unchanged on every platform.
     const f32 dpadAboveOne = std::max(0.0f, scales.dpad - 1.0f);
-    const f32 scaledDpadXOffset = dpadAboveOne * -16.0f;
+    const f32 scaledDpadXOffset = dpad_left_anchor_offset(scales.dpad);
     // Leave vertical room when either independently sized cluster grows.
     const f32 scaledDpadYOffset =
         std::max(dpadAboveOne, scales.hearts - 1.0f) * 64.0f;
@@ -12698,7 +12698,7 @@ void after_meter_move_button_cross(ModContext*, void* args, void*, void*) {
     }
 
     // The original GameCube HUD animates the D-Pad toward the minimap whenever the map is
-    // visible. Redrawing at the stationary base coordinates reproduces Twilight HD HUD's independent
+    // visible. Redrawing at the stationary base coordinates reproduces Twilight HD's independent
     // D-Pad layout while preserving alpha animation and any additional pane transforms.
     meter->getMeterDrawPtr()->drawButtonCross(g_drawHIO.mButtonCrossOFFPosX, 0.0f);
 }
@@ -13946,7 +13946,7 @@ ModResult add_pre_hook(const char* name, HookPreFn callback, ModError* error) {
 
     char message[192];
     std::snprintf(message, sizeof(message),
-        "failed to install Twilight HD HUD hook: %s (error %d)",
+        "failed to install Twilight HD hook: %s (error %d)",
         name, static_cast<int>(result));
     return mods::set_error(error, result, message);
 }
@@ -13960,7 +13960,7 @@ ModResult add_post_hook(const char* name, HookPostFn callback, ModError* error) 
 
     char message[192];
     std::snprintf(message, sizeof(message),
-        "failed to install Twilight HD HUD hook: %s (error %d)",
+        "failed to install Twilight HD hook: %s (error %d)",
         name, static_cast<int>(result));
     return mods::set_error(error, result, message);
 }
