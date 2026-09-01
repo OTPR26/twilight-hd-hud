@@ -1,5 +1,3 @@
-## Twilight HD v1.6.5
+## Twilight HD v1.6.6
 
-- Built in check for updates function.
-- Android specific HUD refinement.
-- Other small refinements.
+- Hotfix for Quick Transform.

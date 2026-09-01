@@ -9578,7 +9578,6 @@ void update_z_hud_item(dMeter2Draw_c* meter) {
         meter->mpButtonXY[2]->hide();
         meter->mpItemR->hide();
         meter->mpLightXY[2]->hide();
-        dMeter2Info_offUseButton(METER2_USEBUTTON_Z);
         return;
     }
 
@@ -13921,7 +13920,6 @@ void after_player_execute(ModContext*, void* args, void*, void*) {
     auto* link = mods::arg<daAlink_c*>(args, 0);
     if (link == nullptr || link->checkWolf()) {
         s_zHudItemUsable = false;
-        dMeter2Info_offUseButton(METER2_USEBUTTON_Z);
         return;
     }
 
@@ -13930,11 +13928,6 @@ void after_player_execute(ModContext*, void* args, void*, void*) {
     s_zHudItemUsable = third_slot_item_usable(
         resolved_select_item(kZItemSlot), dItemNo_NONE_e,
         link->mUseButtonFlags, daAlink_c::BTN_Z);
-    if (s_zHudItemUsable) {
-        dMeter2Info_onUseButton(METER2_USEBUTTON_Z);
-    } else {
-        dMeter2Info_offUseButton(METER2_USEBUTTON_Z);
-    }
 }
 
 template <class Hook>

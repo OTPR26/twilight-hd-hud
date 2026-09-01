@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.6.6 - 2026-09-01
+
+- Hotfix for Quick Transform.
+
 ## v1.6.5 - 2026-08-31
 
 - Built in check for updates function.

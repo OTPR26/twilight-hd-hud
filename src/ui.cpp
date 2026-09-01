@@ -156,7 +156,8 @@ ModResult update_mod_panel(ModContext* ctx, void*, ModError*) {
             result.latestVersion + "</b>";
     }
 
-    const UiDialogAction action{"OK", nullptr, nullptr, false};
+    UiDialogAction action = UI_DIALOG_ACTION_INIT;
+    action.label = "OK";
     UiDialogDesc desc = UI_DIALOG_DESC_INIT;
     desc.title = title;
     desc.body_rml = body.c_str();
