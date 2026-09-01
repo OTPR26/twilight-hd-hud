@@ -16,6 +16,11 @@ if (NOT DEFINED DUSK_DIR)
     set(DUSK_DIR "${CMAKE_SOURCE_DIR}")
 endif ()
 
+set(TWILIGHT_HUD_BUNDLE_ARG)
+if (NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(TWILIGHT_HUD_BUNDLE_ARG BUNDLE)
+endif ()
+
 add_mod(twilight_hd_hud
     FEATURES game
     SOURCES
@@ -29,6 +34,7 @@ add_mod(twilight_hd_hud
     OVERLAY_DIR overlay
     TEXTURES_DIR textures
     OUTPUT_DIR "${CMAKE_BINARY_DIR}/mods"
+    ${TWILIGHT_HUD_BUNDLE_ARG}
 )
 
 target_include_directories(twilight_hd_hud PRIVATE src "${DUSK_DIR}/src")

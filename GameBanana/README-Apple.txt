@@ -1,4 +1,4 @@
-Twilight HD v1.6.5
+Twilight HD v1.6.6
 
 Requires official Dusklight v1.4.1-141 or newer.
 
@@ -12,10 +12,8 @@ Supported platforms:
 
 Extract this ZIP before installing; upload or copy the .dusk file inside it.
 
-New in v1.6.5:
-- Built in check for updates function.
-- Android specific HUD refinement.
-- Other small refinements.
+New in v1.6.6:
+- Hotfix for Quick Transform.
 
 iPhone and iPad installation:
 1. Launch Dusklight once so its data folders are created.

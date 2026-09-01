@@ -53,6 +53,7 @@ jobs:
           python3 tests/map_responsive_structure_test.py
           python3 tests/menu_input_structure_test.py
           python3 tests/touch_hook_structure_test.py
+          python3 tests/quick_transform_structure_test.py
           python3 tests/file_select_structure_test.py
           python3 tests/meter_center_structure_test.py
           python3 tests/option_confirmation_structure_test.py
@@ -311,6 +312,7 @@ jobs:
         run: |
           mkdir -p build-apple-package
           ditto -x -k build-ios/mods/twilight_hd_hud.dusk build-apple-package
+          cp -R textures-apple/. build-apple-package/textures/
           mkdir -p build-apple-package/lib/tvos-arm64
           cp build-tvos/twilight_hd_hud_stage/lib/tvos-arm64/mod.so \
             build-apple-package/lib/tvos-arm64/mod.so
@@ -322,6 +324,12 @@ jobs:
         run: |
           unzip -l Twilight-HD-HUD-iOS-tvOS.dusk | grep 'lib/ios-arm64/mod.so'
           unzip -l Twilight-HD-HUD-iOS-tvOS.dusk | grep 'lib/tvos-arm64/mod.so'
+          rm -rf verify-apple-textures
+          mkdir verify-apple-textures
+          unzip -q Twilight-HD-HUD-iOS-tvOS.dusk 'textures/*.dds' -d verify-apple-textures
+          while IFS= read -r texture; do
+            test "$(od -An -tu4 -j128 -N4 "$texture" | tr -d ' ')" = '134'
+          done < <(find verify-apple-textures/textures -type f -name '*.dds')
 
       - name: Upload iOS and tvOS package
         uses: actions/upload-artifact@v4
