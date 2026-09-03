@@ -57,6 +57,7 @@
 #include "d/d_menu_item_explain.h"
 #include "d/d_msg_out_font.h"
 #include "d/d_msg_scrn_3select.h"
+#include "d/d_msg_scrn_explain.h"
 #include "d/d_msg_string.h"
 #include "d/d_select_cursor.h"
 #define PaneCache FileSelectPaneCache
@@ -201,6 +202,7 @@ DEFINE_HOOK(&dMenu_Insect_c::_draw, InsectDrawHook);
 DEFINE_HOOK(&dSelect_cursor_c::draw, SelectCursorDrawHook);
 DEFINE_HOOK(&dSelect_cursor_c::update, SelectCursorUpdateHook);
 DEFINE_HOOK(&dMsgScrn3Select_c::draw, ThreeSelectDrawHook);
+DEFINE_HOOK(&dMsgScrnExplain_c::draw, ExplainDrawHook);
 DEFINE_HOOK(&dMenu_Fmap_c::_move, FmapMoveHook);
 DEFINE_HOOK(&dMenu_Fmap_c::_draw, FmapDrawHook);
 DEFINE_HOOK(&dMenu_Fmap_c::getNextStatus, FmapNextStatusHook);
@@ -358,6 +360,7 @@ ResourceBuffer s_lettersScrollStateResources[11] = {
 };
 ResourceBuffer s_goldenBugMaleResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_goldenBugFemaleResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_goldenBugConnectorResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_hiddenSkillPanelResources[7] = {
     RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
     RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
@@ -372,12 +375,18 @@ ResourceBuffer s_fileSelectRowShadowResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectClearRowResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectTitleRulesResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectBackLabelResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_promptBackLabelResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_promptConfirmLabelResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectPromptFlourishResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectNumberResources[3] = {
     RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
 };
 dMenu_save_c* s_activeSaveMenu = nullptr;
 dMenu_Collect2D_c* s_activeCollectMenu = nullptr;
+dMenu_Insect_c* s_activeGoldenBugsDrawMenu = nullptr;
+f32 s_goldenBugsExplainAlpha = 0.0f;
+bool s_goldenBugsExplainAlphaSuppressed = false;
+bool s_goldenBugsChoiceDraw = false;
 dSelect_cursor_c* s_activeThreeSelectCursor = nullptr;
 J2DPicture* s_activeThreeSelectFrame = nullptr;
 J2DPicture* s_collectTitleFrame = nullptr;
@@ -2847,6 +2856,25 @@ void configure_hd_picture(J2DPicture* picture) {
     picture->show();
 }
 
+J2DPicture* make_hd_prompt_label(u64 tag,
+    const JGeometry::TBox2<f32>& bounds, const char* value,
+    J2DTextBoxHBinding alignment = HBIND_CENTER) {
+    (void)alignment;
+    ResTIMG const* texture = std::strcmp(value, "Confirm") == 0 ?
+        resource_texture(s_promptConfirmLabelResource) :
+        resource_texture(s_promptBackLabelResource);
+    if (texture == nullptr) return nullptr;
+    auto* label = JKR_NEW J2DPicture(tag, bounds, texture, nullptr);
+    // Preserve the label's authored black outline, gray face gradient, and
+    // shadow. configure_hd_picture's black/white remap is appropriate for
+    // tintable ornaments but would flatten this RGBA artwork again.
+    label->setTexCoord(label->getTexture(0), BIND15, MIRROR0, false);
+    label->setCornerColor(JUtility::TColor(255, 255, 255, 255));
+    label->setAlpha(255);
+    label->show();
+    return label;
+}
+
 // Shared three-choice prompt (Midna, message choices, and similar screens) --
 
 std::array<char, 128> clean_three_select_label(const char* text) {
@@ -3002,7 +3030,7 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
         // are anchored inside the frame below to avoid their extra native
         // width translation.
         const JGeometry::TBox2<f32> textBounds = text->getBounds();
-        constexpr f32 panelWidth = 156.0f;
+        const f32 panelWidth = s_goldenBugsChoiceDraw ? 212.0f : 156.0f;
         constexpr f32 panelHeight = 34.0f;
         const f32 textCenterX = (textBounds.i.x + textBounds.f.x) * 0.5f;
         const f32 textCenterY = (textBounds.i.y + textBounds.f.y) * 0.5f;
@@ -4115,24 +4143,18 @@ void add_option_prompts(dMenu_Option_c* menu) {
             right - 2.0f, 84.0f),
         resource_texture(s_fileSelectPromptFlourishResource), 220);
 
-    auto* confirm = JKR_NEW J2DTextBox(MULTI_CHAR('hd_ocfm'),
-        JGeometry::TBox2<f32>(right - 112.0f, 30.0f,
-            right - 48.0f, 51.0f), nullptr,
-        "Confirm", 16, HBIND_RIGHT, VBIND_CENTER);
-    confirm->setFont(menu->mpFont);
-    confirm->setFontSize(13.5f, 13.5f);
-    confirm->setFontColor(JUtility::TColor(235, 235, 230, 255),
-        JUtility::TColor(255, 255, 255, 255));
+    auto* confirm = make_hd_prompt_label(MULTI_CHAR('hd_ocfm'),
+        JGeometry::TBox2<f32>(right - 114.0f, 30.0f,
+            right - 30.0f, 51.0f), "Confirm", HBIND_RIGHT);
     group->appendChild(confirm);
 
     addPicture(MULTI_CHAR('hd_oapi'),
         JGeometry::TBox2<f32>(right - 50.0f, 28.0f,
             right - 23.0f, 55.0f),
         menu_face_button_texture(true));
-    addPicture(MULTI_CHAR('hd_obck'),
-        JGeometry::TBox2<f32>(right - 100.0f, 51.0f,
-            right - 61.0f, 67.0f),
-        resource_texture(s_fileSelectBackLabelResource));
+    group->appendChild(make_hd_prompt_label(MULTI_CHAR('hd_obck'),
+        JGeometry::TBox2<f32>(right - 109.0f, 49.0f,
+            right - 53.0f, 70.0f), "Back"));
     addPicture(MULTI_CHAR('hd_obpi'),
         JGeometry::TBox2<f32>(right - 62.0f, 49.0f,
             right - 35.0f, 76.0f),
@@ -4846,11 +4868,9 @@ void add_file_select_title_rules(dFile_select_c* menu) {
 }
 
 void add_file_select_back_label(dFile_select_c* menu) {
-    ResTIMG const* label = resource_texture(s_fileSelectBackLabelResource);
     J2DPane* buttonPane = menu != nullptr && menu->mBbtnPane != nullptr ?
         menu->mBbtnPane->getPanePtr() : nullptr;
     if (buttonPane == nullptr ||
-        label == nullptr ||
         buttonPane->search(MULTI_CHAR('hd_back')) != nullptr) {
         return;
     }
@@ -4858,12 +4878,8 @@ void add_file_select_back_label(dFile_select_c* menu) {
     // The label is a true child of B. It therefore inherits every move,
     // resize, aspect-ratio correction, and visibility animation of the
     // button instead of drifting in screen coordinates.
-    auto* overlay = JKR_NEW J2DPicture(MULTI_CHAR('hd_back'),
-        JGeometry::TBox2<f32>(0.0f, 0.0f, 1.0f, 1.0f), label, nullptr);
-    overlay->setTexCoord(overlay->getTexture(0), BIND15, MIRROR0, false);
-    overlay->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
-        JUtility::TColor(255, 255, 255, 255));
-    overlay->setCornerColor(JUtility::TColor(255, 255, 255, 255));
+    auto* overlay = make_hd_prompt_label(MULTI_CHAR('hd_back'),
+        JGeometry::TBox2<f32>(0.0f, 0.0f, 1.0f, 1.0f), "Back");
     buttonPane->appendChild(overlay);
 }
 
@@ -4904,11 +4920,11 @@ void position_file_select_prompt_overlays(dFile_select_c* menu) {
     // These are local B-pane coordinates. They remain fixed relative to the
     // button at every window size and through submenu prompt animations.
     if (label != nullptr) {
-        label->resize(39.0f, 16.0f);
+        label->resize(43.0f, 16.0f);
         // The label texture has transparent side bearings. Let its picture
         // overlap the button pane slightly so the visible word sits close to
         // the B disc, as it does in TPHD.
-        label->move(-25.0f, (buttonHeight - 16.0f) * 0.5f);
+        label->move(-29.0f, (buttonHeight - 16.0f) * 0.5f);
     }
 
     if (flourish != nullptr) {
@@ -4953,23 +4969,17 @@ void add_file_select_fixed_prompts(dFile_select_c* menu) {
                 right - 2.0f, 84.0f),
             resource_texture(s_fileSelectPromptFlourishResource), 220);
 
-        auto* confirm = JKR_NEW J2DTextBox(MULTI_CHAR('hd_fcon'),
-            JGeometry::TBox2<f32>(right - 112.0f, 30.0f,
-                right - 48.0f, 51.0f), nullptr,
-            "Confirm", 16, HBIND_RIGHT, VBIND_CENTER);
-        confirm->setFont(menu->fileSel.font[0]);
-        confirm->setFontSize(13.5f, 13.5f);
-        confirm->setFontColor(JUtility::TColor(235, 235, 230, 255),
-            JUtility::TColor(255, 255, 255, 255));
+        auto* confirm = make_hd_prompt_label(MULTI_CHAR('hd_fcon'),
+            JGeometry::TBox2<f32>(right - 114.0f, 30.0f,
+                right - 30.0f, 51.0f), "Confirm", HBIND_RIGHT);
         group->appendChild(confirm);
 
         addPicture(MULTI_CHAR('hd_fapi'),
             JGeometry::TBox2<f32>(right - 50.0f, 28.0f,
                 right - 23.0f, 55.0f), menu_face_button_texture(true));
-        addPicture(MULTI_CHAR('hd_fbck'),
-            JGeometry::TBox2<f32>(right - 100.0f, 51.0f,
-                right - 61.0f, 67.0f),
-            resource_texture(s_fileSelectBackLabelResource));
+        group->appendChild(make_hd_prompt_label(MULTI_CHAR('hd_fbck'),
+            JGeometry::TBox2<f32>(right - 109.0f, 49.0f,
+                right - 53.0f, 70.0f), "Back"));
         addPicture(MULTI_CHAR('hd_fbpi'),
             JGeometry::TBox2<f32>(right - 62.0f, 49.0f,
                 right - 35.0f, 76.0f), menu_face_button_texture(false));
@@ -7227,23 +7237,17 @@ void add_save_menu_fixed_prompts(dMenu_save_c* menu) {
                 right - 2.0f, 84.0f),
             resource_texture(s_fileSelectPromptFlourishResource), 220);
 
-        auto* confirm = JKR_NEW J2DTextBox(MULTI_CHAR('hd_sconf'),
-            JGeometry::TBox2<f32>(right - 112.0f, 30.0f,
-                right - 48.0f, 51.0f), nullptr,
-            "Confirm", 16, HBIND_RIGHT, VBIND_CENTER);
-        confirm->setFont(menu->mSaveSel.font[0]);
-        confirm->setFontSize(13.5f, 13.5f);
-        confirm->setFontColor(JUtility::TColor(235, 235, 230, 255),
-            JUtility::TColor(255, 255, 255, 255));
+        auto* confirm = make_hd_prompt_label(MULTI_CHAR('hd_sconf'),
+            JGeometry::TBox2<f32>(right - 114.0f, 30.0f,
+                right - 30.0f, 51.0f), "Confirm", HBIND_RIGHT);
         group->appendChild(confirm);
 
         addPicture(MULTI_CHAR('hd_sapi'),
             JGeometry::TBox2<f32>(right - 50.0f, 28.0f,
                 right - 23.0f, 55.0f), menu_face_button_texture(true));
-        addPicture(MULTI_CHAR('hd_sbck'),
-            JGeometry::TBox2<f32>(right - 100.0f, 51.0f,
-                right - 61.0f, 67.0f),
-            resource_texture(s_fileSelectBackLabelResource));
+        group->appendChild(make_hd_prompt_label(MULTI_CHAR('hd_sbck'),
+            JGeometry::TBox2<f32>(right - 109.0f, 49.0f,
+                right - 53.0f, 70.0f), "Back"));
         addPicture(MULTI_CHAR('hd_sbpi'),
             JGeometry::TBox2<f32>(right - 62.0f, 49.0f,
                 right - 35.0f, 76.0f), menu_face_button_texture(false));
@@ -7272,15 +7276,8 @@ void add_save_menu_prompt_overlays(dMenu_save_c* menu) {
         return;
     }
     if (button->search(MULTI_CHAR('hd_sback')) == nullptr) {
-        if (ResTIMG const* texture = resource_texture(s_fileSelectBackLabelResource)) {
-            auto* label = JKR_NEW J2DPicture(MULTI_CHAR('hd_sback'),
-                JGeometry::TBox2<f32>(0.0f, 0.0f, 1.0f, 1.0f), texture, nullptr);
-            label->setTexCoord(label->getTexture(0), BIND15, MIRROR0, false);
-            label->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
-                JUtility::TColor(255, 255, 255, 255));
-            label->setCornerColor(JUtility::TColor(255, 255, 255, 255));
-            button->appendChild(label);
-        }
+        button->appendChild(make_hd_prompt_label(MULTI_CHAR('hd_sback'),
+            JGeometry::TBox2<f32>(0.0f, 0.0f, 1.0f, 1.0f), "Back"));
     }
     if (button->search(MULTI_CHAR('hd_sswrl')) == nullptr) {
         if (ResTIMG const* texture =
@@ -7323,8 +7320,8 @@ void position_save_menu_prompts(dMenu_save_c* menu) {
         return;
     }
     if (J2DPane* label = button->search(MULTI_CHAR('hd_sback'))) {
-        label->resize(39.0f, 16.0f);
-        label->move(-25.0f, (button->getHeight() - 16.0f) * 0.5f);
+        label->resize(43.0f, 16.0f);
+        label->move(-29.0f, (button->getHeight() - 16.0f) * 0.5f);
     }
     if (J2DPane* flourish = button->search(MULTI_CHAR('hd_sswrl'))) {
         flourish->resize(30.0f, 32.0f);
@@ -10797,13 +10794,9 @@ void ensure_fish_journal_overlay(dMenu_Fishing_c* menu) {
                 button, nullptr);
             configure_hd_picture(backButton);
             group->appendChild(backButton);
-            if (ResTIMG const* label = resource_texture(s_fileSelectBackLabelResource)) {
-                auto* back = JKR_NEW J2DPicture(MULTI_CHAR('hd_fjbt'),
-                    JGeometry::TBox2<f32>(551.0f, 44.0f, 629.0f, 68.0f),
-                    label, nullptr);
-                configure_hd_picture(back);
-                group->appendChild(back);
-            }
+            group->appendChild(make_hd_prompt_label(MULTI_CHAR('hd_fjbt'),
+                JGeometry::TBox2<f32>(569.0f, 44.0f, 633.0f, 68.0f),
+                "Back"));
         }
         if (ResTIMG const* selection = resource_texture(s_fishJournalSelectionResource)) {
             auto* selectionCorners = JKR_NEW J2DPicture(MULTI_CHAR('hd_fjsc'),
@@ -11214,9 +11207,9 @@ void ensure_letters_overlay(dMenu_Letter_c* menu) {
         addPicture(MULTI_CHAR('hd_ltbb'),
             JGeometry::TBox2<f32>(622.0f, 40.0f, 654.0f, 72.0f),
             menu_face_button_texture(false));
-        addPicture(MULTI_CHAR('hd_ltbt'),
-            JGeometry::TBox2<f32>(551.0f, 44.0f, 629.0f, 68.0f),
-            resource_texture(s_fileSelectBackLabelResource));
+        group->appendChild(make_hd_prompt_label(MULTI_CHAR('hd_ltbt'),
+            JGeometry::TBox2<f32>(569.0f, 44.0f, 633.0f, 68.0f),
+            "Back"));
     }
 
     if (s_lettersOverlay.menu != menu) {
@@ -11652,9 +11645,9 @@ void ensure_hidden_skills_overlay(dMenu_Skill_c* menu) {
         addPicture(MULTI_CHAR('hd_hsbb'),
             JGeometry::TBox2<f32>(622.0f, 40.0f, 654.0f, 72.0f),
             menu_face_button_texture(false));
-        addPicture(MULTI_CHAR('hd_hsbt'),
-            JGeometry::TBox2<f32>(551.0f, 44.0f, 629.0f, 68.0f),
-            resource_texture(s_fileSelectBackLabelResource));
+        group->appendChild(make_hd_prompt_label(MULTI_CHAR('hd_hsbt'),
+            JGeometry::TBox2<f32>(569.0f, 44.0f, 633.0f, 68.0f),
+            "Back"));
     }
 
     if (menu->mpParent != nullptr) menu->mpParent->hide();
@@ -11833,32 +11826,21 @@ void position_golden_bug_cursor(dMenu_Insect_c* menu, J2DPane* group) {
     const int selected = menu->field_0xf4 + menu->field_0xf5 * 6;
     J2DPane* frame = group->search(MULTI_CHAR('hd_gs00') + selected);
     if (frame == nullptr) return;
-    position_cursor_outside_frame(menu->mpDrawCursor, frame, 4.0f, 3.0f);
-}
-
-void clean_golden_bug_description(J2DTextBox* description, bool female) {
-    if (description == nullptr || description->getStringPtr() == nullptr) return;
-    char* text = description->getStringPtr();
-    constexpr const char* phrase = "golden-bodied ";
-    char* marker = std::strstr(text, phrase);
-    if (marker == nullptr) return;
-    marker += std::strlen(phrase);
-    char* nextSpace = std::strchr(marker, ' ');
-    if (nextSpace == nullptr || nextSpace == marker) return;
-
-    // The native message embeds an out-font sex symbol. A plain J2DTextBox
-    // cannot render that control sequence, so replace it with an equivalent
-    // word while the proper symbol is drawn beside the species name.
-    const char* replacement = female ? "female" : "male";
-    const std::size_t replacementLength = std::strlen(replacement);
-    const std::size_t suffixLength = std::strlen(nextSpace);
-    std::memmove(marker + replacementLength, nextSpace, suffixLength + 1);
-    std::memcpy(marker, replacement, replacementLength);
+    // The cursor corner pictures contain transparent inner bearings. Pull
+    // their anchors slightly inside the slot bounds so the visible yellow
+    // strokes nearly touch the frame, as they do in TPHD.
+    position_cursor_outside_frame(menu->mpDrawCursor, frame, -3.0f, -3.0f);
 }
 
 HookAction before_insect_wait_move(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Insect_c*>(args, 0);
     if (menu == nullptr) return HOOK_CONTINUE;
+
+    // Agitha's gift-selection mode depends on the native A-button detail
+    // transition to open the Give/Don't Give prompt and report the selected
+    // insect back to the event.  Only suppress that transition for the
+    // ordinary collection journal.
+    if (menu->field_0xf6 == 1) return HOOK_CONTINUE;
 
     // Golden Bugs is now a single-page journal. Preserve native close and
     // directional navigation, but deliberately omit the old A-button detail
@@ -11927,6 +11909,25 @@ void ensure_golden_bugs_overlay(dMenu_Insect_c* menu) {
 
         ResTIMG const* frameTexture = resource_texture(s_collectEquipmentFrameResource);
         ResTIMG const* agithaTexture = collection_submenu_texture(menu->mpArchive, "ageha_01.bti");
+        // TPHD joins every male/female pair with a small ornamental band.
+        // Insert these first so the slot frames mask the ends and the band
+        // reads as one continuous paired control instead of a loose divider.
+        for (int row = 0; row < 4; ++row) {
+            for (int pair = 0; pair < 3; ++pair) {
+                const int leftIndex = row * 6 + pair * 2;
+                const JGeometry::TBox2<f32> left = golden_bug_slot_bounds(leftIndex);
+                const JGeometry::TBox2<f32> right = golden_bug_slot_bounds(leftIndex + 1);
+                const f32 centerY = (left.i.y + left.f.y) * 0.5f;
+                if (J2DPicture* band = addPicture(
+                        MULTI_CHAR('hd_gc00') + row * 3 + pair,
+                        JGeometry::TBox2<f32>(left.f.x - 3.0f, centerY - 8.0f,
+                            right.i.x + 3.0f, centerY + 8.0f),
+                        resource_texture(s_goldenBugConnectorResource), 225)) {
+                    band->setBlackWhite(JUtility::TColor(55, 35, 13, 255),
+                        JUtility::TColor(139, 96, 43, 255));
+                }
+            }
+        }
         for (int index = 0; index < MAX_INSECT_NUM; ++index) {
             const JGeometry::TBox2<f32> bounds = golden_bug_slot_bounds(index);
             if (J2DPicture* frame = addPicture(MULTI_CHAR('hd_gs00') + index,
@@ -11975,8 +11976,8 @@ void ensure_golden_bugs_overlay(dMenu_Insect_c* menu) {
             JGeometry::TBox2<f32>(420.0f, 224.0f, 592.0f, 328.0f), nullptr,
             "", 512, HBIND_LEFT, VBIND_TOP);
         description->setFont(mDoExt_getMesgFont());
-        description->setFontSize(12.5f, 12.5f);
-        description->setLineSpace(16.0f);
+        description->setFontSize(11.5f, 11.5f);
+        description->setLineSpace(15.0f);
         description->setFontColor(JUtility::TColor(83, 56, 21, 255),
             JUtility::TColor(125, 86, 31, 255));
         group->appendChild(description);
@@ -11990,9 +11991,30 @@ void ensure_golden_bugs_overlay(dMenu_Insect_c* menu) {
         addPicture(MULTI_CHAR('hd_gbbb'),
             JGeometry::TBox2<f32>(622.0f, 40.0f, 654.0f, 72.0f),
             menu_face_button_texture(false));
-        addPicture(MULTI_CHAR('hd_gbbt'),
-            JGeometry::TBox2<f32>(551.0f, 44.0f, 629.0f, 68.0f),
-            resource_texture(s_fileSelectBackLabelResource));
+        group->appendChild(make_hd_prompt_label(MULTI_CHAR('hd_gbbt'),
+            JGeometry::TBox2<f32>(569.0f, 44.0f, 633.0f, 68.0f),
+            "Back"));
+
+        // Agitha's gift flow keeps the journal visible and places its question
+        // below the bug grid, matching TPHD instead of opening the centered
+        // GameCube description card over the collection.
+        addPicture(MULTI_CHAR('hd_gbqp'),
+            JGeometry::TBox2<f32>(16.0f, 386.0f, 374.0f, 434.0f),
+            resource_texture(s_midnaChoiceRowResource), 238);
+        auto* question = JKR_NEW J2DTextBox(MULTI_CHAR('hd_gbqt'),
+            JGeometry::TBox2<f32>(36.0f, 390.0f, 360.0f, 430.0f), nullptr,
+            "Give this bug?", 48, HBIND_LEFT, VBIND_CENTER);
+        question->setFont(mDoExt_getMesgFont());
+        question->setFontSize(15.0f, 15.0f);
+        question->setCharSpace(0.0f);
+        question->setFontColor(JUtility::TColor(246, 246, 240, 255),
+            JUtility::TColor(255, 255, 255, 255));
+        group->appendChild(question);
+
+        auto* confirm = make_hd_prompt_label(MULTI_CHAR('hd_gbat'),
+            JGeometry::TBox2<f32>(560.0f, 16.0f, 656.0f, 40.0f),
+            "Confirm", HBIND_RIGHT);
+        group->appendChild(confirm);
     }
 
     // The HD replacement owns the base screen and prompt cluster. Native
@@ -12049,7 +12071,6 @@ void ensure_golden_bugs_overlay(dMenu_Insect_c* menu) {
             menu->mpString->getString(menu->getInsectItemID(menu->field_0xf4,
                     menu->field_0xf5) + 0x265,
                 description, nullptr, nullptr, nullptr, 0);
-            clean_golden_bug_description(description, female);
             description->show();
         }
         if (J2DPane* divider = group->search(MULTI_CHAR('hd_gbdr'))) divider->show();
@@ -12060,6 +12081,30 @@ void ensure_golden_bugs_overlay(dMenu_Insect_c* menu) {
         if (femaleSymbol != nullptr) femaleSymbol->hide();
         if (description != nullptr) description->hide();
         if (J2DPane* divider = group->search(MULTI_CHAR('hd_gbdr'))) divider->hide();
+    }
+
+    const bool giftMode = menu->field_0xf6 == 1;
+    const bool selectedAlreadyGiven = menu->isGiveInsect(
+        menu->field_0xf4, menu->field_0xf5);
+    const bool confirmationVisible = giftMode && !selectedAlreadyGiven &&
+        menu->field_0xf3 != 0;
+    const u8 confirmationAlpha = menu->mpExpParent != nullptr ?
+        static_cast<u8>(std::clamp(menu->mpExpParent->getAlphaRate(), 0.0f, 1.0f) *
+            255.0f) : 255;
+    for (const u64 tag : {MULTI_CHAR('hd_gbqp'), MULTI_CHAR('hd_gbqt')}) {
+        if (J2DPane* pane = group->search(tag)) {
+            if (confirmationVisible) {
+                pane->setAlpha(confirmationAlpha);
+                pane->show();
+            } else {
+                pane->hide();
+            }
+        }
+    }
+    for (const u64 tag : {MULTI_CHAR('hd_gbab'), MULTI_CHAR('hd_gbat')}) {
+        if (J2DPane* pane = group->search(tag)) {
+            giftMode ? pane->show() : pane->hide();
+        }
     }
 
     update_menu_face_button(menu->mpScreen, MULTI_CHAR('hd_gbab'), true);
@@ -12213,11 +12258,53 @@ HookAction before_skill_draw(ModContext*, void* args, void*, void*) {
     return HOOK_CONTINUE;
 }
 
+bool golden_bugs_explanation_active(const dMenu_Insect_c* menu) {
+    return menu != nullptr && menu->field_0xf6 == 1 && menu->field_0xf3 != 0;
+}
+
+HookAction before_golden_bugs_screen_draw(ModContext*, void* args, void*, void*) {
+    auto* screen = mods::arg<J2DScreen*>(args, 0);
+    if (golden_bugs_explanation_active(s_activeGoldenBugsDrawMenu) &&
+        screen == s_activeGoldenBugsDrawMenu->mpExpScreen)
+    {
+        // The replacement journal already owns the icon, identity, and body
+        // copy.  Suppress only the old centered description screen; the
+        // native Yes/No controller remains alive and is drawn separately.
+        return HOOK_SKIP_ORIGINAL;
+    }
+    return HOOK_CONTINUE;
+}
+
 HookAction before_insect_draw(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Insect_c*>(args, 0);
+    s_activeGoldenBugsDrawMenu = menu;
     ensure_golden_bugs_overlay(menu);
     refresh_collect_prompt_width(menu != nullptr ? menu->mpIconScreen : nullptr);
+
+    // dMenu_Insect draws a second full-screen black veil behind its native
+    // description card.  Temporarily zero only the draw-time alpha so the
+    // TPHD journal remains bright; restore it immediately afterward because
+    // the native open/close state machine still uses this value.
+    if (golden_bugs_explanation_active(menu) && menu->mpExpParent != nullptr) {
+        s_goldenBugsExplainAlpha = menu->mpExpParent->getAlphaRate();
+        s_goldenBugsExplainAlphaSuppressed = true;
+        menu->mpExpParent->setAlphaRate(0.0f);
+    }
     return HOOK_CONTINUE;
+}
+
+void after_insect_draw(ModContext*, void*, void*, void*) {
+    if (s_goldenBugsExplainAlphaSuppressed &&
+        s_activeGoldenBugsDrawMenu != nullptr &&
+        s_activeGoldenBugsDrawMenu->mpExpParent != nullptr)
+    {
+        s_activeGoldenBugsDrawMenu->mpExpParent->setAlphaRate(
+            s_goldenBugsExplainAlpha);
+    }
+    s_goldenBugsExplainAlpha = 0.0f;
+    s_goldenBugsExplainAlphaSuppressed = false;
+    s_goldenBugsChoiceDraw = false;
+    s_activeGoldenBugsDrawMenu = nullptr;
 }
 
 HookAction before_select_cursor_draw(ModContext*, void* args, void*, void*) {
@@ -12225,7 +12312,8 @@ HookAction before_select_cursor_draw(ModContext*, void* args, void*, void*) {
     if (cursor == s_activeThreeSelectCursor &&
         s_activeThreeSelectFrame != nullptr) {
         position_cursor_outside_frame(cursor, s_activeThreeSelectFrame,
-            4.0f, 3.0f);
+            s_goldenBugsChoiceDraw ? 0.5f : 4.0f,
+            s_goldenBugsChoiceDraw ? 0.5f : 3.0f);
     }
     if (s_activeCollectMenu != nullptr &&
         cursor == s_activeCollectMenu->mpDrawCursor) {
@@ -12242,6 +12330,18 @@ HookAction before_select_cursor_draw(ModContext*, void* args, void*, void*) {
 
 HookAction before_three_select_draw(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMsgScrn3Select_c*>(args, 0);
+    s_goldenBugsChoiceDraw =
+        golden_bugs_explanation_active(s_activeGoldenBugsDrawMenu) &&
+        s_activeGoldenBugsDrawMenu != nullptr &&
+        menu == s_activeGoldenBugsDrawMenu->mpSelect_c;
+    if (s_goldenBugsChoiceDraw &&
+        menu == s_activeGoldenBugsDrawMenu->mpSelect_c)
+    {
+        // Place both Agitha choices directly beneath the persistent right-side
+        // details, using the same logical 608x448 canvas as the journal.
+        menu->translate(g_drawHIO.mInsectListScreen.mConfirmOptionPosX_4x3 + 550.0f,
+            g_drawHIO.mInsectListScreen.mConfirmOptionPosY_4x3 + 187.0f);
+    }
     style_three_select_prompt(menu);
     return HOOK_CONTINUE;
 }
@@ -12295,6 +12395,73 @@ HookAction before_fmap_draw(ModContext*, void* args, void*, void*) {
         if (previous != nullptr) mDoExt_setCurrentHeap(previous);
     }
     return HOOK_CONTINUE;
+}
+
+struct FmapExplainPaneState {
+    J2DPane* pane = nullptr;
+    f32 x = 0.0f;
+    f32 y = 0.0f;
+    f32 scaleX = 1.0f;
+    f32 scaleY = 1.0f;
+};
+
+struct FmapExplainDrawState {
+    dMsgScrnExplain_c* screen = nullptr;
+    std::array<FmapExplainPaneState, 6> panes{};
+};
+
+FmapExplainDrawState s_fmapExplainDraw{};
+
+HookAction before_fmap_explain_draw(ModContext*, void* args, void*, void*) {
+    auto* screen = mods::arg<dMsgScrnExplain_c*>(args, 0);
+    auto* map = dMenu_Fmap_c::MyClass;
+    if (screen == nullptr || map == nullptr || map->mpDraw2DTop == nullptr ||
+        map->mpDraw2DTop->mpScrnExplain != screen ||
+        s_fmapExplainDraw.screen != nullptr) {
+        return HOOK_CONTINUE;
+    }
+
+    // The map explanation uses its own renderer, separate from normal Talk
+    // dialogue. Scale all three text layers around the same global anchor so
+    // coloured runs, glow and shadow keep their native alignment.
+    constexpr f32 kTphdWarpTextScale = 0.76f;
+    CPaneMgr* managers[] = {
+        screen->mpTm_c[0], screen->mpTm_c[1],
+        screen->mpTmr_c[0], screen->mpTmr_c[1],
+        screen->mpMg_c[0], screen->mpMg_c[1],
+    };
+    CPaneMgr centerManager;
+    J2DPane* anchorPane = screen->mpTm_c[0] != nullptr ?
+        screen->mpTm_c[0]->getPanePtr() : nullptr;
+    if (anchorPane == nullptr) return HOOK_CONTINUE;
+    const Vec anchor = centerManager.getGlobalVtxCenter(anchorPane, false, 0);
+
+    s_fmapExplainDraw.screen = screen;
+    for (std::size_t i = 0; i < std::size(managers); ++i) {
+        J2DPane* pane = managers[i] != nullptr ? managers[i]->getPanePtr() : nullptr;
+        if (pane == nullptr) continue;
+        auto& saved = s_fmapExplainDraw.panes[i];
+        saved = {pane, pane->getTranslateX(), pane->getTranslateY(),
+            pane->getScaleX(), pane->getScaleY()};
+        const Vec center = centerManager.getGlobalVtxCenter(pane, false, 0);
+        pane->scale(saved.scaleX * kTphdWarpTextScale,
+            saved.scaleY * kTphdWarpTextScale);
+        const Vec resized = centerManager.getGlobalVtxCenter(pane, false, 0);
+        pane->translate(saved.x + anchor.x + (center.x - anchor.x) * kTphdWarpTextScale - resized.x,
+            saved.y + anchor.y + (center.y - anchor.y) * kTphdWarpTextScale - resized.y);
+    }
+    return HOOK_CONTINUE;
+}
+
+void after_fmap_explain_draw(ModContext*, void* args, void*, void*) {
+    auto* screen = mods::arg<dMsgScrnExplain_c*>(args, 0);
+    if (s_fmapExplainDraw.screen != screen) return;
+    for (const auto& saved : s_fmapExplainDraw.panes) {
+        if (saved.pane == nullptr) continue;
+        saved.pane->scale(saved.scaleX, saved.scaleY);
+        saved.pane->translate(saved.x, saved.y);
+    }
+    s_fmapExplainDraw = {};
 }
 
 HookAction before_fmap_next_status(ModContext*, void* args, void*, void*) {
@@ -14207,6 +14374,10 @@ void initialize_face_button_textures() {
             &s_goldenBugFemaleResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the Golden Bugs female symbol");
     }
+    if (svc_resource->load(mod_ctx, "menu/golden-bug-connector.bti",
+            &s_goldenBugConnectorResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the Golden Bugs pair connector");
+    }
     for (std::size_t index = 0; index < std::size(kHiddenSkillPanelPaths); ++index) {
         if (svc_resource->load(mod_ctx, kHiddenSkillPanelPaths[index],
                 &s_hiddenSkillPanelResources[index]) != MOD_OK) {
@@ -14248,6 +14419,14 @@ void initialize_face_button_textures() {
     if (svc_resource->load(mod_ctx, "menu/file-select-back-label.bti",
             &s_fileSelectBackLabelResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the File Selection Back label");
+    }
+    if (svc_resource->load(mod_ctx, "menu/prompt-label-back.bti",
+            &s_promptBackLabelResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the outlined Back prompt label");
+    }
+    if (svc_resource->load(mod_ctx, "menu/prompt-label-confirm.bti",
+            &s_promptConfirmLabelResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the outlined Confirm prompt label");
     }
     if (svc_resource->load(mod_ctx, "menu/file-select-prompt-flourish.bti",
             &s_fileSelectPromptFlourishResource) != MOD_OK) {
@@ -14322,6 +14501,7 @@ void shutdown_face_button_textures() {
     }
     free_resource(s_goldenBugMaleResource);
     free_resource(s_goldenBugFemaleResource);
+    free_resource(s_goldenBugConnectorResource);
     for (ResourceBuffer& resource : s_hiddenSkillPanelResources) {
         free_resource(resource);
     }
@@ -14334,6 +14514,8 @@ void shutdown_face_button_textures() {
     free_resource(s_fileSelectClearRowResource);
     free_resource(s_fileSelectTitleRulesResource);
     free_resource(s_fileSelectBackLabelResource);
+    free_resource(s_promptBackLabelResource);
+    free_resource(s_promptConfirmLabelResource);
     free_resource(s_fileSelectPromptFlourishResource);
     for (ResourceBuffer& resource : s_fileSelectNumberResources) {
         free_resource(resource);
@@ -14502,6 +14684,8 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_PRE(ScreenDrawHook, before_gauge_screen_draw, "top-center oil and oxygen meters");
     ADD_PRE(ScreenDrawHook, before_item_explain_screen_draw,
         "TPHD item description presentation");
+    ADD_PRE(ScreenDrawHook, before_golden_bugs_screen_draw,
+        "Golden Bugs native description suppression");
     ADD_POST(MeterGaugeScreenHook, after_meter_gauge_screen, "oil and oxygen meter restore");
     ADD_PRE(MessageObjectDrawHook, before_message_object_draw,
         "item-get text and inline button metrics");
@@ -14547,6 +14731,7 @@ ModResult install_item_slot_hooks(ModError* error) {
         "golden bugs single-page input");
     ADD_POST(InsectMoveHook, after_insect_move, "golden bugs HD layout and touch");
     ADD_PRE(InsectDrawHook, before_insect_draw, "golden bugs responsive buttons");
+    ADD_POST(InsectDrawHook, after_insect_draw, "golden bugs draw state restore");
     ADD_POST(CollectMoveHook, after_collect_move, "collection menu frame styling");
     ADD_PRE(CollectDrawHook, before_collect_draw, "collection menu HD draw");
     ADD_PRE(CollectDeleteHook, before_collect_delete, "collection menu cleanup");
@@ -14560,6 +14745,10 @@ ModResult install_item_slot_hooks(ModError* error) {
         "HD selection cursor final alignment");
     ADD_PRE(ThreeSelectDrawHook, before_three_select_draw,
         "three-choice prompt HD style");
+    ADD_PRE(ExplainDrawHook, before_fmap_explain_draw,
+        "field-map warp question TPHD scale");
+    ADD_POST(ExplainDrawHook, after_fmap_explain_draw,
+        "restore field-map warp question geometry");
     ADD_PRE(FmapMoveHook, before_fmap_move, "field map portals R button mapping");
     ADD_PRE(FmapNextStatusHook, before_fmap_next_status, "overworld D-pad Up back");
     ADD_POST(FmapNextStatusHook, after_fmap_next_status, "restore overworld close input");
