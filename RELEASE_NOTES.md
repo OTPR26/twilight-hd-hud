@@ -1,3 +1,6 @@
-## Twilight HD v1.6.6
+## Twilight HD v1.7.0
 
-- Hotfix for Quick Transform.
+- Fixed Golden Bugs selection when giving bugs to Agitha.
+- Refined the Golden Bugs screen to more closely match TPHD.
+- Refined field-map warp confirmation text.
+- Other small visual refinements.

@@ -38,4 +38,13 @@ assert 'return HOOK_CONTINUE' in status and 'HOOK_SKIP_ORIGINAL' not in status
 assert 's_fmapCloseOriginalTrig, PAD_BUTTON_LEFT' in status
 assert 'ADD_POST(FmapNextStatusHook, after_fmap_next_status' in hooks
 assert all(name in source for name in ('PROC_ALL_MAP', 'PROC_REGION_MAP', 'PROC_SPOT_MAP', 'PROC_PORTAL_WARP_MAP'))
+assert 'DEFINE_HOOK(&dMsgScrnExplain_c::draw, ExplainDrawHook)' in hooks
+warp_text = hooks.split('HookAction before_fmap_explain_draw(', 1)[1].split(
+    'HookAction before_fmap_next_status(', 1)[0]
+assert 'map->mpDraw2DTop->mpScrnExplain != screen' in warp_text
+assert 'kTphdWarpTextScale = 0.76f' in warp_text
+assert all(layer in warp_text for layer in ('mpTm_c', 'mpTmr_c', 'mpMg_c'))
+assert 'after_fmap_explain_draw' in warp_text
+assert 'ADD_PRE(ExplainDrawHook, before_fmap_explain_draw' in hooks
+assert 'ADD_POST(ExplainDrawHook, after_fmap_explain_draw' in hooks
 print('PASS: native counts/control binding retained, frame caches safe, projection bounds synchronized')

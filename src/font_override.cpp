@@ -157,6 +157,16 @@ bool draw_font_override(void* args, void* retval, FontDrawOriginal drawOriginal)
     if (!retval || !drawOriginal) return false;
     auto* source = mods::arg<JUTResFont*>(args, 0);
     const int code = mods::arg<int>(args, 5);
+    // Western message archives encode the male/female message tags as B2/B3.
+    // The bundled Latin replacement fonts correctly interpret those code
+    // points as superscript 2/3, but Twilight Princess' native message font
+    // deliberately maps them to the Golden Bug sex symbols.  Preserve the
+    // game glyphs in every context, including item-get cards and the insect
+    // journal, instead of allowing the replacement atlas to turn them into
+    // exponent numerals.
+    constexpr int kMaleSymbolCode = 0xB2;
+    constexpr int kFemaleSymbolCode = 0xB3;
+    if (code == kMaleSymbolCode || code == kFemaleSymbolCode) return false;
     // The item-card draw scope has a dedicated Fira face. Outside that narrow
     // scope, preserve the selected global message-font behavior exactly.
     const bool itemPrompt = s_itemPromptDepth > 0 && ensure_item_prompt_font();

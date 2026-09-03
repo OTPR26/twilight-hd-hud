@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.7.0 - 2026-09-02
+
+- Fixed Golden Bugs selection when giving bugs to Agitha.
+- Refined the Golden Bugs screen to more closely match TPHD.
+- Refined field-map warp confirmation text.
+- Other small visual refinements.
+
 ## v1.6.6 - 2026-09-01
 
 - Hotfix for Quick Transform.
