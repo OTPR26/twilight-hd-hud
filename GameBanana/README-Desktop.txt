@@ -1,10 +1,12 @@
-Twilight HD v1.6.6
+Twilight HD v1.8.1
 
-Requires official Dusklight v1.4.1-141 or newer.
+Requires Dusklight Nightly v1.4.1-268 or newer.
 
-Updating: remove the previous Twilight HD .dusk file before adding this
-version. Keep only one version in the mods folder. Saves and settings are
-preserved. Fully restart Dusklight after updating.
+Updating: Twilight HD can automatically check for a newer release and install
+it in game when Auto Update Checks is enabled. If updating manually, remove the
+previous Twilight HD .dusk file before adding this version. Keep only one
+version in the mods folder. Saves and settings are preserved. Fully restart
+Dusklight after updating.
 
 Supported platforms:
 - Windows x64
@@ -12,8 +14,9 @@ Supported platforms:
 - macOS Apple Silicon
 - Android ARM64
 
-New in v1.6.6:
-- Hotfix for Quick Transform.
+New in v1.8.1:
+- Updated compatibility with current Dusklight Nightly builds.
+- Restored Y, X, R, and sword controls after a Dusklight player-layout change.
 
 Installation:
 1. Extract this ZIP and place the included .dusk file in the mods folder inside the active Dusklight data folder.
@@ -29,5 +32,3 @@ On macOS, the active data folder is normally under ~/Library/Application Support
 On Android, use the mods folder inside the Dusklight data folder selected by the app.
 
 This package contains no game files. A compatible, legally obtained disc image is required by Dusklight.
-
-Author: Hyrule Hysteria
