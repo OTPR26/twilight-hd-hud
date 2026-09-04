@@ -55,6 +55,7 @@ jobs:
           python3 tests/touch_hook_structure_test.py
           python3 tests/quick_transform_structure_test.py
           python3 tests/file_select_structure_test.py
+          python3 tests/update_service_structure_test.py
           python3 tests/meter_center_structure_test.py
           python3 tests/option_confirmation_structure_test.py
           python3 tests/fish_journal_structure_test.py
