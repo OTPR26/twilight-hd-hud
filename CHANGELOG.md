@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.8.0 - 2026-09-04
+
+- Added optional automatic update checks and in-game self-installation.
+- Refined the lantern oil meter's size and placement.
+- Corrected the Dungeon Map acquisition prompt to use the D-Pad icon.
+- Corrected dungeon item-assignment instructions.
+- Other smaller refinements.
+
 ## v1.7.0 - 2026-09-02
 
 - Fixed Golden Bugs selection when giving bugs to Agitha.

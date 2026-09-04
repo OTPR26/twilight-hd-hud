@@ -77,10 +77,10 @@ inline std::string three_button_item_help(std::string_view data) {
     return result;
 }
 
-// Cinematic bottle item-get messages place additional layout-control tags
-// between their assignment-button tags and the visible word "or". Those tags
-// are not present on the pause-menu item cards, so keep this deliberately
-// narrow and rebuild only the soup assignment span.
+// Cinematic item-get messages can place additional layout-control tags between
+// their assignment-button tags and the visible word "or". Those tags are not
+// present on the pause-menu item cards, so keep this deliberately narrow and
+// rebuild only the known soup and Ooccoo assignment spans.
 inline std::string three_button_soup_item_help(std::string_view data) {
     constexpr std::size_t maxMessageBytes = 1024;
     std::size_t length = 0;
@@ -105,8 +105,11 @@ inline std::string three_button_soup_item_help(std::string_view data) {
     // Item-get BMGs can insert positioning, color, and timing tags anywhere
     // inside a sentence. Match what the player sees instead of requiring the
     // raw message bytes to contain one uninterrupted ASCII phrase.
-    constexpr std::string_view phrase = "Set it to and drink it with";
-    const auto findVisiblePhraseEnd = [&]() -> std::size_t {
+    struct VisiblePhrase {
+        std::size_t begin = std::string_view::npos;
+        std::size_t end = std::string_view::npos;
+    };
+    const auto findVisiblePhrase = [&](std::string_view phrase) -> VisiblePhrase {
         for (std::size_t start = 0; start < message.size(); ++start) {
             std::size_t raw = start;
             std::size_t visible = 0;
@@ -119,12 +122,16 @@ inline std::string three_button_soup_item_help(std::string_view data) {
                 ++raw;
                 ++visible;
             }
-            if (visible == phrase.size()) return raw;
+            if (visible == phrase.size()) return {start, raw};
         }
-        return std::string_view::npos;
+        return {};
     };
-    const auto assignmentAt = findVisiblePhraseEnd();
-    if (assignmentAt == std::string_view::npos) return {};
+    constexpr std::string_view soupPhrase = "Set it to and drink it with";
+    constexpr std::string_view ooccooPhrase = "Set her to and call her with";
+    auto phrase = findVisiblePhrase(soupPhrase);
+    const bool ooccoo = phrase.end == std::string_view::npos;
+    if (ooccoo) phrase = findVisiblePhrase(ooccooPhrase);
+    if (phrase.end == std::string_view::npos) return {};
 
     const auto itemButton = [&](std::size_t at) -> unsigned char {
         const auto size = tagSize(at);
@@ -151,7 +158,7 @@ inline std::string three_button_soup_item_help(std::string_view data) {
 
     // Keep the authored space or hard line break before the icons. The superb
     // soup card deliberately puts its assignment row on the following line.
-    auto replacementAt = assignmentAt;
+    auto replacementAt = phrase.end;
     while (replacementAt < message.size() && space(message[replacementAt])) {
         ++replacementAt;
     }
@@ -168,7 +175,16 @@ inline std::string three_button_soup_item_help(std::string_view data) {
 
     const auto secondEnd = secondAt + tagSize(secondAt);
     // Fixed native Y/X/R tags use the mod's controller-specific textures.
-    std::string result(message.substr(0, replacementAt));
+    std::string result;
+    if (ooccoo) {
+        // The original English line is missing the object after "Set her to".
+        // Use one concise instruction while adding the mod's third item slot.
+        result = message.substr(0, phrase.begin);
+        result += "Set and call her with";
+        result += message.substr(phrase.end, replacementAt - phrase.end);
+    } else {
+        result = message.substr(0, replacementAt);
+    }
     result.append("\x1a\x05\x00\x00\x10", 5);
     result += ", ";
     result.append("\x1a\x05\x00\x00\x0f", 5);
@@ -176,6 +192,15 @@ inline std::string three_button_soup_item_help(std::string_view data) {
     result.append("\x1a\x05\x00\x00\x11", 5);
     result += message.substr(secondEnd);
     return result;
+}
+
+// Item-get cards initialize their sequence processor before the ordinary
+// message hook can substitute its private text. Select the applicable rewrite
+// at setMessageIndex time so every assignment instruction—not just the tagged
+// soup/Ooccoo variants—is parsed with the third R slot present.
+inline std::string three_button_item_get_help(std::string_view data) {
+    auto result = three_button_soup_item_help(data);
+    return result.empty() ? three_button_item_help(data) : result;
 }
 
 inline float item_help_fit_scale(float availableWidth, float measuredWidth) {

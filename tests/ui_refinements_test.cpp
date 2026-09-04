@@ -88,6 +88,11 @@ int main() {
     assert(three_button_item_help(std::string("Autre langue\0", 13)).empty());
 
     const auto trio = icon(16) + ", " + icon(15) + " or " + icon(17);
+    const auto dominionRod = "Hold it with " + icon(16) + " or " + icon(15) +
+        ", aim with " + icon(2) + ", and use it to give light and life to statues.";
+    assert(three_button_item_get_help(dominionRod + '\0') ==
+        "Hold it with " + trio + ", aim with " + icon(2) +
+        ", and use it to give light and life to statues.");
     // Shared item wording: bottles, bombs, Spinner, boots, rods, and ranged items.
     for (const std::string verb : {"Use ", "Drink with ", "Lift one with ",
             "Ride it with ", "Put them on with ", "Hold it with ", "Hold down "}) {
@@ -120,6 +125,12 @@ int main() {
         "Set it to and drink it with " + trio + " to replenish 8 hearts.");
     assert(three_button_soup_item_help(multilineSuperbSoup + '\0') ==
         "Set it to and drink it with\n" + trio + " to replenish 8 hearts.");
+    const auto ooccoo = "Set her to and call her with " + icon(16) + " or " +
+        icon(15) + ".";
+    assert(three_button_soup_item_help(ooccoo + '\0') ==
+        "Set and call her with " + trio + ".");
+    assert(three_button_item_get_help(ooccoo + '\0') ==
+        "Set and call her with " + trio + ".");
     assert(three_button_soup_item_help(("Unrelated " + icon(16) + " or " + icon(15)) +
         '\0').empty());
     const auto twoPairs = icon(15) + " or " + icon(16) + ".\nAgain: " + icon(47) + " or " + icon(46);

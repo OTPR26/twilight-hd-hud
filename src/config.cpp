@@ -23,6 +23,15 @@ ConfigVarHandle s_minimapSize = 0;
 ConfigVarHandle s_textFont = 0;
 ConfigVarHandle s_itemsScreen = 0;
 ConfigVarHandle s_swapMenuButtons = 0;
+ConfigVarHandle s_checkForUpdates = 0;
+
+ModResult register_bool(const char* name, bool defaultValue, ConfigVarHandle& handle) {
+    ConfigVarDesc desc = CONFIG_VAR_DESC_INIT;
+    desc.name = name;
+    desc.type = CONFIG_VAR_BOOL;
+    desc.default_bool = defaultValue;
+    return svc_config->register_var(mod_ctx, &desc, &handle);
+}
 
 ModResult register_menu_swap() {
     ConfigVarDesc desc = CONFIG_VAR_DESC_INIT;
@@ -108,7 +117,8 @@ ModResult register_config(ModError* error) {
         register_int("minimap-percent", 100, s_minimapSize) != MOD_OK ||
         register_int("text-font", 0, s_textFont) != MOD_OK ||
         register_int("items-screen", 0, s_itemsScreen) != MOD_OK ||
-        register_menu_swap() != MOD_OK)
+        register_menu_swap() != MOD_OK ||
+        register_bool("check-for-updates", true, s_checkForUpdates) != MOD_OK)
     {
         return mods::set_error(
             error, MOD_ERROR, "failed to register Twilight HD settings");
@@ -223,6 +233,18 @@ bool swap_menu_buttons() {
 
 ConfigVarHandle swap_menu_buttons_config_var() {
     return s_swapMenuButtons;
+}
+
+bool check_for_updates_enabled() {
+    bool value = true;
+    if (s_checkForUpdates != 0) {
+        svc_config->get_bool(mod_ctx, s_checkForUpdates, &value);
+    }
+    return value;
+}
+
+ConfigVarHandle check_for_updates_config_var() {
+    return s_checkForUpdates;
 }
 
 }  // namespace twilight_hd_hud

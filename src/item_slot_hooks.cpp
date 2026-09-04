@@ -159,6 +159,7 @@ DEFINE_HOOK(&dMeterButton_c::draw, MeterButtonDrawHook);
 DEFINE_HOOK(&dMeter2Draw_c::draw, MeterDrawHook);
 DEFINE_HOOK(&dMeter2Draw_c::drawButtonCross, MeterDrawButtonCrossHook);
 DEFINE_HOOK(&dMeter2Draw_c::drawButtonZ, MeterDrawButtonZHook);
+DEFINE_HOOK(&dMeter2Draw_c::drawKanteraMeter, MeterDrawKanteraMeterHook);
 DEFINE_HOOK(&dMeter2_c::moveButtonCross, MeterMoveButtonCrossHook);
 DEFINE_HOOK(&dMeter2Draw_c::drawKanteraScreen, MeterGaugeScreenHook);
 DEFINE_HOOK(&J2DScreen::draw, ScreenDrawHook);
@@ -839,6 +840,7 @@ bool z_item_menu_or_pause_context();
 bool midna_unlocked();
 void position_cursor_outside_frame(dSelect_cursor_c*, J2DPane*,
     f32 = 7.0f, f32 = 5.0f);
+void position_file_select_cursor(dFile_select_c*);
 void move_file_select_pane_center(J2DPane*, f32, f32);
 void apply_file_select_row_texture(J2DPicture*, ResTIMG const*);
 void set_copy_file_info_visible(dFile_select_c*, std::size_t, bool);
@@ -1825,7 +1827,7 @@ void after_item_help_message(ModContext*, void* args, void* result, void*) {
     control->pMessageText_current_ = s_itemHelpText.c_str();
 }
 
-bool rewrite_soup_item_get_message(JMessage::TControl* control) {
+bool rewrite_item_get_message(JMessage::TControl* control) {
     if (control == nullptr || control->pSequenceProcessor_ == nullptr ||
         control->pResourceCache_ == nullptr || control->pEntry_ == nullptr) {
         return false;
@@ -1837,8 +1839,8 @@ bool rewrite_soup_item_get_message(JMessage::TControl* control) {
     if (control->pMessageText_begin_ == s_itemGetHelpText.c_str()) return false;
 
     const auto* resource = control->pResourceCache_;
-    // Soup item-get wording is English-only. Keep the read inside the selected
-    // message archive's DAT1 block and never reinterpret UTF-16 resources.
+    // Item-get wording changes are English-only. Keep the read inside the
+    // selected message archive's DAT1 block and never reinterpret UTF-16 resources.
     if (resource->oParse_THeader_.get_encoding() == 2 || resource->pMessageText_ == nullptr) {
         return false;
     }
@@ -1851,7 +1853,7 @@ bool rewrite_soup_item_get_message(JMessage::TControl* control) {
         return false;
     }
 
-    auto replacement = three_button_soup_item_help({source,
+    auto replacement = three_button_item_get_help({source,
         blockSize - 8 - (text - start)});
     if (replacement.empty()) {
         return false;
@@ -1880,14 +1882,14 @@ bool rewrite_soup_item_get_message(JMessage::TControl* control) {
 void after_item_get_message_index(ModContext*, void* args, void*, void*) {
     auto* messageObject = mods::arg<dMsgObject_c*>(args, 0);
     if (messageObject != nullptr) {
-        rewrite_soup_item_get_message(messageObject->mpCtrl);
+        rewrite_item_get_message(messageObject->mpCtrl);
     }
 }
 
 void after_item_get_message_index_demo(ModContext*, void* args, void*, void*) {
     auto* messageObject = mods::arg<dMsgObject_c*>(args, 0);
     if (messageObject != nullptr) {
-        rewrite_soup_item_get_message(messageObject->mpCtrl);
+        rewrite_item_get_message(messageObject->mpCtrl);
     }
 }
 
@@ -1937,6 +1939,17 @@ void apply_item_get_assignment_buttons(dMsgScrnItem_c* itemScreen) {
         picture->changeTexture(texture, 0);
         set_neutral_picture_colors(picture);
     }
+    if (itemScreen->mItemIndex == dItemNo_MAP_e) {
+        // The Dungeon Map acquisition card uses out-font type 2 for its stock
+        // white cross. Here it means D-pad Up, not the aiming stick used by
+        // other item help, so replace it only on this card.
+        J2DPicture* picture = itemScreen->mpOutFont->mpPane[2];
+        const ResTIMG* texture = resource_texture(s_dmapBackDpadResource);
+        if (picture != nullptr && texture != nullptr) {
+            picture->changeTexture(texture, 0);
+            set_neutral_picture_colors(picture);
+        }
+    }
 }
 
 struct ItemHelpIconPosition {
@@ -1959,7 +1972,12 @@ void lift_item_get_assignment_icons(dMsgScrnItem_c* itemScreen) {
             continue;
         }
         const int type = icon->getType();
-        if (type != 5 && type != 6 && type != 7) continue;
+        const bool assignment = type == 5 || type == 6 || type == 7;
+        // Type 2 is the aiming stick on normal item cards, but the Dungeon Map
+        // acquisition deliberately reuses it for D-pad Up.
+        const bool aimingStick = (type == 2 && itemScreen->mItemIndex != dItemNo_MAP_e) ||
+            type == 9 || type == 69;
+        if (!assignment && !aimingStick) continue;
         s_itemGetIconPositions[s_itemGetIconPositionCount++] =
             {icon, icon->getPosX(), icon->getPosY(), icon->getSizeX(), icon->getSizeY()};
 
@@ -1988,6 +2006,8 @@ void lift_item_get_assignment_icons(dMsgScrnItem_c* itemScreen) {
                 icon->mSizeY = height;
             }
         }
+        // Both assignment caps and the tall aiming-stick art sit below the
+        // body-text baseline in the native item-get queue.
         icon->mPosY -= originalHeight * 0.40f;
     }
 }
@@ -6480,7 +6500,9 @@ void position_file_select_cursor(dFile_select_c* menu) {
         J2DPane* frame = group != nullptr ?
             group->search(actionFrameTags[menu->mSelectMenuNum]) : nullptr;
         if (frame != nullptr) {
-            position_cursor_outside_frame(menu->mSelIcon, frame);
+            position_cursor_outside_frame(menu->mSelIcon, frame,
+                file_select_layout::kActionCursorPaddingX,
+                file_select_layout::kActionCursorPaddingY);
             return;
         }
     }
@@ -7956,11 +7978,12 @@ void restore_archive_face_button_diamond(dMeter2Draw_c* meter) {
             meter->mpItemXY[0]->getInitScaleY() * 1.25f);
     }
     if (meter->mpItemXY[1] != nullptr) {
-        meter->mpItemXY[1]->paneTrans(42.0f, -7.0f);
+        // Nudge only the Y-slot item art toward the TPHD position. The Y
+        // button backing and every other face-button pane remain authored.
+        meter->mpItemXY[1]->paneTrans(45.0f, -7.0f);
         meter->mpItemXY[1]->scale(meter->mpItemXY[1]->getInitScaleX() * 1.25f,
             meter->mpItemXY[1]->getInitScaleY() * 1.25f);
     }
-
     apply_button_layout_preference(meter);
     apply_flipped_diamond_positions(meter);
 
@@ -8011,6 +8034,46 @@ void apply_wii_u_item_num_layout(dMeter2Draw_c* meter) {
         meter->mItemParams[i].num_scale *= 0.55f * diamondScale;
     }
     s_wiiUItemNumTransform.active = true;
+}
+
+void apply_wii_u_lantern_meter_layout(dMeter2Draw_c* meter, const u8 button) {
+    if (meter == nullptr || button >= 2) {
+        return;
+    }
+
+    // At the TPHD-sized baseline, the stock 0.6 meter is about 115px wide
+    // while the Wii U reference is about 67px. The meter screen is centered
+    // on its parent origin, so place that origin directly beneath the item.
+    constexpr f32 kMeterScale = 0.35f;
+    // dKantera_icon_c's setPos() origin sits left of the visible gauge center.
+    // The stock widget needs this compensation to center the drawn bar under
+    // the item artwork; treating setPos() as the center shifts it left.
+    constexpr f32 kMeterOriginCorrectionX = 2.5f;
+    // Pull the widget origin upward to account for transparent padding above
+    // the visible gauge, leaving the bar immediately below the lantern art.
+    constexpr f32 kGapBelowLantern = -1.0f;
+    const f32 diamondScale = hud_scales().controllerDiamond;
+    const f32 scale = kMeterScale * diamondScale;
+
+    dKantera_icon_c* oilMeter = meter->mpKanteraMeter[button];
+    CPaneMgr* item = meter->mpItemXY[button];
+    if (oilMeter == nullptr || item == nullptr || item->getPanePtr() == nullptr) {
+        return;
+    }
+
+    // Run after the native drawKanteraMeter update. At that point the item's
+    // global vertices reflect this frame's restored TPHD layout; reading them
+    // from the general pre-draw hook uses the previous frame's transform and
+    // can leave the bar far to the left when the HUD layout changes.
+    const Vec topLeft = item->getPanePtr()->getGlbVtx(0);
+    const Vec bottomRight = item->getPanePtr()->getGlbVtx(3);
+    const f32 itemCenterX = (topLeft.x + bottomRight.x) * 0.5f;
+    oilMeter->setPos(
+        itemCenterX + kMeterOriginCorrectionX * diamondScale -
+            g_drawHIO.mLanternIconMeterPosX,
+        bottomRight.y + kGapBelowLantern * diamondScale -
+            g_drawHIO.mLanternIconMeterPosY);
+    oilMeter->setScale(scale, scale);
 }
 
 void restore_wii_u_item_num_layout(dMeter2Draw_c* meter) {
@@ -9522,10 +9585,19 @@ void draw_z_oil_meter(dMeter2Draw_c* meter, const u8 itemNo, const f32 itemAlpha
     Vec vtx0 = meter->mpItemR->getPanePtr()->getGlbVtx(0);
     Vec vtx3 = meter->mpItemR->getPanePtr()->getGlbVtx(3);
 
-    s_zOilMeter->setPos(((vtx0.x + vtx3.x) * 0.5f) + 9.0f * hudTransform.scale * itemScale,
-        vtx3.y);
-    s_zOilMeter->setScale(0.6f * hudTransform.scale * itemScale,
-        0.6f * hudTransform.scale * itemScale);
+    constexpr f32 kMeterScale = 0.35f;
+    // dKantera_icon_c's origin is left of its visible gauge center.
+    constexpr f32 kMeterOriginCorrectionX = 2.5f;
+    constexpr f32 kGapBelowLantern = -1.0f;
+    const f32 diamondScale = hud_scales().controllerDiamond;
+    const f32 scale = kMeterScale * hudTransform.scale * itemScale * diamondScale;
+    const f32 itemCenterX = (vtx0.x + vtx3.x) * 0.5f;
+    s_zOilMeter->setPos(
+        itemCenterX + kMeterOriginCorrectionX * hudTransform.scale * itemScale * diamondScale -
+            g_drawHIO.mLanternIconMeterPosX,
+        vtx3.y + kGapBelowLantern * hudTransform.scale * itemScale * diamondScale -
+            g_drawHIO.mLanternIconMeterPosY);
+    s_zOilMeter->setScale(scale, scale);
     s_zOilMeter->setNowGauge(dComIfGs_getMaxOil(), dComIfGs_getOil());
     s_zOilMeter->setAlphaRate(itemAlphaRate);
     s_zOilMeter->drawSelf();
@@ -12309,6 +12381,13 @@ void after_insect_draw(ModContext*, void*, void*, void*) {
 
 HookAction before_select_cursor_draw(ModContext*, void* args, void*, void*) {
     auto* cursor = mods::arg<dSelect_cursor_c*>(args, 0);
+    if (s_activeFileSelect != nullptr &&
+        cursor == s_activeFileSelect->mSelIcon) {
+        // dSelect_cursor_c::draw() runs update() internally. Reapply the
+        // action-panel footprint at the final draw boundary so that update
+        // cannot restore the archive's oversized corner spacing.
+        position_file_select_cursor(s_activeFileSelect);
+    }
     if (cursor == s_activeThreeSelectCursor &&
         s_activeThreeSelectFrame != nullptr) {
         position_cursor_outside_frame(cursor, s_activeThreeSelectFrame,
@@ -12351,6 +12430,10 @@ void refresh_item_bank_cursor(dSelect_cursor_c* cursor);
 void after_select_cursor_update(ModContext*, void* args, void*, void*) {
     auto* cursor = mods::arg<dSelect_cursor_c*>(args, 0);
     refresh_item_bank_cursor(cursor);
+    if (s_activeFileSelect != nullptr &&
+        cursor == s_activeFileSelect->mSelIcon) {
+        position_file_select_cursor(s_activeFileSelect);
+    }
     // draw() calls update() internally; adjusting before draw would be undone.
     position_dmap_floor_cursor(cursor);
     if (s_activeCollectMenu != nullptr &&
@@ -13441,6 +13524,11 @@ HookAction before_meter_draw(ModContext*, void* args, void*, void*) {
     }
     hide_ring_stock_z_prompt(meter);
     return HOOK_CONTINUE;
+}
+
+void after_meter_draw_kantera_meter(ModContext*, void* args, void*, void*) {
+    apply_wii_u_lantern_meter_layout(
+        mods::arg<dMeter2Draw_c*>(args, 0), mods::arg<u8>(args, 1));
 }
 
 void after_meter_draw(ModContext*, void* args, void*, void*) {
@@ -14673,6 +14761,8 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_POST(MeterButtonDrawHook, after_meter_button_draw, "restore native action text size");
     ADD_PRE(MeterDrawHook, before_meter_draw, "HUD draw (before)");
     ADD_POST(MeterDrawHook, after_meter_draw, "HUD draw (after)");
+    ADD_POST(MeterDrawKanteraMeterHook, after_meter_draw_kantera_meter,
+        "TPHD lantern meter layout");
     ADD_POST(MeterDrawButtonCrossHook, after_meter_draw_button_cross,
         "persistent TPHD D-pad scale after viewport refresh");
     ADD_PRE(MeterDrawButtonZHook, before_meter_draw_button_z,

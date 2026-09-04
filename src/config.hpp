@@ -48,6 +48,7 @@ HudScales hud_scales();
 TextFont text_font();
 bool item_bank_enabled();
 bool swap_menu_buttons();
+bool check_for_updates_enabled();
 
 ConfigVarHandle button_layout_config_var();
 ConfigVarHandle button_style_config_var();
@@ -55,5 +56,6 @@ ConfigVarHandle controller_compatibility_config_var();
 ConfigVarHandle text_font_config_var();
 ConfigVarHandle items_screen_config_var();
 ConfigVarHandle swap_menu_buttons_config_var();
+ConfigVarHandle check_for_updates_config_var();
 
 }  // namespace twilight_hd_hud
