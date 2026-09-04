@@ -345,7 +345,8 @@ void update_update_service() {
     }
     s_state.store(State::Idle, std::memory_order_release);
 
-    const UiDialogAction ok{"OK", nullptr, nullptr, false};
+    const UiDialogAction ok{
+        sizeof(UiDialogAction), "OK", nullptr, nullptr, false, nullptr};
     if (state == State::DownloadReady) {
         if (result.installSucceeded) {
             show_dialog("Update Complete",
@@ -368,8 +369,10 @@ void update_update_service() {
         }
     } else if (result.updateAvailable) {
         static UiDialogAction actions[2];
-        actions[0] = {"Update Now", confirm_update, nullptr, false};
-        actions[1] = {"Not Now", nullptr, nullptr, false};
+        actions[0] = {
+            sizeof(UiDialogAction), "Update Now", confirm_update, nullptr, false, nullptr};
+        actions[1] = {
+            sizeof(UiDialogAction), "Not Now", nullptr, nullptr, false, nullptr};
         show_dialog("Mod Update Available",
             "A newer version of <b>Twilight HD</b> is available.<br/><br/>Installed: <b>v" +
                 result.currentVersion + "</b><br/>Latest: <b>" + result.latestVersion +
