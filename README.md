@@ -6,7 +6,7 @@ Twilight HD brings a *Twilight Princess HD*-inspired HUD and controller layout t
 
 Dusklight Nightly **v1.4.1-259 or newer** is required. The mod is built and tested against the official Dusklight repository.
 
-Twilight HD is designed to coexist with **Dawnlight**. Twilight HD owns
+Twilight HD can coexist with **Dawnlight**. Twilight HD owns
 the TPHD artwork, menu presentation, prompts, and control behavior; Dawnlight's
 HUD Layout Editor may apply the user's final gameplay-HUD positions. Shared HUD
 hooks must remain at normal priority so Dawnlight can restore native state first
