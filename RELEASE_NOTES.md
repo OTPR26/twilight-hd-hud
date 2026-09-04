@@ -1,6 +1,4 @@
-## Twilight HD v1.7.0
+## Twilight HD v1.8.1
 
-- Fixed Golden Bugs selection when giving bugs to Agitha.
-- Refined the Golden Bugs screen to more closely match TPHD.
-- Refined field-map warp confirmation text.
-- Other small visual refinements.
+- Requires Dusklight Nightly v1.4.1-268 or newer.
+- Restored Y, X, R, and sword controls after a Dusklight player-layout change.

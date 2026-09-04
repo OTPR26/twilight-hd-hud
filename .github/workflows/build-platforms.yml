@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: TwilitRealm/dusklight
-          ref: c722cb1be01eb534656919d580bbe647bf7e0a95
+          ref: 2170967b6b35065cf82cf042dbeea1ce741d27cc
           submodules: recursive
           path: dusklight
 
@@ -81,7 +81,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: TwilitRealm/dusklight
-          ref: c722cb1be01eb534656919d580bbe647bf7e0a95
+          ref: 2170967b6b35065cf82cf042dbeea1ce741d27cc
           submodules: recursive
           path: dusklight
 
@@ -120,7 +120,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: TwilitRealm/dusklight
-          ref: c722cb1be01eb534656919d580bbe647bf7e0a95
+          ref: 2170967b6b35065cf82cf042dbeea1ce741d27cc
           submodules: recursive
           path: dusklight
 
@@ -160,7 +160,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: TwilitRealm/dusklight
-          ref: c722cb1be01eb534656919d580bbe647bf7e0a95
+          ref: 2170967b6b35065cf82cf042dbeea1ce741d27cc
           submodules: recursive
           path: dusklight
 
@@ -252,7 +252,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: TwilitRealm/dusklight
-          ref: c722cb1be01eb534656919d580bbe647bf7e0a95
+          ref: 2170967b6b35065cf82cf042dbeea1ce741d27cc
           submodules: recursive
           path: dusklight
 

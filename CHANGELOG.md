@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.8.1 - 2026-09-04
+
+- Requires Dusklight Nightly v1.4.1-268 or newer.
+- Restored Y, X, R, and sword controls after a Dusklight player-layout change.
+
 ## v1.8.0 - 2026-09-04
 
 - Added optional automatic update checks and in-game self-installation.
