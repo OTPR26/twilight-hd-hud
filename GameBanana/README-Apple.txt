@@ -1,6 +1,6 @@
-Twilight HD v1.6.6
+Twilight HD v1.8.1
 
-Requires official Dusklight v1.4.1-141 or newer.
+Requires Dusklight Nightly v1.4.1-268 or newer.
 
 Updating: remove the previous Twilight HD .dusk file before adding this
 version. Keep only one version in the mods folder. Saves and settings are
@@ -12,8 +12,9 @@ Supported platforms:
 
 Extract this ZIP before installing; upload or copy the .dusk file inside it.
 
-New in v1.6.6:
-- Hotfix for Quick Transform.
+New in v1.8.1:
+- Updated compatibility with current Dusklight Nightly builds.
+- Restored Y, X, R, and sword controls after a Dusklight player-layout change.
 
 iPhone and iPad installation:
 1. Launch Dusklight once so its data folders are created.
@@ -33,5 +34,3 @@ Controller compatibility:
 - In both modes, the control mapped to logical R operates the third item and related menu actions.
 
 This package contains no game files. A compatible, legally obtained disc image is required by Dusklight.
-
-Author: Hyrule Hysteria
