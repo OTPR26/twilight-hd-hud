@@ -29,6 +29,7 @@ add_mod(twilight_hd_hud
         src/item_slot_hooks.cpp
         src/mod.cpp
         src/ui.cpp
+        src/update_service.cpp
     MOD_JSON mod.json
     RES_DIR res
     OVERLAY_DIR overlay
@@ -39,6 +40,9 @@ add_mod(twilight_hd_hud
 
 target_include_directories(twilight_hd_hud PRIVATE src "${DUSK_DIR}/src")
 target_link_libraries(twilight_hd_hud PRIVATE dusklight_game_headers)
+if (WIN32)
+    target_link_libraries(twilight_hd_hud PRIVATE wininet)
+endif ()
 
 option(TWILIGHT_HUD_BUILD_TESTS "Build native HUD regression tests" OFF)
 if (TWILIGHT_HUD_BUILD_TESTS)
@@ -62,4 +66,5 @@ if (TWILIGHT_HUD_BUILD_TESTS)
         set_tests_properties(${test_name} PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
     endforeach()
     target_sources(hud_settings_test PRIVATE src/config.cpp src/ui.cpp)
+    target_compile_definitions(hud_settings_test PRIVATE TWILIGHT_HD_HUD_NO_UPDATE_SERVICE=1)
 endif ()

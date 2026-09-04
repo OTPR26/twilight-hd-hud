@@ -1,175 +1,19 @@
 #include "config.hpp"
 #include "service_imports.hpp"
+#include "update_service.hpp"
 
 #include "mods/service.hpp"
 #include "mods/svc/host.h"
 #include "mods/svc/ui.h"
 
 #include <array>
-#include <atomic>
-#include <cctype>
-#include <cstdio>
-#include <mutex>
 #include <string>
-#include <thread>
 
 namespace twilight_hd_hud {
 namespace {
 
 UiWindowHandle s_settingsWindow = 0;
 UiMenuTabHandle s_menuTab = 0;
-
-constexpr const char* kLatestReleaseApi =
-    "https://api.github.com/repos/OTPR26/twilight-hd-hud/releases/latest";
-
-enum class UpdateCheckState { Idle, Checking, Ready };
-
-struct UpdateCheckResult {
-    bool succeeded = false;
-    bool updateAvailable = false;
-    std::string currentVersion;
-    std::string latestVersion;
-};
-
-std::atomic<UpdateCheckState> s_updateCheckState{UpdateCheckState::Idle};
-std::mutex s_updateResultMutex;
-UpdateCheckResult s_updateResult;
-std::thread s_updateThread;
-
-std::string json_string(const std::string& json, const char* name) {
-    const std::string key = std::string{"\""} + name + "\"";
-    auto pos = json.find(key);
-    if (pos == std::string::npos) return {};
-    pos = json.find(':', pos + key.size());
-    if (pos == std::string::npos) return {};
-    pos = json.find('"', pos + 1);
-    if (pos == std::string::npos) return {};
-    const auto end = json.find('"', pos + 1);
-    if (end == std::string::npos) return {};
-    return json.substr(pos + 1, end - pos - 1);
-}
-
-bool parse_version(const std::string& text, std::array<int, 4>& parts) {
-    std::size_t pos = (!text.empty() && (text.front() == 'v' || text.front() == 'V')) ? 1 : 0;
-    bool found = false;
-    for (auto& part : parts) {
-        if (pos >= text.size() || !std::isdigit(static_cast<unsigned char>(text[pos]))) break;
-        found = true;
-        part = 0;
-        while (pos < text.size() && std::isdigit(static_cast<unsigned char>(text[pos]))) {
-            part = part * 10 + (text[pos++] - '0');
-        }
-        if (pos >= text.size() || text[pos] != '.') break;
-        ++pos;
-    }
-    return found;
-}
-
-bool version_is_newer(const std::string& latest, const std::string& current) {
-    std::array<int, 4> latestParts{};
-    std::array<int, 4> currentParts{};
-    return parse_version(latest, latestParts) && parse_version(current, currentParts) &&
-        latestParts > currentParts;
-}
-
-std::string fetch_latest_release() {
-    const std::string command = std::string{
-        "curl -fsSL --connect-timeout 8 --max-time 20 "
-        "-H 'User-Agent: TwilightHDHUD-Updater' "
-        "-H 'Accept: application/vnd.github+json' '"} + kLatestReleaseApi + "'";
-#if defined(_WIN32)
-    FILE* pipe = _popen(command.c_str(), "r");
-#else
-    FILE* pipe = popen(command.c_str(), "r");
-#endif
-    if (pipe == nullptr) return {};
-
-    std::string response;
-    std::array<char, 4096> buffer{};
-    while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
-        response += buffer.data();
-    }
-#if defined(_WIN32)
-    const int status = _pclose(pipe);
-#else
-    const int status = pclose(pipe);
-#endif
-    return status == 0 ? response : std::string{};
-}
-
-void start_update_check(ModContext*, void*) {
-    UpdateCheckState expected = UpdateCheckState::Idle;
-    if (!s_updateCheckState.compare_exchange_strong(expected, UpdateCheckState::Checking)) return;
-    if (s_updateThread.joinable()) s_updateThread.join();
-
-    const char* version = svc_host->mod_version(mod_ctx);
-    const std::string current = version != nullptr ? version : "unknown";
-    s_updateThread = std::thread([current] {
-        UpdateCheckResult result;
-        result.currentVersion = current;
-        const std::string response = fetch_latest_release();
-        result.latestVersion = json_string(response, "tag_name");
-        result.succeeded = !result.latestVersion.empty();
-        result.updateAvailable = result.succeeded &&
-            version_is_newer(result.latestVersion, result.currentVersion);
-        {
-            std::lock_guard lock{s_updateResultMutex};
-            s_updateResult = std::move(result);
-        }
-        s_updateCheckState.store(UpdateCheckState::Ready, std::memory_order_release);
-    });
-}
-
-bool update_check_disabled(ModContext*, void*) {
-    return s_updateCheckState.load(std::memory_order_acquire) != UpdateCheckState::Idle;
-}
-
-ModResult update_mod_panel(ModContext* ctx, void*, ModError*) {
-    if (s_updateCheckState.load(std::memory_order_acquire) != UpdateCheckState::Ready) {
-        return MOD_OK;
-    }
-    if (s_updateThread.joinable()) s_updateThread.join();
-
-    UpdateCheckResult result;
-    {
-        std::lock_guard lock{s_updateResultMutex};
-        result = s_updateResult;
-    }
-    s_updateCheckState.store(UpdateCheckState::Idle, std::memory_order_release);
-
-    std::string body;
-    const char* title = nullptr;
-    UiDialogVariant variant = UI_DIALOG_NORMAL;
-    if (!result.succeeded) {
-        title = "Update Check Failed";
-        variant = UI_DIALOG_WARNING;
-        body = "Dusklight could not reach the Twilight HD releases page.<br/><br/>"
-            "Check your internet connection and try again.";
-    } else if (result.updateAvailable) {
-        title = "Update Available";
-        body = "A newer version of <b>Twilight HD</b> is available.<br/><br/>"
-            "Installed: <b>v" + result.currentVersion + "</b><br/>Latest: <b>" +
-            result.latestVersion + "</b><br/><br/>Download it from the project's GitHub Releases page.";
-    } else {
-        title = "Twilight HD Is Up to Date";
-        body = "Installed: <b>v" + result.currentVersion + "</b><br/>Latest: <b>" +
-            result.latestVersion + "</b>";
-    }
-
-#ifdef UI_DIALOG_ACTION_INIT
-    UiDialogAction action = UI_DIALOG_ACTION_INIT;
-    action.label = "OK";
-#else
-    UiDialogAction action{"OK", nullptr, nullptr, false};
-#endif
-    UiDialogDesc desc = UI_DIALOG_DESC_INIT;
-    desc.title = title;
-    desc.body_rml = body.c_str();
-    desc.variant = variant;
-    desc.actions = &action;
-    desc.action_count = 1;
-    return svc_ui->dialog_push(ctx, &desc, nullptr);
-}
 
 ModResult add_section(ModContext* ctx, UiElementHandle pane, const char* title) {
     return svc_ui->pane_add_section(ctx, pane, title);
@@ -185,6 +29,17 @@ ModResult add_button(
     desc.kind = UI_CONTROL_BUTTON;
     desc.label = label;
     desc.on_pressed = onPressed;
+    return svc_ui->pane_add_control(ctx, pane, &desc, nullptr);
+}
+
+ModResult add_toggle(ModContext* ctx, UiElementHandle pane, const char* label,
+    ConfigVarHandle var, const char* help = nullptr) {
+    UiControlDesc desc = UI_CONTROL_DESC_INIT;
+    desc.kind = UI_CONTROL_TOGGLE;
+    desc.label = label;
+    desc.help_rml = help;
+    desc.binding = UI_BINDING_CONFIG_VAR;
+    desc.config_var = var;
     return svc_ui->pane_add_control(ctx, pane, &desc, nullptr);
 }
 
@@ -230,7 +85,7 @@ ModResult build_hud_tab(
     if (add_section(ctx, left, "Twilight HD") != MOD_OK) {
         return MOD_ERROR;
     }
-    if (add_text(ctx, left, "Uses a TPHD-inspired HUD, fonts, and styles.")
+    if (add_text(ctx, left, "Uses a TPHD-inspired HUD with matching fonts and visual styling.")
         != MOD_OK) return MOD_ERROR;
     static constexpr const char* kButtonLayouts[] = {
         "ABXY",
@@ -416,11 +271,18 @@ ModResult build_mod_panel(ModContext* ctx, UiElementHandle panel, void*, ModErro
     if (add_button(ctx, panel, "Open Twilight HD Settings", open_settings) != MOD_OK) {
         return MOD_ERROR;
     }
+    if (add_toggle(ctx, panel, "Auto Update Checks", check_for_updates_config_var(),
+            "Automatically checks for a newer Twilight HD release when the mod starts."
+            " When an update is found, Twilight HD can download and install it for you.")
+        != MOD_OK) {
+        return MOD_ERROR;
+    }
     UiControlDesc update = UI_CONTROL_DESC_INIT;
     update.kind = UI_CONTROL_BUTTON;
-    update.label = "Check for Updates";
-    update.on_pressed = start_update_check;
-    update.is_disabled = update_check_disabled;
+    update.label = "Check Now";
+    update.on_pressed = request_update_check;
+    update.user_data = reinterpret_cast<void*>(1);
+    update.is_disabled = update_service_busy;
     return svc_ui->pane_add_control(ctx, panel, &update, nullptr);
 }
 
@@ -429,7 +291,6 @@ ModResult build_mod_panel(ModContext* ctx, UiElementHandle panel, void*, ModErro
 ModResult register_ui(ModError* error) {
     UiModsPanelDesc panel = UI_MODS_PANEL_DESC_INIT;
     panel.build = build_mod_panel;
-    panel.update = update_mod_panel;
     ModResult result = svc_ui->register_mods_panel(mod_ctx, &panel);
     if (result != MOD_OK) {
         return mods::set_error(error, result, "failed to register Twilight HD panel");
@@ -442,12 +303,8 @@ ModResult register_ui(ModError* error) {
     if (result != MOD_OK) {
         return mods::set_error(error, result, "failed to register Twilight HD menu tab");
     }
+    initialize_update_service();
     return MOD_OK;
-}
-
-void shutdown_update_checker() {
-    if (s_updateThread.joinable()) s_updateThread.join();
-    s_updateCheckState.store(UpdateCheckState::Idle, std::memory_order_release);
 }
 
 }  // namespace twilight_hd_hud

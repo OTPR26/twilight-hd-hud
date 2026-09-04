@@ -6,6 +6,10 @@
 using namespace twilight_hd_hud::file_select_layout;
 
 int main() {
+    assert(kActionCursorPaddingX == 2.0f);
+    assert(kActionCursorPaddingY == 1.5f);
+    assert(kActionCursorPaddingX < 7.0f);
+    assert(kActionCursorPaddingY < 5.0f);
     // Heading and compact rules share the same scalable canvas. The text
     // cell stays inside the banner with a slight downward optical bias.
     assert(std::abs(69.0f * kSaveQuestionFontSize / 24.0f - 47.0f) < 1.0f);

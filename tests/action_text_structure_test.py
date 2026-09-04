@@ -72,7 +72,7 @@ assert 'apply_item_get_assignment_buttons(itemScreen)' in message_object_draw
 assert 'rewrite_soup_item_get_message(messageObject->mpCtrl)' not in message_object_draw
 assert 'lift_item_get_assignment_icons(itemScreen)' not in message_object_draw
 assert 'ADD_PRE(MessageObjectDrawHook, before_message_object_draw' in source
-assert 'three_button_soup_item_help' in source
+assert 'three_button_item_get_help' in source
 assert 'Set it to and drink it with' in (
     root / 'src' / 'item_help_text.hpp').read_text()
 assert 'ADD_POST(ItemGetMessageIndexHook, after_item_get_message_index' in source

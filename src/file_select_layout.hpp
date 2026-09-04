@@ -17,6 +17,12 @@ constexpr float kSaveQuestionTextHeight = 24.0f;
 // band, independently of heart count, selection animation, or screen size.
 constexpr float kPlayTimeCenter = (58.0f + 76.0f) * 0.5f / 80.0f;
 
+// The action panels already have a thin gold border. Keep the selection
+// ornaments just beyond that border instead of using the roomy generic-menu
+// cursor padding, which makes them float away from Copy/Start/Erase at 1080p.
+constexpr float kActionCursorPaddingX = 2.0f;
+constexpr float kActionCursorPaddingY = 1.5f;
+
 constexpr float play_time_center(float rowTop, float rowBottom) {
     return rowTop + (rowBottom - rowTop) * kPlayTimeCenter;
 }

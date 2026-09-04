@@ -4,6 +4,14 @@ import struct
 
 root = Path(__file__).resolve().parents[1]
 source = (root / 'src/item_slot_hooks.cpp').read_text()
+cursor_draw = source.split('HookAction before_select_cursor_draw(', 1)[1].split(
+    'HookAction before_three_select_draw(', 1)[0]
+cursor_update = source.split('void after_select_cursor_update(', 1)[1].split(
+    'HookAction before_fmap_move(', 1)[0]
+assert 'cursor == s_activeFileSelect->mSelIcon' in cursor_draw
+assert 'position_file_select_cursor(s_activeFileSelect)' in cursor_draw
+assert 'cursor == s_activeFileSelect->mSelIcon' in cursor_update
+assert 'position_file_select_cursor(s_activeFileSelect)' in cursor_update
 align = source.split('void align_file_select_play_time(', 1)[1].split(
     'void style_file_select_metadata(', 1)[0]
 assert 'file_select_layout::play_time_center(top.y, bottom.y)' in align

@@ -1,6 +1,7 @@
 #include "config.hpp"
 #include "font_override.hpp"
 #include "service_imports.hpp"
+#include "update_service.hpp"
 
 #include "mods/service.hpp"
 #include "mods/svc/config.h"
@@ -21,7 +22,6 @@ IMPORT_SERVICE(UiService, svc_ui);
 namespace twilight_hd_hud {
 ModResult install_item_slot_hooks(ModError* error);
 ModResult register_ui(ModError* error);
-void shutdown_update_checker();
 void initialize_wolf_action_icons();
 void shutdown_wolf_action_icons();
 void initialize_face_button_textures();
@@ -53,11 +53,12 @@ MOD_EXPORT ModResult mod_initialize(ModError* error) {
 }
 
 MOD_EXPORT ModResult mod_update(ModError*) {
+    twilight_hd_hud::update_update_service();
     return MOD_OK;
 }
 
 MOD_EXPORT ModResult mod_shutdown(ModError*) {
-    twilight_hd_hud::shutdown_update_checker();
+    twilight_hd_hud::shutdown_update_service();
     twilight_hd_hud::shutdown_font_override();
     twilight_hd_hud::shutdown_item_slot_resources();
     twilight_hd_hud::shutdown_face_button_textures();
