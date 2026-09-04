@@ -203,6 +203,13 @@ std::filesystem::path update_target() {
     return count == 1 ? candidate : canonical;
 }
 
+void remove_update_backup() {
+    const auto target = update_target();
+    if (target.empty()) return;
+    std::error_code ec;
+    std::filesystem::remove(target.string() + ".previous", ec);
+}
+
 bool valid_download(const std::filesystem::path& path) {
     std::error_code ec;
     if (std::filesystem::file_size(path, ec) < 1024 * 1024 || ec) return false;
@@ -238,7 +245,13 @@ bool download_and_replace(const std::string& url) {
     }
     ec.clear();
     fs::rename(temporary, target, ec);
-    if (!ec) return true;
+    if (!ec) {
+        // The backup is needed only while replacement is in progress. Once
+        // the new package occupies the original path, do not leave an
+        // unexplained file in the user's mods directory.
+        fs::remove(backup, ec);
+        return true;
+    }
 
     fs::remove(temporary, ec);
     if (fs::exists(backup, ec)) {
@@ -310,6 +323,9 @@ bool update_service_busy(ModContext*, void*) {
 }
 
 void initialize_update_service() {
+    // v1.8.0 retained its transactional backup after a successful update.
+    // Remove that known updater artifact when the replacement first loads.
+    remove_update_backup();
     svc_config->subscribe(mod_ctx, check_for_updates_config_var(),
         on_check_setting_changed, nullptr, nullptr);
     if (check_for_updates_enabled()) {
