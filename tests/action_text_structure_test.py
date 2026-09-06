@@ -52,6 +52,7 @@ assert 'dynamic_cast<dMsgScrnItem_c*>' in message_draw
 assert 'style_item_get_text(itemScreen)' in message_draw
 assert 'begin_item_prompt_font()' in message_draw
 assert 'apply_item_get_assignment_buttons' in message_draw
+assert 'apply_out_font_button_layout(itemScreen->mpOutFont)' in message_draw
 item_get_font = source.split('void style_item_get_text(', 1)[1].split(
     'void after_item_help_message(', 1)[0]
 assert 'mDoExt_getSubFont()' in item_get_font

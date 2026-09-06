@@ -63,6 +63,7 @@ jobs:
           python3 tests/golden_bugs_structure_test.py
           python3 tests/hidden_skills_structure_test.py
           python3 tests/letters_structure_test.py
+          python3 tests/apple_texture_package_test.py
 
       - name: Upload Linux package
         uses: actions/upload-artifact@v4

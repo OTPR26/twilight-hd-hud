@@ -1,8 +1,13 @@
 # Changelog
 
+## v1.8.2 - 2026-09-05
+
+- Corrected Hero’s Shade training and skill-acquisition prompts
+- Requires Dusklight Nightly v1.4.1-259 or newer.
+
 ## v1.8.1 - 2026-09-04
 
-- Requires Dusklight Nightly v1.4.1-268 or newer.
+- Requires Dusklight Nightly v1.4.1-259 or newer.
 - Restored Y, X, R, and sword controls after a Dusklight player-layout change.
 
 ## v1.8.0 - 2026-09-04
