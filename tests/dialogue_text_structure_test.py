@@ -19,4 +19,11 @@ assert 'setFontSize(' not in source and 'setString(' not in source
 assert 'mpSelect_c' not in source and 'mpPmP_c' not in source
 assert 'ADD_POST(MessageScreenDrawHook, after_message_screen_draw' in hooks
 assert 'scale_dialogue_for_draw(messageScreen)' in hooks
+assert 'dynamic_cast<dMsgScrnTalk_c*>(messageScreen)' in hooks
+assert 'apply_out_font_button_layout(talk->mpOutFont)' in hooks
+out_font_layout = hooks.split('void apply_out_font_button_layout(', 1)[1].split(
+    'void apply_collect_menu_button_layout(', 1)[0]
+assert '{0, menu_face_button_texture(true)}' in out_font_layout
+assert '{1, menu_face_button_texture(false)}' in out_font_layout
+assert '{3, styled_zl_button_texture()}' in out_font_layout
 print('PASS: dialogue-only text/ruby/glow/symbol scaling, geometry restored, choices/parser unchanged')

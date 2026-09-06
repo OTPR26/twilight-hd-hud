@@ -7611,26 +7611,27 @@ void replace_collect_buttons_in_tree(J2DPane* pane, ResTIMG const* baseTexture,
     }
 }
 
-void apply_out_font_face_button_layout(COutFont_c* outFont) {
+void apply_out_font_button_layout(COutFont_c* outFont) {
     if (outFont == nullptr) {
         return;
     }
 
-    // Collection descriptions use out-font types 0 and 1 for their inline A
-    // and B controls. They share one out-font across every selected item, so
-    // updating it once keeps all descriptions consistent with the menu prompts.
-    constexpr struct {
+    // Out-font types 0 and 1 are the inline A/B controls, while type 3 is the
+    // native GameCube L targeting control. Keep all three on the configured
+    // Nintendo/Xbox/PlayStation/Universal prompt path. This out-font is shared
+    // by collection descriptions and live dialogue such as Hero's Shade lessons.
+    const struct {
         int type;
-        bool nativeAAction;
+        ResTIMG const* replacement;
     } buttons[] = {
-        {0, true},
-        {1, false},
+        {0, menu_face_button_texture(true)},
+        {1, menu_face_button_texture(false)},
+        {3, styled_zl_button_texture()},
     };
     for (const auto& button : buttons) {
         J2DPicture* picture = outFont->mpPane[button.type];
-        ResTIMG const* replacement = menu_face_button_texture(button.nativeAAction);
-        if (picture != nullptr && replacement != nullptr) {
-            picture->changeTexture(replacement, 0);
+        if (picture != nullptr && button.replacement != nullptr) {
+            picture->changeTexture(button.replacement, 0);
             set_neutral_picture_colors(picture);
         }
     }
@@ -7675,7 +7676,7 @@ void apply_collect_menu_button_layout(dMenu_Collect2D_c* menu) {
     replace_collect_buttons_in_tree(screen, baseTexture, aGlyphTexture,
         bGlyphTexture, decorationTexture, buttonA, buttonB);
     if (menu->mpString != nullptr) {
-        apply_out_font_face_button_layout(menu->mpString->mpOutFont);
+        apply_out_font_button_layout(menu->mpString->mpOutFont);
     }
     simplify_collect_button_decoration(screen);
     replace_collect_background(menu->mpScreen);
@@ -7729,7 +7730,7 @@ void apply_collection_submenu_button_layout(J2DScreen* screen,
         menu_face_button_texture(false));
     simplify_collect_button_decoration(screen);
     if (strings != nullptr) {
-        apply_out_font_face_button_layout(strings->mpOutFont);
+        apply_out_font_button_layout(strings->mpOutFont);
     }
 }
 
@@ -13680,9 +13681,22 @@ HookAction before_message_object_draw(ModContext*, void* args, void*, void*) {
 
 HookAction before_message_screen_draw(ModContext*, void* args, void*, void*) {
     auto* messageScreen = mods::arg<dMsgScrnBase_c*>(args, 0);
+    if (auto* talk = dynamic_cast<dMsgScrnTalk_c*>(messageScreen)) {
+        // Hero's Shade skill lessons and other live dialogue use this separate
+        // out-font instance for inline A/B controls. Keep those glyphs on the
+        // same profile-aware Nintendo/Xbox/PlayStation/Universal path as menus
+        // and item cards instead of retaining the stock green GameCube art.
+        apply_out_font_button_layout(talk->mpOutFont);
+    }
     scale_dialogue_for_draw(messageScreen);
     auto* itemScreen = dynamic_cast<dMsgScrnItem_c*>(messageScreen);
-    if (itemScreen != nullptr) begin_item_prompt_font();
+    if (itemScreen != nullptr) {
+        // Hidden-skill completion cards use the item-acquisition screen, but
+        // their instructions contain ordinary A and targeting out-font types
+        // rather than only the X/Y/R assignment icons used by dungeon items.
+        apply_out_font_button_layout(itemScreen->mpOutFont);
+        begin_item_prompt_font();
+    }
     style_item_get_text(itemScreen);
     apply_item_get_assignment_buttons(itemScreen);
     lift_item_get_assignment_icons(itemScreen);

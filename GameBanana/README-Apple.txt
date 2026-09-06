@@ -1,6 +1,6 @@
-Twilight HD v1.8.1
+Twilight HD v1.8.2
 
-Requires Dusklight Nightly v1.4.1-268 or newer.
+Requires Dusklight Nightly v1.4.1-259 or newer.
 
 Updating: remove the previous Twilight HD .dusk file before adding this
 version. Keep only one version in the mods folder. Saves and settings are
@@ -12,9 +12,8 @@ Supported platforms:
 
 Extract this ZIP before installing; upload or copy the .dusk file inside it.
 
-New in v1.8.1:
-- Updated compatibility with current Dusklight Nightly builds.
-- Restored Y, X, R, and sword controls after a Dusklight player-layout change.
+New in v1.8.2:
+- Corrected Hero’s Shade training and skill-acquisition prompts
 
 iPhone and iPad installation:
 1. Launch Dusklight once so its data folders are created.
