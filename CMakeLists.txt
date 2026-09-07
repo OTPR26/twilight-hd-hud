@@ -48,9 +48,6 @@ add_mod(twilight_hd_hud
 
 target_include_directories(twilight_hd_hud PRIVATE src "${DUSK_DIR}/src")
 target_link_libraries(twilight_hd_hud PRIVATE dusklight_game_headers)
-if (WIN32)
-    target_link_libraries(twilight_hd_hud PRIVATE wininet)
-endif ()
 
 option(TWILIGHT_HUD_BUILD_TESTS "Build native HUD regression tests" OFF)
 if (TWILIGHT_HUD_BUILD_TESTS)

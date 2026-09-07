@@ -1973,15 +1973,23 @@ void lift_item_get_assignment_icons(dMsgScrnItem_c* itemScreen) {
         }
         const int type = icon->getType();
         const bool assignment = type == 5 || type == 6 || type == 7;
+        // Bombling instructions contain two inline action caps in addition to
+        // Y/X/R. Correct their acquisition-card baseline without moving the
+        // separate Next prompt or action caps on other screens.
+        const bool bomblingAction = type == 0 &&
+            itemScreen->mItemIndex == dItemNo_POKE_BOMB_e;
         // Type 2 is the aiming stick on normal item cards, but the Dungeon Map
         // acquisition deliberately reuses it for D-pad Up.
         const bool aimingStick = (type == 2 && itemScreen->mItemIndex != dItemNo_MAP_e) ||
             type == 9 || type == 69;
-        if (!assignment && !aimingStick) continue;
+        if (!assignment && !aimingStick && !bomblingAction) continue;
         s_itemGetIconPositions[s_itemGetIconPositionCount++] =
             {icon, icon->getPosX(), icon->getPosY(), icon->getSizeX(), icon->getSizeY()};
 
         const f32 originalHeight = icon->getSizeY();
+        if (bomblingAction) {
+            icon->mPosX -= icon->getSizeX() * 0.15f;
+        }
         if (type == 7) {
             // Out-font symbols reserve a square cell. Shoulder-button art is
             // rectangular, so fitting its native aspect ratio inside that cell
@@ -2006,8 +2014,8 @@ void lift_item_get_assignment_icons(dMsgScrnItem_c* itemScreen) {
                 icon->mSizeY = height;
             }
         }
-        // Both assignment caps and the tall aiming-stick art sit below the
-        // body-text baseline in the native item-get queue.
+        // Assignment caps, Bombling action caps and the tall aiming-stick art
+        // sit below the body-text baseline in the native item-get queue.
         icon->mPosY -= originalHeight * 0.40f;
     }
 }

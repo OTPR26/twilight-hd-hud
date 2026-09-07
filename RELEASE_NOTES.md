@@ -1,4 +1,4 @@
-## Twilight HD v1.8.2
+## Twilight HD v1.8.3
 
-- Corrected Hero’s Shade training and skill-acquisition prompts
-- Requires Dusklight Nightly v1.4.1-259 or newer.
+- Fixed update connectivity on iOS and tvOS.
+- Refined action-button placements.

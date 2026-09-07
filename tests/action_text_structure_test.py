@@ -85,6 +85,14 @@ assert 'texture->width' in source and 'texture->height' in source
 assert 'saved.icon->mSizeX = saved.width' in source
 assert 'resource->getMessageText_messageEntry(control->pEntry_)' in source
 assert 'lift_item_get_assignment_icons(itemScreen)' in source
+item_get_icons = source.split('void lift_item_get_assignment_icons(', 1)[1].split(
+    'void restore_item_get_assignment_icons(', 1)[0]
+assert 'const bool bomblingAction = type == 0 &&' in item_get_icons
+assert 'itemScreen->mItemIndex == dItemNo_POKE_BOMB_e' in item_get_icons
+assert '!assignment && !aimingStick && !bomblingAction' in item_get_icons
+assert 'icon->mPosX -= icon->getSizeX() * 0.15f' in item_get_icons
+assert 'icon->mPosY -= originalHeight * 0.40f' in item_get_icons
+assert '{icon, icon->getPosX(), icon->getPosY(), icon->getSizeX(), icon->getSizeY()}' in item_get_icons
 assert 'restore_item_get_assignment_icons();' in (
     root / 'src' / 'dialogue_text_screen.inc').read_text()
 print('PASS: contextual labels only, all text/outline layers, native size restored after draw')

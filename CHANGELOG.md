@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.8.3 - 2026-09-07
+
+- Fixed update connectivity on iOS and tvOS.
+- Refined action-button placements.
+
 ## v1.8.2 - 2026-09-05
 
 - Corrected Hero’s Shade training and skill-acquisition prompts
