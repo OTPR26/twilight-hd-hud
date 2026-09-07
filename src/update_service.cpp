@@ -24,8 +24,10 @@ constexpr const char* kLatestReleaseApi =
 
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
 constexpr const char* kReleaseAsset = "Twilight-HD-HUD-iOS-tvOS.dusk";
+constexpr bool kCanSelfInstall = false;
 #else
 constexpr const char* kReleaseAsset = "Twilight-HD-HUD-Desktop-Android.dusk";
+constexpr bool kCanSelfInstall = true;
 #endif
 
 enum class State { Idle, Checking, CheckReady, Downloading, DownloadReady };
@@ -128,6 +130,7 @@ std::filesystem::path update_target() {
 }
 
 void remove_update_backup() {
+    if (!kCanSelfInstall) return;
     const auto target = update_target();
     if (target.empty()) return;
     std::error_code ec;
@@ -154,6 +157,7 @@ std::filesystem::path download_staging_path() {
 }
 
 bool replace_download(const std::filesystem::path& downloaded) {
+    if (!kCanSelfInstall) return false;
     namespace fs = std::filesystem;
     const fs::path target = update_target();
     if (target.empty() || downloaded.empty() || !valid_download(downloaded)) return false;
@@ -247,6 +251,7 @@ void show_dialog(const char* title, const std::string& body, UiDialogVariant var
 }
 
 void confirm_update(ModContext*, UiDialogHandle, void*) {
+    if (!kCanSelfInstall) return;
     const std::string url = s_result.downloadUrl;
     if (url.empty()) return;
     const auto staging = download_staging_path();
@@ -340,6 +345,16 @@ void update_update_service() {
                 UI_DIALOG_WARNING, &ok, 1);
         }
     } else if (result.updateAvailable) {
+        if (!kCanSelfInstall) {
+            show_dialog("Mod Update Available",
+                "A newer version of <b>Twilight HD</b> is available.<br/><br/>Installed: <b>v" +
+                    result.currentVersion + "</b><br/>Latest: <b>" + result.latestVersion +
+                    "</b><br/><br/>On iOS and tvOS, the updated mod must be bundled and signed "
+                    "with Dusklight. Install an app build containing the updated mod. "
+                    "This platform supports update checks only; no update has been installed.",
+                UI_DIALOG_NORMAL, &ok, 1);
+            return;
+        }
         static UiDialogAction actions[2];
         actions[0] = {
             sizeof(UiDialogAction), "Update Now", confirm_update, nullptr, false, nullptr};

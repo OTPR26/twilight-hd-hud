@@ -88,27 +88,19 @@ In Follow mode, if Call Midna is assigned to Down, the
 D-Pad menu shortcut moves to Right and Minimap to Left in either setting.
 No controller profile is rewritten.
 
-## Installation: iPhone and iPad
+## Installation: iPhone, iPad, and Apple TV
 
-1. Download the **iOS and tvOS** `.dusk` file from [Releases](../../releases/latest).
-2. Launch Dusklight once so its data folders are created.
-3. Open the Files app and browse to **On My iPhone** or **On My iPad > Dusklight > mods**.
-4. Copy the downloaded `.dusk` file into `mods`.
-5. Return to Dusklight, then restart the app or reload mods from the mod manager.
-6. Enable Twilight HD and open its settings panel to choose a button-label layout and HUD size.
+Twilight HD includes native executable code. On standard iOS and tvOS devices,
+it must be bundled and signed with Dusklight. The **iOS and tvOS** `.dusk` file
+in [Releases](../../releases/latest) is for that packaging workflow; copying an
+unsigned package into the writable `mods` folder is not sufficient.
 
-If the Dusklight folder is not visible in Files, use the app's file-transfer page and upload the `.dusk` file to **Mods** instead.
+Install a signed Dusklight app build containing the desired Twilight HD version,
+then enable the mod and choose your button-label layout and HUD size.
 
-## Installation: Apple TV
-
-1. Download the **iOS and tvOS** `.dusk` file on a phone or computer connected to the same network as the Apple TV.
-2. In Dusklight on Apple TV, open the file-transfer page and turn on local-network transfer.
-3. Enter the complete address shown on the television in a web browser, including the colon before the port number.
-4. Under **Mods**, choose the downloaded `.dusk` file and upload it.
-5. On Apple TV, rescan or reload mods, then enable Twilight HD.
-6. Restart Dusklight if the mod does not appear immediately.
-
-The transfer page is available only while Dusklight is open, and both devices must remain on the same local network.
+Automatic and manual update checks are supported, but self-installation is not.
+When an update is available, the mod explains that an updated signed app build
+is required. Desktop and Android retain in-game self-installation.
 
 The package does not contain game files. A compatible, legally obtained disc image is required by Dusklight.
 

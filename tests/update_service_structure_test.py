@@ -30,6 +30,21 @@ assert "std::system(" not in source
 assert "(void)url;" not in source
 assert "wininet" not in cmake.lower()
 
+platform = source.split('#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE', 1)[1].split('#endif', 1)[0]
+assert 'kCanSelfInstall = false' in platform.split('#else')[0]
+assert 'kCanSelfInstall = true' in platform.split('#else')[1]
+for function, guard in [('confirm_update', 'return;'), ('replace_download', 'return false;'),
+                        ('remove_update_backup', 'return;')]:
+    body = source.split(function + '(', 1)[1].split('{', 1)[1]
+    assert body.lstrip().startswith('if (!kCanSelfInstall) ' + guard)
+available = source.split('} else if (result.updateAvailable) {', 1)[1]
+check_only = available.split('static UiDialogAction actions[2]', 1)[0]
+assert 'if (!kCanSelfInstall)' in check_only
+assert 'supports update checks only; no update has been installed.' in check_only
+assert 'UI_DIALOG_NORMAL, &ok, 1);' in check_only
+assert 'return;' in check_only
+assert 'confirm_update' not in check_only
+
 initialization = source.split("void initialize_update_service()", 1)[1].split(
     "void update_update_service()", 1
 )[0]
