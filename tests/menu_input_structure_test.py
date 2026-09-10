@@ -12,7 +12,7 @@ after = source.split('void after_menu_window_execute(', 1)[1].split('HookAction 
 assert 'preserve_map_minimap_preference(window)' in before
 assert 'preserve_map_minimap_preference(mods::arg<dMw_c*>(args, 0))' in after
 preserve = source.split('void preserve_map_minimap_preference(', 1)[1].split('HookAction before_menu_window_execute(', 1)[0]
-assert 'opening && dMeter2Info_getMapStatus() == 2' in preserve
+assert 'map_preserves_minimap_preference(dMeter2Info_getMapStatus())' in preserve
 assert 'window != s_minimapReturnWindow' in preserve
 assert 'meter != s_minimapReturnMeter' in preserve
 assert 's_minimapReturnState.begin(dComIfGp_checkMapShow())' in preserve

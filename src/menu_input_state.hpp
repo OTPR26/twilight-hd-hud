@@ -16,6 +16,12 @@ struct MinimapRestore {
     bool visible;
 };
 
+constexpr bool map_preserves_minimap_preference(int status) {
+    // 2: manually opened map; 3: Midna's warp-selection map.
+    // 4/5/7/8/9 are scripted reveals and retain native behavior.
+    return status == 2 || status == 3;
+}
+
 // One snapshot per manually opened map. Keep it through zooms and close
 // animation frames, but apply it only once when the map starts closing.
 class MinimapReturnState {

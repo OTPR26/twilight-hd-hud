@@ -5,6 +5,7 @@
 #include "diamond_layout.hpp"
 #include "dungeon_map_layout.hpp"
 #include "overworld_map_layout.hpp"
+#include "map_palette.hpp"
 #include "map_responsive_layout.hpp"
 #include "dialogue_text_layout.hpp"
 #include "font_override.hpp"
@@ -73,6 +74,7 @@
 #include "d/d_menu_insect.h"
 #include "d/d_menu_fmap.h"
 #include "d/d_menu_fmap2D.h"
+#include "d/d_menu_fmap_map.h"
 #include "d/d_menu_dmap.h"
 #include "d/d_menu_option.h"
 #include "d/d_menu_ring.h"
@@ -208,6 +210,7 @@ DEFINE_HOOK(&dMenu_Fmap_c::_move, FmapMoveHook);
 DEFINE_HOOK(&dMenu_Fmap_c::_draw, FmapDrawHook);
 DEFINE_HOOK(&dMenu_Fmap_c::getNextStatus, FmapNextStatusHook);
 DEFINE_HOOK(&dMenu_Fmap2DTop_c::draw, FmapTopDrawHook);
+DEFINE_HOOK(&renderingFmap_c::preDrawPath, FmapPaletteHook);
 DEFINE_HOOK(&dMenu_Dmap_c::_draw, DmapDrawHook);
 DEFINE_HOOK(&dMenu_Dmap_c::getNextStatus, DmapNextStatusHook);
 #if defined(_MSC_VER)
@@ -341,6 +344,7 @@ ResourceBuffer s_collectEquipmentFrameResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_dmapFrameResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fmapFrameResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fmapBannerPatternResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_fmapPortalResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_dmapBackDpadResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_itemBankCellResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_itemBankCircleResource = RESOURCE_BUFFER_INIT;
@@ -507,6 +511,12 @@ bool raw_physical_button_held(s32 button) {
     return PADGetNativeButtonPressed(PAD_1) == button;
 }
 
+bool s_mapLeftHeld = false;
+bool s_mapLeftPressed = false;
+u32 s_mapPortalHeldOriginal = 0;
+u32 s_mapPortalPressedOriginal = 0;
+bool s_mapPortalInputActive = false;
+
 void update_input_gate() {
     // This is the same visibility check used by Dusklight's PADBlockInput.
     // If the query fails, do not inject input into an unknown UI context.
@@ -520,6 +530,9 @@ void update_input_gate() {
         (raw_physical_axis_held(kSdlLeftTriggerAxis) ? kInputZl : 0) |
         (raw_physical_axis_held(kSdlRightTriggerAxis) ? kInputZr : 0);
     s_inputGate.update(blocked, held);
+    const bool leftHeld = s_inputGate.held(kInputL);
+    s_mapLeftPressed = leftHeld && !s_mapLeftHeld;
+    s_mapLeftHeld = leftHeld;
 }
 
 bool physical_button_held(s32 button) {
@@ -3716,10 +3729,9 @@ void apply_fmap_background(dMenu_Fmap2DBack_c* map) {
     picture->setAlpha(static_cast<u8>(255 * std::clamp(map->mAlphaRate, 0.0f, 1.0f)));
     screen->show();
 
-    // The original field map was placed for the narrow GameCube frame. The
-    // widened frame exposes more empty space on its right, so move the map's
-    // own coordinate origin—not the frame—to restore its visual center.
-    g_fmapHIO.mMapTopLeftPosX = 170.0f;
+    // Center the native map origin, shared by artwork and portal coordinates.
+    g_fmapHIO.mMapTopLeftPosX =
+        overworld_map_layout::map_origin_x(g_fmapHIO.mMapScale);
 }
 
 void add_fmap_top_overlay(dMenu_Fmap2DTop_c* map) {
@@ -3775,7 +3787,7 @@ void add_fmap_top_overlay(dMenu_Fmap2DTop_c* map) {
     // used a very small Z label here, which made both the translated label
     // and shoulder icon noticeably harder to read than the zoom controls.
     // Keep the row compact, but give it the same visual weight and preserve
-    // the wide ZR-button silhouette instead of squeezing it into a square.
+    // the wide shoulder-button silhouette instead of squeezing it into a square.
     constexpr f32 fontSizes[] = {10.5f, 10.0f, 11.0f};
     // Shoulder-button resources use a square 64x64 canvas; their wide shell
     // is already composed inside that canvas.  Keep the pane square so the
@@ -3790,7 +3802,7 @@ void add_fmap_top_overlay(dMenu_Fmap2DTop_c* map) {
         MULTI_CHAR('hd_fri0'), MULTI_CHAR('hd_fai1'), MULTI_CHAR('hd_fbi2'),
     };
     ResTIMG const* iconTextures[] = {
-        styled_zr_button_texture(), menu_face_button_texture(true),
+        styled_l_button_texture(), menu_face_button_texture(true),
         menu_face_button_texture(false),
     };
     J2DPane* controlAnchor = map->mpContPane->getPanePtr();
@@ -12449,6 +12461,7 @@ void refresh_item_bank_cursor(dSelect_cursor_c* cursor);
 
 void after_select_cursor_update(ModContext*, void* args, void*, void*) {
     auto* cursor = mods::arg<dSelect_cursor_c*>(args, 0);
+    style_fmap_portal(cursor);
     refresh_item_bank_cursor(cursor);
     if (s_activeFileSelect != nullptr &&
         cursor == s_activeFileSelect->mSelIcon) {
@@ -12472,16 +12485,26 @@ void after_select_cursor_update(ModContext*, void* args, void*, void*) {
 HookAction before_fmap_move(ModContext*, void* args, void*, void*) {
     auto* map = mods::arg<dMenu_Fmap_c*>(args, 0);
     if (map != nullptr) position_fmap_viewport(map->mpDraw2DBack);
-    // The map's Portals action is still wired to GameCube Z internally.
-    // Translate the displayed logical R only while this map processes input.
+    // L/LB/L1 is the physical shoulder, not GameCube L (our ZL trigger).
+    // Replace native Z only within map input processing, then restore it.
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
-    if ((pad.mButtonFlags & PAD_TRIGGER_R) != 0) {
-        pad.mButtonFlags |= PAD_TRIGGER_Z;
-    }
-    if ((pad.mPressedButtonFlags & PAD_TRIGGER_R) != 0) {
-        pad.mPressedButtonFlags |= PAD_TRIGGER_Z;
-    }
+    s_mapPortalHeldOriginal = pad.mButtonFlags;
+    s_mapPortalPressedOriginal = pad.mPressedButtonFlags;
+    s_mapPortalInputActive = true;
+    pad.mButtonFlags = map_portal_buttons(pad.mButtonFlags, PAD_TRIGGER_Z, s_mapLeftHeld);
+    pad.mPressedButtonFlags = map_portal_buttons(pad.mPressedButtonFlags,
+        PAD_TRIGGER_Z, s_mapLeftPressed);
     return HOOK_CONTINUE;
+}
+
+void after_fmap_move(ModContext*, void*, void*, void*) {
+    if (!s_mapPortalInputActive) return;
+    auto& pad = mDoCPd_c::getCpadInfo(PAD_1);
+    pad.mButtonFlags = restore_menu_shortcut_buttons(pad.mButtonFlags,
+        s_mapPortalHeldOriginal, PAD_TRIGGER_Z);
+    pad.mPressedButtonFlags = restore_menu_shortcut_buttons(pad.mPressedButtonFlags,
+        s_mapPortalPressedOriginal, PAD_TRIGGER_Z);
+    s_mapPortalInputActive = false;
 }
 
 HookAction before_fmap_draw(ModContext*, void* args, void*, void*) {
@@ -12633,6 +12656,7 @@ void after_dmap_bg_draw(ModContext*, void*, void*, void*) {
 }
 
 HookAction before_dmap_poe_icon_draw(ModContext*, void* args, void*, void*) {
+    before_fmap_picture(mods::arg<J2DPicture*>(args, 0));
     if (auto* fmap = s_fmapTopDrawing;
         fmap != nullptr && mods::arg<J2DPicture*>(args, 0) == fmap->mpPoeCountIcon) {
         const float size = map_responsive_layout::scale(608 * mDoGph_gInf_c::hudAspectScaleUp);
@@ -13880,9 +13904,11 @@ void preserve_map_minimap_preference(dMw_c* window) {
 
     const bool opening = window->mMenuProc == dMw_c::FMAP_OPEN ||
         window->mMenuProc == dMw_c::DMAP_OPEN;
-    // Status 2 is a player-opened map. Leave scripted map reveals (3–9)
-    // and their deliberate visibility changes under native game control.
-    if (!s_minimapReturnState.active() && opening && dMeter2Info_getMapStatus() == 2) {
+    // Include Midna's warp map (3), but leave scripted reveals unchanged.
+    // Restore both the old meter and preference before the scene transition:
+    // native meter deletion saves it and destination creation reads it.
+    if (!s_minimapReturnState.active() && opening &&
+        map_preserves_minimap_preference(dMeter2Info_getMapStatus())) {
         s_minimapReturnState.begin(dComIfGp_checkMapShow());
         s_minimapReturnWindow = window;
         s_minimapReturnMeter = meter;
@@ -14435,6 +14461,10 @@ void initialize_face_button_textures() {
             &s_fmapBannerPatternResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the overworld banner pattern");
     }
+    if (svc_resource->load(mod_ctx, "menu/overworld-portal.bti",
+            &s_fmapPortalResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the overworld portal; retaining native art");
+    }
     if (svc_resource->load(mod_ctx, "menu/dungeon-map-back-dpad.bti",
             &s_dmapBackDpadResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the dungeon map D-pad back icon");
@@ -14605,6 +14635,7 @@ void shutdown_face_button_textures() {
     free_resource(s_dmapFrameResource);
     free_resource(s_fmapFrameResource);
     free_resource(s_fmapBannerPatternResource);
+    free_resource(s_fmapPortalResource);
     free_resource(s_dmapBackDpadResource);
     free_resource(s_itemBankCellResource);
     free_resource(s_itemBankCircleResource);
@@ -14872,10 +14903,12 @@ ModResult install_item_slot_hooks(ModError* error) {
         "field-map warp question TPHD scale");
     ADD_POST(ExplainDrawHook, after_fmap_explain_draw,
         "restore field-map warp question geometry");
-    ADD_PRE(FmapMoveHook, before_fmap_move, "field map portals R button mapping");
+    ADD_PRE(FmapMoveHook, before_fmap_move, "field map portals L button mapping");
+    ADD_POST(FmapMoveHook, after_fmap_move, "restore field map portal input");
     ADD_PRE(FmapNextStatusHook, before_fmap_next_status, "overworld D-pad Up back");
     ADD_POST(FmapNextStatusHook, after_fmap_next_status, "restore overworld close input");
     ADD_PRE(FmapTopDrawHook, before_fmap_top_draw, "overworld Poe draw scope");
+    ADD_PRE(FmapPaletteHook, before_fmap_palette, "overworld terrain colors");
     ADD_POST(FmapTopDrawHook, after_fmap_top_draw, "restore overworld Poe draw scope");
     ADD_PRE(FmapDrawHook, before_fmap_draw,
         "field map HD background, title, and prompts");
@@ -14889,6 +14922,7 @@ ModResult install_item_slot_hooks(ModError* error) {
         "dungeon map draw scope end");
     ADD_PRE(DmapPoeIconDrawHook, before_dmap_poe_icon_draw,
         "dungeon map native Poe icon placement");
+    ADD_POST(DmapPoeIconDrawHook, after_fmap_picture, "restore field map picture styling");
     ADD_PRE(DmapPoeTextDrawHook, before_dmap_poe_text_draw,
         "dungeon map native Poe text placement");
     ADD_POST(OptionCreateHook, after_option_create, "options menu HD style");

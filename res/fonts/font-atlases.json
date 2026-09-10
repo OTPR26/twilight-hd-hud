@@ -1,4 +1,14 @@
 {
+  "fira-regular": {
+    "source_file": "FiraSans-Regular.ttf",
+    "source_sha256": "3dabf3d48bf4599f95cffd92f99ea426a014d5311f52a5eb5ec3af265e97cd97",
+    "weight": 400,
+    "raster_size": 82,
+    "cap_height": 56,
+    "glyph_count": 191,
+    "atlas_file": "fira-regular.bfn",
+    "atlas_sha256": "37331a26b1b5e9727874a78f53143387e95e0316c59e4c9a0230993d6a71b086"
+  },
   "zen": {
     "source_file": "ZenKakuGothicNew-Bold.ttf",
     "source_sha256": "0081cedabc4921982fcd061f845a005664ac7fb642af2dd34b4007bc63ccd235",

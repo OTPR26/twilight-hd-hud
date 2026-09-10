@@ -18,9 +18,11 @@ ROOT = Path(__file__).resolve().parents[1]
 CELL, ASCENT, DESCENT, PAD = 128, 104, 24, 4
 # Fira needs extra room below its baseline. Each face is scaled to the same
 # visible capital height by the draw hook; padded raster sizes can differ.
-CAP_HEIGHTS = {"zen": 65, "mplus": 65, "fira": 57}
+CAP_HEIGHTS = {"zen": 65, "mplus": 65, "fira": 57, "fira-regular": 56}
 SIDE = CELL * 16
 SOURCES = {
+    "fira-regular": ("FiraSans-Regular.ttf",
+                     "3dabf3d48bf4599f95cffd92f99ea426a014d5311f52a5eb5ec3af265e97cd97"),
     "zen": ("ZenKakuGothicNew-Bold.ttf",
             "0081cedabc4921982fcd061f845a005664ac7fb642af2dd34b4007bc63ccd235"),
     "mplus": ("MPLUS2-Variable.ttf",
@@ -171,7 +173,7 @@ def generate(name, out_dir, preview_dir):
     decoded = decode_i4(blocks[b"GLY1"][1][32:], SIDE)
     quantized = atlas.point(lambda x: ((x + 8) // 17) * 17)
     assert decoded.tobytes() == quantized.tobytes(), "I4 tile round-trip mismatch"
-    destination = out_dir / f"{name}-bold.bfn"
+    destination = out_dir / ("fira-regular.bfn" if name == "fira-regular" else f"{name}-bold.bfn")
     destination.write_bytes(bfn)
     if preview_dir:
         decoded.save(preview_dir / f"{name}-atlas.png")
@@ -185,7 +187,7 @@ def generate(name, out_dir, preview_dir):
         draw.text((25, 155), "Épée · Forêt · Corazón · agpqy Il1", font=display,
                   fill="#f3f0e4", stroke_width=1, stroke_fill="black")
         preview.save(preview_dir / f"{name}-specimen.png")
-    return dict(source_file=filename, source_sha256=actual_hash, weight=700,
+    return dict(source_file=filename, source_sha256=actual_hash, weight=400 if name == "fira-regular" else 700,
                 raster_size=font_size, cap_height=-font.getbbox("H", anchor="ls")[1],
                 glyph_count=sum(supported(c) for c in range(256)),
                 atlas_file=destination.name, atlas_sha256=hashlib.sha256(bfn).hexdigest())

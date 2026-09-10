@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+ <defs>
+  <radialGradient id="halo"><stop stop-color="#f2ffff" stop-opacity=".6"/><stop offset=".55" stop-color="#e5ffff" stop-opacity=".42"/><stop offset=".8" stop-color="#e5ffff" stop-opacity=".15"/><stop offset="1" stop-color="#e5ffff" stop-opacity="0"/></radialGradient>
+  <g id="symbol" fill="none" stroke-linejoin="round" stroke-linecap="round">
+   <circle cx="64" cy="64" r="21"/><circle cx="64" cy="64" r="15"/>
+   <path d="M48 45 42 35 42 29M47 37 53 34 52 27M60 41V31H69V25M75 43 81 33H88V26M83 53H96V46M86 63H97V70H91M81 79 87 89H97V84M70 86V98H81V93M52 84 46 94 42 92M46 79 35 85 31 79M42 68H32V60H26M43 52 34 46 30 50"/>
+  </g>
+ </defs>
+ <circle cx="64" cy="64" r="63" fill="url(#halo)"/>
+ <use href="#symbol" stroke="#267c85" stroke-width="5"/>
+ <use href="#symbol" stroke="#70ffff" stroke-width="3.2"/>
+</svg>

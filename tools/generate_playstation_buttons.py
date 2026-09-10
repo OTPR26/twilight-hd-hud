@@ -64,22 +64,20 @@ def make_wii_u_l_from_archive_r() -> Image.Image:
     pixels = image.load()
     width, height = image.size
 
-    # Remove the mirrored R from the cap by interpolating the surrounding cap
-    # shading on each scanline. This retains the exact outline, rim and gloss.
-    mask_left = int(width * 0.36)
-    mask_right = int(width * 0.64)
-    mask_top = int(height * 0.28)
-    mask_bottom = int(height * 0.70)
-    for y in range(mask_top, mask_bottom):
-        left = pixels[mask_left - 2, y]
-        right = pixels[mask_right + 2, y]
-        span = max(1, mask_right - mask_left)
-        for x in range(mask_left, mask_right + 1):
-            t = (x - mask_left) / span
-            pixels[x, y] = tuple(
-                round(left[channel] * (1.0 - t) + right[channel] * t)
-                for channel in range(4)
-            )
+    assert image.size == (83, 83), "Recheck the repair mask if the source cap changes"
+    original = image.copy()
+    # Repair only the inset face. The old rectangular mask sampled the baked
+    # markings on the left and copied them back into the cap. Sample the clean
+    # right face instead, preserving the original dark-to-light cap gradient.
+    # These scanline bounds stay inside the curved rim, never its silhouette.
+    face_left = [27, 23, 20, 17, 16, 14, 14, 13, 12, 12, 11, 11,
+                 10, 10, 9, 9, 8, 8, 8, 8, 8, 8, 8, 9, 10]
+    for y, left in enumerate(face_left, start=30):
+        clean = original.getpixel((62, y))
+        for x in range(left, 59):
+            t = (x - left) / (62 - left)
+            shade = round(187 + (clean[0] - 187) * t)
+            pixels[x, y] = (shade, shade, shade, pixels[x, y][3])
 
     draw = ImageDraw.Draw(image)
     font = ImageFont.truetype(FONT_PATH, 22, index=1)
@@ -88,6 +86,11 @@ def make_wii_u_l_from_archive_r() -> Image.Image:
     y = height / 2 - (box[3] - box[1]) / 2 - box[1]
     draw.text((x, y), "L", font=font, fill=(92, 94, 96, 255),
               stroke_width=1, stroke_fill=(245, 245, 245, 255))
+    assert image.getchannel("A").tobytes() == original.getchannel("A").tobytes()
+    for py in range(height):
+        for px in range(width):
+            if py < 30 or py > 54 or px < face_left[py - 30] or px > 58:
+                assert image.getpixel((px, py)) == original.getpixel((px, py))
     return image
 
 

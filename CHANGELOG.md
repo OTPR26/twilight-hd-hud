@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.0.0 - 2026-09-10
+
+- Refined the world map with TPHD-inspired styling, typography, colors, and portal icons.
+- Restored location names in the world map and warp menu.
+- Centered the map display and refined marker sizing.
+- Preserved the minimap’s visibility setting after warping.
+- Moved the Portals toggle to L, LB, or L1, matching the selected controller layout.
+
 ## v1.8.5 - 2026-09-10
 
 - Fixed the lantern being put away when drawing the sword while assigned to R. It now hangs at Link’s waist and stays lit, matching X/Y behavior.

@@ -31,6 +31,17 @@ int main(int argc, char** argv) {
     const auto natural = place(100, 24, 24, 0, 3, 24, false, 22, true,
         firaOpticalScale, 1.0f);
     assert(midpoint.scaleX > squeezed.scaleX && midpoint.scaleX < natural.scaleX);
+    // Narrow map stems retain a real bold stroke even when the native Ruby
+    // advance is much smaller than the replacement glyph's natural width.
+    for (float scale : {12.5f, 17.5f, 22.0f}) {
+        for (int width : {2, 3, 5, 8}) {
+            const auto stem = place(100, scale, 24, 0, width, 24,
+                false, 22, true, opticalScale, 1.0f);
+            assert(std::abs(stem.scaleX - scale * opticalScale) < .0001f);
+            assert(std::abs(stem.x + 24 * stem.scaleX / cell * .5f -
+                (100 + width * scale / 24 * .5f)) < .0001f);
+        }
+    }
     assert(midpoint.x < squeezed.x && midpoint.x > natural.x);
     assert(nearbyint(midpoint.scaleX * 2) == nearbyint(squeezed.scaleX + natural.scaleX));
     assert(supported('A') && supported(0xe9) && supported(0xff));

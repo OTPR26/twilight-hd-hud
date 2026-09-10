@@ -4,6 +4,87 @@ J2DTextBox::TFontSize s_fmapPoeFont{};
 float s_fmapPoeSpacing = 0;
 bool s_fmapPoeScaled = false;
 
+void style_fmap_portal(dSelect_cursor_c* cursor) {
+    auto* map = dMenu_Fmap_c::MyClass;
+    const auto* texture = resource_texture(s_fmapPortalResource);
+    if (!map || !map->mpDraw2DBack || !cursor || !texture ||
+        cursor != map->mpDraw2DBack->mpPortalIcon || !cursor->mpScreen ||
+        !cursor->mpPaneMgr) return;
+    // The native object still owns position, visibility, zoom and animation.
+    // Replace only its artwork, outside the fixed native pane/alpha caches.
+    hide_dmap_picture_tree(cursor->mpPaneMgr->getPanePtr());
+    auto* picture = as_picture(cursor->mpScreen->search(MULTI_CHAR('hd_fport')));
+    if (!picture) {
+        picture = JKR_NEW J2DPicture(MULTI_CHAR('hd_fport'),
+            JGeometry::TBox2<f32>(0, 0, 44, 44), texture, nullptr);
+        configure_hd_picture(picture);
+        cursor->mpScreen->appendChild(picture);
+    }
+    const float width = 58 * cursor->mpPaneMgr->getScaleX();
+    const float height = 58 * cursor->mpPaneMgr->getScaleY();
+    picture->resize(width, height);
+    picture->move(cursor->mPositionX - width * .5f, cursor->mPositionY - height * .5f);
+    picture->setAlpha(cursor->mpPaneMgr->getPanePtr()->getAlpha());
+    if (cursor->mpPaneMgr->getPanePtr()->isVisible()) picture->show();
+    else picture->hide();
+}
+
+struct FmapPictureState {
+    J2DPicture* picture = nullptr;
+    float scaleX = 1, scaleY = 1;
+    JUtility::TColor black, white;
+} s_fmapPicture;
+
+void before_fmap_picture(J2DPicture* picture) {
+    auto* menu = dMenu_Fmap_c::MyClass;
+    if (!picture || !menu || !menu->mpDraw2DBack || s_fmapPicture.picture) return;
+    auto* map = menu->mpDraw2DBack;
+    const bool player = picture == map->mPictures[ICON_LINK_e];
+    bool parchment = false;
+    for (auto* region : map->mpAreaTex) parchment |= picture == region;
+    if (!player && !parchment) return;
+    s_fmapPicture = {picture, picture->getScaleX(), picture->getScaleY(),
+        picture->getBlack(), picture->getWhite()};
+    if (player) {
+        // The native draw has already set its rotation pivot to the icon's
+        // center. Scale around that pivot, retaining position and zoom.
+        picture->scale(s_fmapPicture.scaleX * .5f, s_fmapPicture.scaleY * .5f);
+    } else {
+        auto black = s_fmapPicture.black, white = s_fmapPicture.white;
+        // Preserve unreachable black regions and all native fade/alpha values.
+        if (white.r + white.g + white.b > 0) {
+            // Keep native black points: lifting them created a blue-gray
+            // veil over the unselected map. Cool only the brighter tones.
+            white.r = white.r * 96 / 100;
+            white.g = white.g * 98 / 100;
+            picture->setBlackWhite(black, white);
+        }
+    }
+}
+
+void after_fmap_picture(ModContext*, void* args, void*, void*) {
+    if (s_fmapPicture.picture != mods::arg<J2DPicture*>(args, 0)) return;
+    if (auto* picture = s_fmapPicture.picture) {
+        picture->scale(s_fmapPicture.scaleX, s_fmapPicture.scaleY);
+        picture->setBlackWhite(s_fmapPicture.black, s_fmapPicture.white);
+    }
+    s_fmapPicture = {};
+}
+
+// Native animation has already selected its colors. Keep the recolored palette
+// for the later CI-texture draw; the transform is idempotent for static entries.
+HookAction before_fmap_palette(ModContext*, void* args, void*, void*) {
+    auto* base = mods::arg<renderingFmap_c*>(args, 0);
+    auto* map = dynamic_cast<dMenu_FmapMap_c*>(base);
+    if (!map || !map->m_palette) return HOOK_CONTINUE;
+    for (int i = 0; i < 27; ++i) {
+        auto& p = map->m_palette[i];
+        for (auto* c : {&p.field_0x0, &p.field_0x2, &p.field_0x4, &p.field_0x6})
+            c->color = map_palette::muted(c->color);
+    }
+    return HOOK_CONTINUE;
+}
+
 bool fmap_accepts_back(dMenu_Fmap_c* map) {
     return map != nullptr && map->isSync() &&
         (map->mProcess == dMenu_Fmap_c::PROC_ALL_MAP ||
@@ -27,6 +108,7 @@ void add_fmap_back_hint(dMenu_Fmap2DTop_c* map, J2DPane* overlay) {
             JGeometry::TBox2<f32>(31, 0, 110, 24), nullptr, "Back", 32, HBIND_LEFT, VBIND_CENTER);
         text->setFont(mDoExt_getMesgFont());
         text->setFontSize(12.5f, 12.5f);
+        text->setCharSpace(-0.6f);
         text->setFontColor(JUtility::TColor(238, 238, 232, 255),
             JUtility::TColor(255, 255, 255, 255));
         group->appendChild(text);
@@ -51,6 +133,10 @@ void position_fmap_viewport(dMenu_Fmap2DBack_c* map) {
         resource_texture(s_fmapFrameResource) == nullptr) return;
     using namespace overworld_map_layout;
     map->fMapBackWide();
+    if (map->mpPointParent) {
+        map->mpPointParent->scale(g_fmapHIO.mCursorScale * .65f,
+            g_fmapHIO.mCursorScale * .65f);
+    }
     for (auto* manager : {map->mpMapArea, map->mpMapBlack}) {
         if (manager == nullptr) continue;
         auto* pane = manager->getPanePtr();
@@ -102,12 +188,50 @@ void refine_fmap_top(dMenu_Fmap2DTop_c* map) {
     }
     auto* title = static_cast<J2DTextBox*>(screen->search(MULTI_CHAR('hd_fttx')));
     if (title != nullptr) {
-        title->setFont(mDoExt_getMesgFont());
-        title->setFontSize(17 * size, 17 * size);
-        title->setCharSpace(0);
-        title->resize((bannerWidth - 16) * size, 28 * size);
-        title->move(bannerX + 8 * size, bannerY + 6 * size);
+        title->setFont(mDoExt_getRubyFont());
+        title->setFontSize(22 * size, 22 * size);
+        title->setCharSpace(-0.35f * size);
+        set_text_binding(title, HBIND_CENTER, VBIND_CENTER);
+        title->resize((bannerWidth - 16) * size, bannerTitleHeight * size);
+        title->move(bannerX + 8 * size, bannerY + bannerTitleTop * size);
     }
+    // The native subtitle is separate from the province/title line. Keep its
+    // localized area/portal name while replacing the old frame hierarchy.
+    constexpr u64 areaTags[] = {
+        MULTI_CHAR('f_name_1'), MULTI_CHAR('f_name3'), MULTI_CHAR('f_name2'),
+        MULTI_CHAR('i_name_s'), MULTI_CHAR('i_name'), MULTI_CHAR('i_name1'),
+    };
+    J2DTextBox* areaSource = nullptr;
+    for (u64 tag : areaTags) {
+        auto* candidate = static_cast<J2DTextBox*>(screen->search(tag));
+        // Native setup initializes only the active language's labels with
+        // the Ruby font. Inactive layout placeholders can be nonempty too.
+        if (candidate != nullptr && candidate->isVisible() &&
+            candidate->getFont() == mDoExt_getRubyFont()) {
+            areaSource = candidate;
+            break; // Keep an empty active label empty; never use a placeholder.
+        }
+    }
+    auto* area = static_cast<J2DTextBox*>(screen->search(MULTI_CHAR('hd_farea')));
+    if (area == nullptr) {
+        area = JKR_NEW J2DTextBox(MULTI_CHAR('hd_farea'),
+            JGeometry::TBox2<f32>(0, 0, 426, 18), nullptr, "", 256,
+            HBIND_LEFT, VBIND_CENTER);
+        area->setFont(mDoExt_getRubyFont());
+        area->setFontColor(JUtility::TColor(220, 215, 137, 255),
+            JUtility::TColor(244, 237, 169, 255));
+        group->appendChild(area);
+    }
+    const char* areaName = text_box_string(areaSource);
+    if (areaSource != nullptr) area->setFont(areaSource->getFont());
+    area->setString(256, areaName != nullptr ? areaName : "");
+    area->setFontSize(areaNameFontSize * size, areaNameFontSize * size);
+    area->setCharSpace(-0.25f * size);
+    // Reserve the right side for the Poe counter rather than overlapping it.
+    area->resize((content.width - 105) * size, 24 * size);
+    area->move(safe_x(left, width, areaNameX / 608.0f), areaNameY);
+    if (areaName != nullptr && areaName[0] != '\0') area->show();
+    else area->hide();
     if (const auto* motif = resource_texture(s_fmapBannerPatternResource)) {
         for (int i = 0; i < 5; ++i) {
             auto* picture = as_picture(group->search(MULTI_CHAR('hd_fpat0') + i));
@@ -138,14 +262,13 @@ void refine_fmap_top(dMenu_Fmap2DTop_c* map) {
         if (auto* text = static_cast<J2DTextBox*>(screen->search(labels[i]))) {
             text->setFont(mDoExt_getMesgFont());
             text->setFontSize(13 * size, 13 * size);
-            text->setCharSpace(0);
+            text->setCharSpace(-0.6f * size);
             text->resize(115 * size, 22 * size);
             text->move(i == 0 ? x + 24 * size : x - 130 * size, y - 11 * size);
         }
     }
-    // Retain the actual current ZR/RT/R2 portal binding; moving the label
-    // must not silently change gameplay input or mislabel it as TPHD's L.
-    set_menu_face_button_texture(screen, MULTI_CHAR('hd_fri0'), styled_zr_button_texture());
+    // Match the map-only physical L/LB/L1 portal input mapping.
+    set_menu_face_button_texture(screen, MULTI_CHAR('hd_fri0'), styled_l_button_texture());
     add_fmap_back_hint(map, group);
     for (int band = 0; band < 2; ++band) {
         const float y = band == 0 ? topRule : bottomRule;
@@ -170,6 +293,7 @@ void refine_fmap_top(dMenu_Fmap2DTop_c* map) {
 }
 
 HookAction before_fmap_top_draw(ModContext*, void* args, void*, void*) {
+    begin_map_font();
     s_fmapTopDrawing = mods::arg<dMenu_Fmap2DTop_c*>(args, 0);
     const float size = map_responsive_layout::scale(608 * mDoGph_gInf_c::hudAspectScaleUp);
     s_fmapPoeScaled = size < 1 && s_fmapTopDrawing != nullptr && s_fmapTopDrawing->mpPoeCountPane != nullptr;
@@ -183,6 +307,7 @@ HookAction before_fmap_top_draw(ModContext*, void* args, void*, void*) {
     return HOOK_CONTINUE;
 }
 void after_fmap_top_draw(ModContext*, void*, void*, void*) {
+    end_map_font();
     if (s_fmapPoeScaled) {
         s_fmapTopDrawing->mpPoeCountPane->setFontSize(s_fmapPoeFont);
         s_fmapTopDrawing->mpPoeCountPane->setCharSpace(s_fmapPoeSpacing);

@@ -8,7 +8,12 @@ assert 'position_fmap_viewport(map->mpDraw2DBack)' in hooks
 for metric in ('2DWidth', '2DHeight', '2DPosH', '2DPosV'):
     assert f'dMeter2Info_set{metric}' in source
 assert 'getFmapPoeCount(' not in source  # counts/visibility stay in native draw
-assert 'styled_zr_button_texture()' in source  # actual current portal binding
+assert 'styled_l_button_texture()' in source  # L/LB/L1 portal binding
+assert 'ADD_POST(FmapMoveHook, after_fmap_move' in hooks
+portal_input = hooks.split('HookAction before_fmap_move(', 1)[1].split('HookAction before_fmap_draw(', 1)[0]
+assert 'PAD_TRIGGER_R' not in portal_input
+assert 's_mapLeftPressed' in portal_input
+assert 'restore_menu_shortcut_buttons' in portal_input
 assert 'mpBackTex->changeTexture(background' not in hooks
 assert 'ADD_POST(FmapTopDrawHook, after_fmap_top_draw' in hooks
 assert 's_fmapTopDrawing = nullptr' in source

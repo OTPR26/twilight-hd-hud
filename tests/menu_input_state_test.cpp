@@ -7,6 +7,22 @@
 using namespace twilight_hd_hud;
 
 int main() {
+    for (int status = 0; status <= 9; ++status) {
+        assert(map_preserves_minimap_preference(status) == (status == 2 || status == 3));
+    }
+    for (bool shown : {false, true}) {
+        MinimapReturnState warp;
+        assert(map_preserves_minimap_preference(3));
+        warp.begin(shown);
+        assert(!warp.close(false, true)); // portal selection/zoom
+        const auto close = warp.close(true, true);
+        assert(close && close->preference == shown && close->visible == shown);
+        // Native destruction saves the meter state; the destination reads it.
+        const bool destinationPreference = close->preference;
+        warp.reset();
+        assert(destinationPreference == shown);
+        assert(!warp.close(true, true));
+    }
     for (bool player : {false, true}) {
         for (bool fileSelect : {false, true}) {
             for (bool paused : {false, true}) {

@@ -4,6 +4,11 @@
 
 namespace twilight_hd_hud {
 
+constexpr std::uint32_t map_portal_buttons(std::uint32_t buttons,
+    std::uint32_t nativePortalMask, bool leftShoulder) {
+    return (buttons & ~nativePortalMask) | (leftShoulder ? nativePortalMask : 0);
+}
+
 constexpr bool menu_shortcuts_active(unsigned windowStatus, bool inputBlocked) {
     return windowStatus == 0 && !inputBlocked;
 }

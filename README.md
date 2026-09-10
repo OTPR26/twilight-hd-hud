@@ -39,6 +39,8 @@ release; see [COMPATIBILITY.md](COMPATIBILITY.md) for the maintenance checklist.
   setting; no additional toggle or game-image patch is needed
 - Refined dungeon and overworld maps with responsive narrow-window layouts,
   patterned banners, and D-Pad Up to go back
+- TPHD-inspired world-map colors, portal icons, and location labels; toggle
+  Portals with L / Xbox LB / PlayStation L1. Minimap visibility is retained after warping.
 - TPHD-sized action and dialogue text, with the bottom-center A prompt on the left
 - Centered oil, oxygen, and lantern meters across supported display sizes
 - Native modules for Windows x64, Linux x64, macOS Apple Silicon, Android ARM64, iOS ARM64, and tvOS ARM64

@@ -1,4 +1,5 @@
 #include "overworld_map_layout.hpp"
+#include "map_palette.hpp"
 #include "dungeon_map_layout.hpp"
 #include "dungeon_map_input.hpp"
 #include "menu_shortcuts.hpp"
@@ -7,7 +8,38 @@
 #include <iostream>
 using namespace twilight_hd_hud::overworld_map_layout;
 int main() {
+    assert(bannerTitleTop > 0 && bannerTitleBottom < bannerHeight);
+    assert(bannerTitleHeight >= 22);
+    assert(bannerTitleTop + bannerTitleHeight * .5f ==
+        (bannerTitleTop + bannerTitleBottom) * .5f);
+    for (unsigned buttons = 0; buttons < 256; ++buttons) {
+        for (bool left : {false, true}) {
+            const auto remapped = twilight_hd_hud::map_portal_buttons(buttons, 16, left);
+            assert((remapped & 16) == (left ? 16 : 0));
+            assert((remapped & ~16u) == (buttons & ~16u));
+            assert(twilight_hd_hud::restore_menu_shortcut_buttons(remapped, buttons, 16) == buttons);
+        }
+    }
+    using twilight_hd_hud::map_palette::muted;
+    for (unsigned packed = 0; packed <= 65535; ++packed) {
+        assert(muted(muted(packed)) == muted(packed));
+        assert((muted(packed) & 0x8000) == (packed & 0x8000));
+        if (!(packed & 0x8000)) assert((muted(packed) & 0x7000) == (packed & 0x7000));
+    }
+    assert(muted(0x83e0) != 0x83e0); // Green terrain.
+    assert(twilight_hd_hud::map_palette::terrain(64, 112, 48)); // Softer green borders.
+    assert(!twilight_hd_hud::map_palette::terrain(48, 88, 72)); // Already teal.
+    assert(muted(0x801f) == 0x801f); // Water blue.
+    assert(muted(0xffe0) == 0xffe0); // Gold markers.
+    for (float mapSize : {200.0f, 320.0f, 426.0f, 600.0f}) {
+        assert(std::fabs(map_origin_x(mapSize) + mapSize * 0.5f -
+            (content.x + content.width * 0.5f)) < 0.001f);
+    }
     assert(content.x > frame.x && content.y > frame.y);
+    assert(areaNameX > content.x && areaNameY > content.y);
+    assert(areaNameFontSize > 14);
+    assert(backY > frame.y + frame.height);
+    assert(backY < bottomRule);
     assert(content.x + content.width < frame.x + frame.width);
     assert(content.y + content.height < frame.y + frame.height);
     assert(zoomBY + 8 < frame.y);
@@ -36,8 +68,9 @@ int main() {
             safe_x(left, width, .78f));
         const auto hint = back_hint(left, width);
         const float size = twilight_hd_hud::map_responsive_layout::scale(width);
-        assert(std::abs(hint.x + 12 * size - safe_x(left, width, .077f)) < .001f);
-        assert(hint.y == 383 - 12 * size && hint.height == 24 * size);
+        assert(std::abs(hint.x + 12 * size - safe_x(left, width, .047f)) < .001f);
+        assert(hint.y == backY - 12 * size && hint.height == 24 * size);
+        assert(hint.y + hint.height < bottomRule);
         const auto dungeon = twilight_hd_hud::dungeon_map_layout::back_hint({0, 0, 356, 312});
         assert(hint.width == dungeon.width * size && hint.height == dungeon.height * size);
     }

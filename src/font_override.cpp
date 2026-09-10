@@ -23,6 +23,11 @@ ResourceBuffer s_itemPromptResource = RESOURCE_BUFFER_INIT;
 JUTResFont* s_itemPromptFont = nullptr;
 bool s_attemptedItemPromptConstruction = false;
 int s_itemPromptDepth = 0;
+int s_mapDepth = 0;
+ResourceBuffer s_mapResource = RESOURCE_BUFFER_INIT;
+JUTResFont* s_mapFont = nullptr;
+ResourceBuffer s_mapHeadingResource = RESOURCE_BUFFER_INIT;
+JUTResFont* s_mapHeadingFont = nullptr;
 bool s_loggedDraw = false;
 
 void after_acquire_message_font(ModContext*, void*, void* retval, void*) {
@@ -78,6 +83,14 @@ bool ensure_item_prompt_font() {
 }  // namespace
 
 void initialize_font_override() {
+    if (svc_resource->load(mod_ctx, "fonts/mplus-bold.bfn", &s_mapHeadingResource) != MOD_OK ||
+        !font_atlas::valid(s_mapHeadingResource.data, s_mapHeadingResource.size)) {
+        svc_resource->free(mod_ctx, &s_mapHeadingResource);
+    }
+    if (svc_resource->load(mod_ctx, "fonts/fira-regular.bfn", &s_mapResource) != MOD_OK ||
+        !font_atlas::valid(s_mapResource.data, s_mapResource.size)) {
+        svc_resource->free(mod_ctx, &s_mapResource);
+    }
     // Item-acquisition cards deliberately use the same clean, high-legibility
     // Fira presentation on every platform.  Keep this resource independent of
     // the user's global dialogue-font choice so ordinary dialogue is untouched.
@@ -142,12 +155,22 @@ void shutdown_font_override() {
     s_attemptedConstruction = false;
     s_attemptedItemPromptConstruction = false;
     s_itemPromptDepth = 0;
+    s_mapDepth = 0;
+    JKR_DELETE(s_mapFont);
+    s_mapFont = nullptr;
+    svc_resource->free(mod_ctx, &s_mapResource);
+    JKR_DELETE(s_mapHeadingFont);
+    s_mapHeadingFont = nullptr;
+    svc_resource->free(mod_ctx, &s_mapHeadingResource);
     s_loggedDraw = false;
 }
 
 void begin_item_prompt_font() {
     ++s_itemPromptDepth;
 }
+
+void begin_map_font() { ++s_mapDepth; }
+void end_map_font() { if (s_mapDepth > 0) --s_mapDepth; }
 
 void end_item_prompt_font() {
     if (s_itemPromptDepth > 0) --s_itemPromptDepth;
@@ -157,6 +180,23 @@ bool draw_font_override(void* args, void* retval, FontDrawOriginal drawOriginal)
     if (!retval || !drawOriginal) return false;
     auto* source = mods::arg<JUTResFont*>(args, 0);
     const int code = mods::arg<int>(args, 5);
+    // Use a real bold face, not displaced copies of thin glyphs. Native text
+    // decoding and advances remain authoritative; unsupported glyphs fall back.
+    const bool mapHeading = s_mapDepth > 0 && source && source == mDoExt_getRubyFont();
+    if (mapHeading && !s_mapHeadingFont && s_mapHeadingResource.data && JKRHeap::getRootHeap()) {
+        s_mapHeadingFont = JKR_NEW_ARGS(JKRHeap::getRootHeap(), 32) JUTResFont(
+            static_cast<const ResFONT*>(s_mapHeadingResource.data), JKRHeap::getRootHeap());
+        if (s_mapHeadingFont && !s_mapHeadingFont->isValid()) {
+            JKR_DELETE(s_mapHeadingFont); s_mapHeadingFont = nullptr;
+        }
+    }
+    const bool mapLabel = s_mapDepth > 0 && source == mDoExt_getMesgFont();
+    if (mapLabel && !s_mapFont && s_mapResource.data && JKRHeap::getRootHeap()) {
+        s_mapFont = JKR_NEW_ARGS(JKRHeap::getRootHeap(), 32) JUTResFont(
+            static_cast<const ResFONT*>(s_mapResource.data), JKRHeap::getRootHeap());
+        if (s_mapFont && !s_mapFont->isValid()) { JKR_DELETE(s_mapFont); s_mapFont = nullptr; }
+    }
+    const bool mapPrompt = (mapLabel && s_mapFont) || (mapHeading && s_mapHeadingFont);
     // Western message archives encode the male/female message tags as B2/B3.
     // The bundled Latin replacement fonts correctly interpret those code
     // points as superscript 2/3, but Twilight Princess' native message font
@@ -172,29 +212,36 @@ bool draw_font_override(void* args, void* retval, FontDrawOriginal drawOriginal)
     const bool itemPrompt = s_itemPromptDepth > 0 && ensure_item_prompt_font();
     if (!source || source->getFontType() != 0 || !font_atlas::supported(code) ||
         source->getCellWidth() <= 0 ||
-        (!itemPrompt && (s_activeFont == TextFont::Original || source != s_messageFont))) {
+        (!mapPrompt && !itemPrompt && (s_activeFont == TextFont::Original || source != s_messageFont))) {
         return false;
     }
     const float scaleX = mods::arg<f32>(args, 3);
     const float scaleY = mods::arg<f32>(args, 4);
     // Preserve unusual mirrored/hidden draw paths rather than inventing their geometry.
-    if (scaleX <= 0 || scaleY <= 0 || (!itemPrompt && !ensure_replacement())) return false;
+    if (scaleX <= 0 || scaleY <= 0 || (!mapPrompt && !itemPrompt && !ensure_replacement())) return false;
 
-    JUTResFont* replacement = itemPrompt ? s_itemPromptFont : s_replacement;
+    JUTResFont* replacement = mapPrompt ? (mapHeading ? s_mapHeadingFont : s_mapFont) :
+        itemPrompt ? s_itemPromptFont : s_replacement;
 
     const bool subsequent = mods::arg<bool>(args, 6);
     JUTFont::TWidth nativeWidth{};
     source->getWidthEntry(code, &nativeWidth);
     JUTFont::TWidth replacementWidth{};
     replacement->getWidthEntry(code, &replacementWidth);
-    const float rasterScale = itemPrompt || s_activeFont == TextFont::FiraSans ?
-        font_atlas::firaOpticalScale : font_atlas::opticalScale;
+    const float rasterScale = mapHeading ? font_atlas::opticalScale :
+        (mapPrompt || itemPrompt || s_activeFont == TextFont::FiraSans ?
+        font_atlas::firaOpticalScale : font_atlas::opticalScale);
     const bool itemStem = itemPrompt &&
         (code == 'i' || code == 'j' || code == 'l' || code == 'I');
+    // Ruby's narrow stem advances must not horizontally squash the bold
+    // replacement strokes. Keep natural raster proportions for map stems;
+    // their native advances still control placement of subsequent letters.
+    const bool mapStem = mapPrompt &&
+        (code == 'i' || code == 'j' || code == 'l' || code == 'I' || code == 'L');
     const auto placement = font_atlas::place(mods::arg<f32>(args, 1), scaleX,
         source->getCellWidth(), nativeWidth.field_0x0, nativeWidth.field_0x1,
         replacementWidth.field_0x1, source->mFixed, source->mFixedWidth, subsequent,
-        rasterScale, itemStem ? 0.5f : 0.0f);
+        rasterScale, mapStem ? 1.0f : itemStem ? 0.5f : 0.0f);
     const float nativeAdvance = font_atlas::advance(source->mFixed, source->mFixedWidth,
         subsequent, nativeWidth.field_0x0, nativeWidth.field_0x1, scaleX,
         source->getCellWidth());
@@ -212,6 +259,17 @@ bool draw_font_override(void* args, void* retval, FontDrawOriginal drawOriginal)
     // The context belongs to the original font. Never leave its cache claiming that its
     // texture is loaded when ours is bound (especially at a fallback glyph boundary).
     if (context) context->isTextureLoaded = false;
+    if (mapPrompt) {
+        replacement->mColor1 = JUtility::TColor(0, 0, 0, source->mColor1.a);
+        replacement->mColor2 = JUtility::TColor(0, 0, 0, source->mColor2.a);
+        replacement->mColor3 = JUtility::TColor(0, 0, 0, source->mColor3.a);
+        replacement->mColor4 = JUtility::TColor(0, 0, 0, source->mColor4.a);
+        drawOriginal(replacement, placement.x + scaleX * .045f,
+            mods::arg<f32>(args, 2) + scaleY * .06f,
+            placement.scaleX, scaleY * rasterScale, code, true, context);
+        replacement->mColor1 = source->mColor1; replacement->mColor2 = source->mColor2;
+        replacement->mColor3 = source->mColor3; replacement->mColor4 = source->mColor4;
+    }
     drawOriginal(replacement, placement.x, mods::arg<f32>(args, 2),
         placement.scaleX, scaleY * rasterScale, code, true, context);
     if (context) context->isTextureLoaded = false;
