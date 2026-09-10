@@ -88,6 +88,12 @@ assert 'lift_item_get_assignment_icons(itemScreen)' in source
 item_get_icons = source.split('void lift_item_get_assignment_icons(', 1)[1].split(
     'void restore_item_get_assignment_icons(', 1)[0]
 assert 'const bool bomblingAction = type == 0 &&' in item_get_icons
+assignment_shift = item_get_icons.split('if (assignment) {', 1)[1].split('}', 1)[0]
+assert 'icon->mPosX -= icon->getSizeX() * 0.15f;' in assignment_shift
+assert 'mPosY' not in assignment_shift
+assert 'mItemIndex' not in assignment_shift
+assert 'dItemNo_W_HOOKSHOT_e' not in item_get_icons
+assert 'const bool assignment = type == 5 || type == 6 || type == 7;' in item_get_icons
 assert 'itemScreen->mItemIndex == dItemNo_POKE_BOMB_e' in item_get_icons
 assert '!assignment && !aimingStick && !bomblingAction' in item_get_icons
 assert 'icon->mPosX -= icon->getSizeX() * 0.15f' in item_get_icons

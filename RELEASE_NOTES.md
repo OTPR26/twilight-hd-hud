@@ -1,4 +1,3 @@
-## Twilight HD v1.8.3
+## Twilight HD v1.8.4
 
-- Fixed update connectivity on iOS and tvOS.
-- Refined action-button placements.
+- Refined Y/X/R button placement on item-acquisition screens.

@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.8.4 - 2026-09-10
+
+- Refined Y/X/R button placement on item-acquisition screens.
+
 ## v1.8.3 - 2026-09-07
 
 - Fixed update connectivity on iOS and tvOS.

@@ -1987,6 +1987,12 @@ void lift_item_get_assignment_icons(dMsgScrnItem_c* itemScreen) {
             {icon, icon->getPosX(), icon->getPosY(), icon->getSizeX(), icon->getSizeY()};
 
         const f32 originalHeight = icon->getSizeY();
+        if (assignment) {
+            // Leave space before punctuation on all item-acquisition cards.
+            // Use the original cell width so Y/X/R shift equally at any HUD
+            // scale, before fitting the rectangular shoulder-button artwork.
+            icon->mPosX -= icon->getSizeX() * 0.15f;
+        }
         if (bomblingAction) {
             icon->mPosX -= icon->getSizeX() * 0.15f;
         }
