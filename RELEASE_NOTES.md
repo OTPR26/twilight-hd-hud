@@ -1,3 +1,3 @@
-## Twilight HD v1.8.4
+## Twilight HD v1.8.5
 
-- Refined Y/X/R button placement on item-acquisition screens.
+- Fixed the lantern being put away when drawing the sword while assigned to R. It now hangs at Link’s waist and stays lit, matching X/Y behavior.

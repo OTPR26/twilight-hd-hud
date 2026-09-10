@@ -10023,7 +10023,12 @@ int find_select_button(daAlink_c* link, int itemNo) {
 }
 
 bool item_needs_z_valid_button(int itemNo) {
-    return itemNo == dItemNo_HVY_BOOTS_e || itemNo == dItemNo_SPINNER_e;
+    // Native checkItemSetButton uses 2 for "not assigned", not a third slot.
+    // Link's execute checks this after drawing the sword and extinguishes a
+    // hanging lantern if it appears unassigned. Let the existing R-slot hook
+    // report a valid native button; do not force the lantern's light flags.
+    return itemNo == dItemNo_HVY_BOOTS_e || itemNo == dItemNo_SPINNER_e ||
+        itemNo == dItemNo_KANTERA_e;
 }
 
 bool z_heavy_boots_selected(daAlink_c* link) {
