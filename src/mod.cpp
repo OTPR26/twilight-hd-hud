@@ -1,5 +1,7 @@
 #include "config.hpp"
 #include "font_override.hpp"
+#include "host_compatibility.hpp"
+#include <cstdio>
 #include "service_imports.hpp"
 #include "update_service.hpp"
 
@@ -34,6 +36,14 @@ void shutdown_item_slot_resources();
 extern "C" {
 
 MOD_EXPORT ModResult mod_initialize(ModError* error) {
+    if (!twilight_hd_hud::supported_host_version(svc_host->version)) {
+        if (error != nullptr) {
+            error->code = MOD_UNSUPPORTED;
+            std::snprintf(error->message, sizeof(error->message), "%s",
+                twilight_hd_hud::kHostRequirement);
+        }
+        return MOD_UNSUPPORTED;
+    }
     if (const ModResult result = twilight_hd_hud::register_config(error); result != MOD_OK) {
         return result;
     }

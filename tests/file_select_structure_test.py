@@ -28,7 +28,7 @@ for start, end in (
     assert body.count('align_file_select_play_time(row, text)') == 2
 
 for start, end, resize, style in (
-    ('HookAction before_file_select_draw(', 'HookAction before_file_select_main_draw(',
+    ('void after_file_select_draw(', 'HookAction before_file_select_main_draw(',
      'update_file_select_row_selection(menu)', 'style_file_select_metadata(menu)'),
     ('void after_save_menu_wide(', 'HookAction before_save_dlst_draw(',
      'update_save_menu_row_selection(menu)', 'style_save_menu_metadata(menu)'),
@@ -56,6 +56,17 @@ for name in ('file-select-row.bti', 'file-select-row-selected.bti'):
     assert pixel(76)[0] > 170 and pixel(76)[3] > 200  # bottom border
 
 print('PASS: shared live play-time alignment, post-resize ordering, and texture anchors')
+
+for start, end in (
+    ('void style_file_select_metadata(', 'void scale_file_select_button('),
+    ('void style_save_menu_metadata(', 'void add_save_menu_title_rules('),
+):
+    body = source.split(start, 1)[1].split(end, 1)[0]
+    assert 'getGlbBounds()' not in body
+    assert 'translate_metadata_global(name, deltaX, deltaY)' in body
+    assert 'translate_metadata_global(pane, 0.0f, targetBottom - bounds.f.y)' in body
+    assert 'translate_metadata_global(text, deltaX, 0.0f)' in body
+print('PASS: metadata uses fresh transforms and screen-space deltas on every pass')
 
 heading = source.split('void style_save_select_title(', 1)[1].split(
     'void simplify_save_menu_rows(', 1)[0]

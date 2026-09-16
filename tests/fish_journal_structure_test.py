@@ -27,7 +27,10 @@ assert "MULTI_CHAR('hd_fjcv')" in body and "MULTI_CHAR('hd_fjsv')" in body
 assert 'constexpr int kFishBookSlots[MAX_FINDABLE_FISHES] = {1, 5, 4, 2, 3, 0};' in body
 assert 'const int column = slot & 1;' in body
 assert 'const int row = slot >> 1;' in body
-assert 'listPicture->move(listLeft, listTop)' in body
+assert 'fit_fish_artwork(listPicture, listLeft, listTop, 85.0f, 38.0f)' in body
+assert 'fit_fish_artwork(detail, 430.0f, 103.0f, 110.0f, 60.0f)' in body
+assert 'resource_texture(s_fishArtworkResources[index])' in body
+assert 'for (auto& resource : s_fishArtworkResources) free_resource(resource)' in source
 assert "MULTI_CHAR('hd_fjbk')" in body
 assert "MULTI_CHAR('hd_fjsm')" in body
 assert "MULTI_CHAR('hd_fjsc')" in body
@@ -53,10 +56,28 @@ assert 'fish\\nLargest' not in body
 assert 'menu->mpFishNameString[selected]' in body
 assert 'source->getTexture(0)' in body and 'texture->getTexInfo()' in body
 assert 'index == s_fishJournal.selected' in body
+assert 'missingTextureWarningMask' in body
+assert 'Fish Journal texture unavailable for species %d; retrying' in body
+assert body.index("if (group == nullptr) {") < body.index(
+    "const u64 detailTag = MULTI_CHAR('hd_fd00') + index;")
+assert 'group->search(detailTag) != nullptr' in body
+assert 'group->search(listTag) != nullptr' in body
+assert 'group->search(nameTag) != nullptr' in body
 assert 'ensure_fish_journal_overlay(menu);' in source.split(
     'HookAction before_fishing_draw(', 1)[1].split(
     'HookAction before_skill_draw(', 1)[0]
 assert 'ensure_fish_journal_overlay(menu);' in move
 assert "fit_collection_submenu_overlay(group, MULTI_CHAR('hd_fjbg')" in body
 assert 'collection_submenu_global_bounds(fish)' in move
-print('PASS: caught-only Fish Journal selection, native art and read-only save-backed details')
+print('PASS: caught-only selection, HD artwork with native fallback, and read-only records')
+
+import struct
+root = Path(__file__).resolve().parents[1]
+for name in ('hyrule-bass', 'hylian-loach', 'hylian-pike', 'ordon-catfish', 'reekfish', 'greengill'):
+    data = (root / 'res/menu/fish' / (name + '.bti')).read_bytes()
+    width, height = struct.unpack_from('>HH', data, 2)
+    assert data[0] == 6 and width == 512 and height % 4 == 0
+    assert len(data) == 32 + width * height * 4
+    alpha = [data[tile + i * 2] for tile in range(32, len(data), 64) for i in range(16)]
+    assert min(alpha) == 0 and max(alpha) >= 250
+print('PASS: all six RGBA8 fish assets have high-resolution dimensions and alpha')

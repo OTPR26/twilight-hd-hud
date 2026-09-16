@@ -1,31 +1,34 @@
-Twilight HD v1.8.2
+Twilight HD v2.0.1
 
-Requires Dusklight Nightly v1.4.1-259 or newer.
+Requires Dusklight Nightly v1.4.1-402 or newer.
 
-Updating: remove the previous Twilight HD .dusk file before adding this
-version. Keep only one version in the mods folder. Saves and settings are
-preserved. Fully restart Dusklight after updating.
+Includes check-only updates for iOS and tvOS.
+
+Updating: automatic and manual update checks are supported. In-game
+self-installation is not supported on iOS or tvOS. Install an updated signed
+Dusklight app build containing the newer mod; restarting alone does not update
+the bundled mod.
 
 Supported platforms:
 - iPhone and iPad ARM64
 - Apple TV ARM64
 
-Extract this ZIP before installing; upload or copy the .dusk file inside it.
+Extract this ZIP to obtain the .dusk file for app bundling and signing.
 
-New in v1.8.2:
-- Corrected Hero’s Shade training and skill-acquisition prompts
+New in v2.0.1:
+- Updated compatibility with Dusklight Nightly build 402.
+- Added higher-resolution artwork for all six fish in the Fish Journal.
+- Improved fish artwork loading reliability.
 
-iPhone and iPad installation:
-1. Launch Dusklight once so its data folders are created.
-2. Copy the included .dusk file into the Dusklight mods folder using the Files app.
-3. If that folder is unavailable, use Dusklight's local-network transfer page and upload the file under Mods.
-4. Restart Dusklight or reload mods from the mod manager.
+iPhone, iPad, and Apple TV installation:
+Twilight HD contains native executable code. On standard iOS and tvOS devices,
+the mod must be bundled and signed with Dusklight. Copying this unsigned .dusk
+file into the writable mods folder or uploading it through file transfer is
+not sufficient.
 
-Apple TV installation:
-1. Open Dusklight's file-transfer page on Apple TV and enable local-network transfer.
-2. On a phone or computer on the same network, enter the complete address shown on the television.
-3. Under Mods, upload the included .dusk file.
-4. Rescan or reload mods on Apple TV, then enable Twilight HD.
+1. Use this package in a Dusklight app bundling and signing workflow, or obtain
+   a signed Dusklight app build that includes Twilight HD v2.0.1.
+2. Install that app build, then enable Twilight HD in its mod settings.
 
 Controller compatibility:
 - Follow Dusklight Bindings respects the active controller profile and honors its Call Midna action without also triggering the control's normal game action.

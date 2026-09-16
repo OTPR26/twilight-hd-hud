@@ -30,7 +30,9 @@ function encodeRGBA8(pixels, width, height) {
     return result;
 }
 
-(async () => {
+module.exports = { encodeRGBA8 };
+
+if (require.main === module) (async () => {
     const names = ['collection-banner', 'collection-equipment-frame', 'item-bank-cell',
         'item-bank-circle', 'item-bank-shadow', 'dungeon-map-frame', 'dungeon-map-back-dpad',
         'overworld-map-frame', 'overworld-portal', 'fish-journal-seam', 'fish-journal-selection',

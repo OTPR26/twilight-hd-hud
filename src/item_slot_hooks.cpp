@@ -124,6 +124,7 @@ int s_descenderCorrectionDrawDepth = 0;
 dFile_select_c* s_activeFileSelect = nullptr;
 bool s_fileSelectScreenActive = false;
 bool s_fileSelectYesNoLayoutReady = false;
+bool s_fileSelectStylePending = false;
 f32 s_fileSelectYesNoX[2] = {};
 f32 s_fileSelectYesNoY[2] = {};
 
@@ -226,6 +227,7 @@ DEFINE_HOOK((static_cast<void (J2DPicture::*)(f32, f32, f32, f32, bool, bool, bo
 DEFINE_HOOK((static_cast<void (J2DTextBox::*)(f32, f32, f32, J2DTextBoxHBinding)>(&J2DTextBox::draw)), DmapPoeTextDrawHook);
 DEFINE_HOOK(&dMenu_Option_c::_create, OptionCreateHook);
 DEFINE_HOOK(&dMenu_Option_c::_move, OptionMoveHook);
+DEFINE_HOOK(&dMenu_Option_c::vib_move, OptionVibrationMoveHook);
 DEFINE_HOOK(&dMenu_Option_c::_draw, OptionDrawHook);
 DEFINE_HOOK(&dMenu_Option_c::drawHaihai, OptionDrawArrowsHook);
 DEFINE_HOOK(&dBrightCheck_c::screenSet, BrightCheckScreenSetHook);
@@ -355,6 +357,15 @@ ResourceBuffer s_fishJournalSelectionResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fishJournalDividerResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fishJournalRecordValueResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fishJournalRuleResource = RESOURCE_BUFFER_INIT;
+// Save-data species order, not the journal's visual book order.
+constexpr const char* kFishArtworkNames[6] = {
+    "hyrule-bass", "hylian-loach", "hylian-pike",
+    "ordon-catfish", "reekfish", "greengill",
+};
+ResourceBuffer s_fishArtworkResources[6] = {
+    RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
+    RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
+};
 ResourceBuffer s_lettersCornerResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_lettersScrollArrowResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_lettersScrollStateResources[11] = {
@@ -4220,11 +4231,11 @@ void add_option_prompts(dMenu_Option_c* menu) {
 }
 
 bool option_confirmation_active(const dMenu_Option_c* menu) {
-    return menu != nullptr &&
-        (menu->field_0x3ef == dMenu_Option_c::PROC_CONFIRM_OPEN_MOVE_e ||
-         menu->field_0x3ef == dMenu_Option_c::PROC_CONFIRM_MOVE_MOVE_e ||
-         menu->field_0x3ef == dMenu_Option_c::PROC_CONFIRM_SELECT_MOVE_e ||
-         menu->field_0x3ef == dMenu_Option_c::PROC_CONFIRM_CLOSE_MOVE_e);
+    // Native process enums include Ruby, but non-Japanese selection indices
+    // omit it. The warning's actual opening/closing frames are region-neutral.
+    return menu != nullptr && menu->mpWarning != nullptr &&
+        (menu->mpWarning->field_0x28 > 2849.0f ||
+         menu->mpWarning->field_0x2c > 2849);
 }
 
 bool fit_option_warning_frame(J2DPicture* frame, J2DTextBox* text, J2DPane* title) {
@@ -4804,14 +4815,17 @@ void replace_file_select_prompt(CPaneMgrAlpha* paneManager,
         hide_other_pictures(group, button);
     }
 
-    const JGeometry::TBox2<f32> bounds = button->getBounds();
-    button->changeTexture(replacement, 0);
-    button->resize(bounds.getWidth(), bounds.getHeight());
-    button->move(bounds.i.x, bounds.i.y);
-    button->setTexCoord(button->getTexture(0), BIND15, MIRROR0, false);
-    button->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
-        JUtility::TColor(255, 255, 255, 255));
-    button->setCornerColor(JUtility::TColor(255, 255, 255, 255));
+    if (button->getTexture(0) == nullptr ||
+        button->getTexture(0)->getTexInfo() != replacement) {
+        const JGeometry::TBox2<f32> bounds = button->getBounds();
+        button->changeTexture(replacement, 0);
+        button->resize(bounds.getWidth(), bounds.getHeight());
+        button->move(bounds.i.x, bounds.i.y);
+        button->setTexCoord(button->getTexture(0), BIND15, MIRROR0, false);
+        button->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+            JUtility::TColor(255, 255, 255, 255));
+        button->setCornerColor(JUtility::TColor(255, 255, 255, 255));
+    }
     button->show();
 }
 
@@ -5316,14 +5330,17 @@ void clear_file_select_prompt_panel(CPaneMgrAlpha* textManager) {
     if (panel == nullptr) {
         return;
     }
-    const JGeometry::TBox2<f32> bounds = panel->getBounds();
-    panel->changeTexture(clear, 0);
-    panel->resize(bounds.getWidth(), bounds.getHeight());
-    panel->move(bounds.i.x, bounds.i.y);
-    panel->setTexCoord(panel->getTexture(0), BIND15, MIRROR0, false);
-    panel->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
-        JUtility::TColor(255, 255, 255, 255));
-    panel->setCornerColor(JUtility::TColor(255, 255, 255, 255));
+    if (panel->getTexture(0) == nullptr ||
+        panel->getTexture(0)->getTexInfo() != clear) {
+        const JGeometry::TBox2<f32> bounds = panel->getBounds();
+        panel->changeTexture(clear, 0);
+        panel->resize(bounds.getWidth(), bounds.getHeight());
+        panel->move(bounds.i.x, bounds.i.y);
+        panel->setTexCoord(panel->getTexture(0), BIND15, MIRROR0, false);
+        panel->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+            JUtility::TColor(255, 255, 255, 255));
+        panel->setCornerColor(JUtility::TColor(255, 255, 255, 255));
+    }
     panel->show();
 }
 
@@ -5561,14 +5578,7 @@ void simplify_file_select_rows(dFile_select_c* menu) {
             find_largest_picture(group, base, largestArea);
         }
         if (base != nullptr) {
-            const JGeometry::TBox2<f32> bounds = base->getBounds();
-            base->changeTexture(replacement, 0);
-            base->resize(bounds.getWidth(), bounds.getHeight());
-            base->move(bounds.i.x, bounds.i.y);
-            base->setTexCoord(base->getTexture(0), BIND15, MIRROR0, false);
-            base->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
-                JUtility::TColor(255, 255, 255, 255));
-            base->setCornerColor(JUtility::TColor(255, 255, 255, 255));
+            apply_file_select_row_texture(base, replacement);
             base->show();
         }
     }
@@ -5597,14 +5607,7 @@ void simplify_file_select_rows(dFile_select_c* menu) {
             f32 largestArea = 0.0f;
             find_largest_picture(group, base, largestArea);
             if (base != nullptr) {
-                const JGeometry::TBox2<f32> bounds = base->getBounds();
-                base->changeTexture(clear, 0);
-                base->resize(bounds.getWidth(), bounds.getHeight());
-                base->move(bounds.i.x, bounds.i.y);
-                base->setTexCoord(base->getTexture(0), BIND15, MIRROR0, false);
-                base->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
-                    JUtility::TColor(255, 255, 255, 255));
-                base->setCornerColor(JUtility::TColor(255, 255, 255, 255));
+                apply_file_select_row_texture(base, clear);
                 base->show();
             }
         }
@@ -5661,11 +5664,10 @@ void size_file_select_row_for_hearts(J2DPicture* row, const bool hasSecondLine,
         };
     }
 
-    // File Selection and Save inherit different parent transforms, so equal
-    // local pane widths do not produce equal rectangles on screen. Define the
-    // shared TPHD width in final screen space, then divide out each row's live
-    // inherited scale. The two endpoints provide the narrow heart-safe width
-    // at 4:3 and the restrained maximum at 16:9 and wider.
+    // Set a stable local width and let the native parent animation scale the
+    // card along with its contents. J2D's cached global bounds only add
+    // translations, so their width/local-width ratio was not an inherited
+    // scale; it fed stale resize values back into the next frame instead.
     constexpr f32 kFourThreeWidthInHeights = 0.93f;
     constexpr f32 kWideWidthInHeights = 1.03f;
 #if TARGET_PC || defined(__ANDROID__)
@@ -5684,11 +5686,7 @@ void size_file_select_row_for_hearts(J2DPicture* row, const bool hasSecondLine,
 #else
     const f32 viewportHeight = mDoGph_gInf_c::getHeightF();
 #endif
-    const f32 localWidth = row->getBounds().getWidth();
-    const f32 renderedWidth = row->getGlbBounds().getWidth();
-    const f32 inheritedScale = localWidth > 0.001f && renderedWidth > 0.001f ?
-        renderedWidth / localWidth : 1.0f;
-    const f32 targetWidth = viewportHeight * widthInHeights / inheritedScale;
+    const f32 targetWidth = viewportHeight * widthInHeights;
     const f32 extraHeight = hasSecondLine ? 24.0f : 8.0f;
     const f32 targetHeight = geometry.height + extraHeight;
     row->resize(targetWidth, targetHeight);
@@ -6556,9 +6554,9 @@ void position_file_select_cursor(dFile_select_c* menu) {
     // current aspect scale when it draws.  Detaching it here freezes rendered
     // screen coordinates while the file-select panes continue to resize,
     // which makes the brackets drift as the window size/aspect changes.
-    const JGeometry::TBox2<f32>& bounds = rowBase->getGlbBounds();
-    menu->mSelIcon->setPos((bounds.i.x + bounds.f.x) * 0.5f,
-        (bounds.i.y + bounds.f.y) * 0.5f, rowBase, true);
+    CPaneMgr manager;
+    const Vec center = manager.getGlobalVtxCenter(rowBase, false, 0);
+    menu->mSelIcon->setPos(center.x, center.y, rowBase, true);
 
     // Apply one small, row-independent inset in the pane's virtual layout
     // units.  The selected box may scale, but these offsets remain tied to its
@@ -6602,6 +6600,20 @@ void align_file_select_play_time(J2DPicture* row, J2DTextBox* text) {
     text->add(dxLocal, dyLocal);
 }
 
+JGeometry::TBox2<f32> live_metadata_bounds(J2DPane* pane) {
+    CPaneMgr manager;
+    Mtx matrix;
+    const Vec a = manager.getGlobalVtx(pane, &matrix, 0, false, 0);
+    const Vec b = manager.getGlobalVtx(pane, &matrix, 3, false, 0);
+    return JGeometry::TBox2<f32>(a.x, a.y, b.x, b.y);
+}
+
+void translate_metadata_global(J2DPane* pane, f32 dx, f32 dy) {
+    const auto bounds = live_metadata_bounds(pane);
+    position_dmap_global_center(pane, (bounds.i.x + bounds.f.x) * 0.5f + dx,
+        (bounds.i.y + bounds.f.y) * 0.5f + dy);
+}
+
 void style_file_select_metadata(dFile_select_c* menu) {
     if (menu == nullptr) {
         return;
@@ -6627,7 +6639,7 @@ void style_file_select_metadata(dFile_select_c* menu) {
         auto* saveLabel = static_cast<J2DTextBox*>(
             group->search(MULTI_CHAR('f_s_t_02')));
         J2DPane* firstHeart = group->search(MULTI_CHAR('hear_20'));
-        const JGeometry::TBox2<f32>& groupGlobal = group->getGlbBounds();
+        const auto groupGlobal = live_metadata_bounds(group);
         const f32 scaleX = group->getWidth() > 0.0f ?
             groupGlobal.getWidth() / group->getWidth() : 1.0f;
         const f32 scaleY = group->getHeight() > 0.0f ?
@@ -6648,26 +6660,26 @@ void style_file_select_metadata(dFile_select_c* menu) {
         // repeat immediately before every draw.
         if (saveLabel != nullptr && std::isfinite(scaleY) &&
             std::fabs(scaleY) > 0.001f) {
-            const f32 saveTop = saveLabel->getGlbBounds().i.y;
+            const f32 saveTop = live_metadata_bounds(saveLabel).i.y;
             for (std::size_t heart = 0; heart < 20; ++heart) {
                 J2DPane* pane = group->search(kFileSelectHeartTags[heart]);
                 if (pane == nullptr || !pane->isVisible()) {
                     continue;
                 }
-                const JGeometry::TBox2<f32>& bounds = pane->getGlbBounds();
+                const auto bounds = live_metadata_bounds(pane);
                 const f32 targetBottom = saveTop -
                     (hasSecondHeartLine ? 5.0f : 3.0f) * scaleY -
                     (hasSecondHeartLine && heart < 10 ?
                         bounds.getHeight() : 0.0f);
                 if (std::isfinite(bounds.f.y) &&
                     std::isfinite(targetBottom)) {
-                    pane->add(0.0f, (targetBottom - bounds.f.y) / scaleY);
+                    translate_metadata_global(pane, 0.0f, targetBottom - bounds.f.y);
                 }
             }
         }
 
         const f32 heartLeft = firstHeart != nullptr ?
-            firstHeart->getGlbBounds().i.x : 0.0f;
+            live_metadata_bounds(firstHeart).i.x : 0.0f;
         const bool canAlign = firstHeart != nullptr &&
             std::isfinite(heartLeft) && std::isfinite(scaleX) &&
             std::isfinite(scaleY) && std::fabs(scaleX) > 0.001f &&
@@ -6678,17 +6690,17 @@ void style_file_select_metadata(dFile_select_c* menu) {
             if (saveLabel != nullptr && canAlign) {
                 name->mFlags = static_cast<u8>((name->mFlags & ~0x0c) |
                     (HBIND_RIGHT << 2));
-                const JGeometry::TBox2<f32>& nameBounds = name->getGlbBounds();
+                const auto nameBounds = live_metadata_bounds(name);
                 const JGeometry::TBox2<f32>& labelBounds =
-                    saveLabel->getGlbBounds();
+                    live_metadata_bounds(saveLabel);
                 const JGeometry::TBox2<f32>& heartBounds =
-                    firstHeart->getGlbBounds();
+                    live_metadata_bounds(firstHeart);
                 const f32 deltaX = labelBounds.f.x - nameBounds.f.x;
                 const f32 deltaY =
                     (heartBounds.i.y + heartBounds.f.y -
                         nameBounds.i.y - nameBounds.f.y) * 0.5f;
                 if (std::isfinite(deltaX) && std::isfinite(deltaY)) {
-                    name->add(deltaX / scaleX, deltaY / scaleY);
+                    translate_metadata_global(name, deltaX, deltaY);
                 }
             }
         }
@@ -6712,9 +6724,9 @@ void style_file_select_metadata(dFile_select_c* menu) {
                 }
                 if (canAlign) {
                     const f32 deltaX = heartLeft + 5.0f * scaleX -
-                        text->getGlbBounds().i.x;
+                        live_metadata_bounds(text).i.x;
                     if (std::isfinite(deltaX)) {
-                        text->add(deltaX / scaleX, 0.0f);
+                        translate_metadata_global(text, deltaX, 0.0f);
                     }
                 }
                 if (tag == MULTI_CHAR('w_ptim01')) {
@@ -7145,7 +7157,7 @@ void style_save_menu_metadata(dMenu_save_c* menu) {
         auto* playValue = static_cast<J2DTextBox*>(
             group->search(MULTI_CHAR('w_ptim01')));
         J2DPane* firstHeart = group->search(MULTI_CHAR('hear_20'));
-        const JGeometry::TBox2<f32>& groupGlobal = group->getGlbBounds();
+        const auto groupGlobal = live_metadata_bounds(group);
         const f32 scaleX = group->getWidth() > 0.0f ?
             groupGlobal.getWidth() / group->getWidth() : 1.0f;
         const f32 scaleY = group->getHeight() > 0.0f ?
@@ -7154,26 +7166,26 @@ void style_save_menu_metadata(dMenu_save_c* menu) {
         J2DPicture* row = save_menu_row_picture(menu, index);
         if (saveLabel != nullptr && std::isfinite(scaleY) &&
             std::fabs(scaleY) > 0.001f) {
-            const f32 saveTop = saveLabel->getGlbBounds().i.y;
+            const f32 saveTop = live_metadata_bounds(saveLabel).i.y;
             for (std::size_t heart = 0; heart < 20; ++heart) {
                 J2DPane* pane = group->search(kFileSelectHeartTags[heart]);
                 if (pane == nullptr || !pane->isVisible()) {
                     continue;
                 }
-                const JGeometry::TBox2<f32>& bounds = pane->getGlbBounds();
+                const auto bounds = live_metadata_bounds(pane);
                 const f32 targetBottom = saveTop -
                     (hasSecondHeartLine ? 5.0f : 3.0f) * scaleY -
                     (hasSecondHeartLine && heart < 10 ?
                         bounds.getHeight() : 0.0f);
                 if (std::isfinite(bounds.f.y) &&
                     std::isfinite(targetBottom)) {
-                    pane->add(0.0f, (targetBottom - bounds.f.y) / scaleY);
+                    translate_metadata_global(pane, 0.0f, targetBottom - bounds.f.y);
                 }
             }
         }
 
         const f32 heartLeft = firstHeart != nullptr ?
-            firstHeart->getGlbBounds().i.x : 0.0f;
+            live_metadata_bounds(firstHeart).i.x : 0.0f;
         const bool canAlign = firstHeart != nullptr &&
             std::isfinite(heartLeft) && std::isfinite(scaleX) &&
             std::isfinite(scaleY) && std::fabs(scaleX) > 0.001f &&
@@ -7184,17 +7196,17 @@ void style_save_menu_metadata(dMenu_save_c* menu) {
             if (saveLabel != nullptr && canAlign) {
                 name->mFlags = static_cast<u8>((name->mFlags & ~0x0c) |
                     (HBIND_RIGHT << 2));
-                const JGeometry::TBox2<f32>& nameBounds = name->getGlbBounds();
+                const auto nameBounds = live_metadata_bounds(name);
                 const JGeometry::TBox2<f32>& labelBounds =
-                    saveLabel->getGlbBounds();
+                    live_metadata_bounds(saveLabel);
                 const JGeometry::TBox2<f32>& heartBounds =
-                    firstHeart->getGlbBounds();
+                    live_metadata_bounds(firstHeart);
                 const f32 deltaX = labelBounds.f.x - nameBounds.f.x;
                 const f32 deltaY =
                     (heartBounds.i.y + heartBounds.f.y -
                         nameBounds.i.y - nameBounds.f.y) * 0.5f;
                 if (std::isfinite(deltaX) && std::isfinite(deltaY)) {
-                    name->add(deltaX / scaleX, deltaY / scaleY);
+                    translate_metadata_global(name, deltaX, deltaY);
                 }
             }
         }
@@ -7218,9 +7230,9 @@ void style_save_menu_metadata(dMenu_save_c* menu) {
                 }
                 if (canAlign) {
                     const f32 deltaX = heartLeft + 5.0f * scaleX -
-                        text->getGlbBounds().i.x;
+                        live_metadata_bounds(text).i.x;
                     if (std::isfinite(deltaX)) {
-                        text->add(deltaX / scaleX, 0.0f);
+                        translate_metadata_global(text, deltaX, 0.0f);
                     }
                 }
                 if (text == playValue) {
@@ -10744,6 +10756,19 @@ void after_letter_create(ModContext*, void* args, void*, void*) {
     }
 }
 
+void fit_fish_artwork(J2DPane* pane, f32 x, f32 y, f32 width, f32 height) {
+    auto* picture = as_picture(pane);
+    const auto* texture = picture != nullptr ? picture->getTexture(0) : nullptr;
+    const auto* info = texture != nullptr ? texture->getTexInfo() : nullptr;
+    if (info == nullptr || info->width == 0 || info->height == 0) return;
+    const f32 scale = std::min(width / info->width, height / info->height);
+    const f32 fittedWidth = info->width * scale;
+    const f32 fittedHeight = info->height * scale;
+    pane->resize(fittedWidth, fittedHeight);
+    pane->move(x + (width - fittedWidth) * 0.5f,
+        y + (height - fittedHeight) * 0.5f);
+}
+
 void ensure_fish_journal_overlay(dMenu_Fishing_c* menu);
 
 void after_fishing_create(ModContext*, void* args, void*, void*) {
@@ -10761,6 +10786,7 @@ void after_fishing_create(ModContext*, void* args, void*, void*) {
 struct FishJournalState {
     dMenu_Fishing_c* menu = nullptr;
     int selected = 0;
+    u8 missingTextureWarningMask = 0;
 };
 
 FishJournalState s_fishJournal;
@@ -10955,27 +10981,72 @@ void ensure_fish_journal_overlay(dMenu_Fishing_c* menu) {
             "", 11.5f, HBIND_CENTER);
         makeText(MULTI_CHAR('hd_fjsu'), {548.0f, 332.0f, 585.0f, 354.0f},
             "in.", 11.5f);
-        for (int index = 0; index < MAX_FINDABLE_FISHES; ++index) {
-            J2DPicture* source = nullptr;
-            f32 area = 0.0f;
-            find_largest_picture(menu->mpFishParts[0][index]->getPanePtr(), source, area);
-            JUTTexture* texture = source != nullptr ? source->getTexture(0) : nullptr;
-            ResTIMG const* info = texture != nullptr ? texture->getTexInfo() : nullptr;
-            if (info == nullptr) continue;
-            auto* detail = JKR_NEW J2DPicture(MULTI_CHAR('hd_fd00') + index,
-                JGeometry::TBox2<f32>(430.0f, 103.0f, 540.0f, 163.0f), info, nullptr);
+    }
+
+    // Native fish art is copied into the replacement journal as a fallback. A texture can
+    // still be unavailable during the first create callback on some builds,
+    // so construct unresolved species lazily instead of permanently omitting
+    // them after one failed lookup. Once created, these panes are reused.
+    for (int index = 0; index < MAX_FINDABLE_FISHES; ++index) {
+        const u64 detailTag = MULTI_CHAR('hd_fd00') + index;
+        const u64 listTag = MULTI_CHAR('hd_fl00') + index;
+        const u64 nameTag = MULTI_CHAR('hd_fn00') + index;
+        if (group->search(detailTag) != nullptr &&
+            group->search(listTag) != nullptr &&
+            group->search(nameTag) != nullptr) {
+            continue;
+        }
+
+        J2DPicture* source = nullptr;
+        f32 area = 0.0f;
+        if (menu->mpFishParts[0][index] != nullptr) {
+            find_largest_picture(
+                menu->mpFishParts[0][index]->getPanePtr(), source, area);
+        }
+        JUTTexture* texture = source != nullptr ? source->getTexture(0) : nullptr;
+        ResTIMG const* info = texture != nullptr ? texture->getTexInfo() : nullptr;
+        if (const auto* artwork = resource_texture(s_fishArtworkResources[index])) {
+            info = artwork;
+        }
+        if (info == nullptr) {
+            const u8 warningBit = static_cast<u8>(1u << index);
+            if (dComIfGs_getFishNum(index) != 0 &&
+                (s_fishJournal.missingTextureWarningMask & warningBit) == 0) {
+                char warning[96];
+                std::snprintf(warning, sizeof(warning),
+                    "Fish Journal texture unavailable for species %d; retrying",
+                    index);
+                svc_log->warn(mod_ctx, warning);
+                s_fishJournal.missingTextureWarningMask |= warningBit;
+            }
+            continue;
+        }
+
+        if (group->search(detailTag) == nullptr) {
+            auto* detail = JKR_NEW J2DPicture(detailTag,
+                JGeometry::TBox2<f32>(430.0f, 103.0f, 540.0f, 163.0f),
+                info, nullptr);
             configure_hd_picture(detail);
             group->appendChild(detail);
-            // Refresh assigns the compact caught-only row. Initial bounds are
-            // merely a safe construction position.
-            const f32 top = 96.0f;
-            auto* listPicture = JKR_NEW J2DPicture(MULTI_CHAR('hd_fl00') + index,
-                JGeometry::TBox2<f32>(72.0f, top, 151.0f, top + 35.0f), info, nullptr);
+        }
+        const f32 top = 96.0f;
+        if (group->search(listTag) == nullptr) {
+            auto* listPicture = JKR_NEW J2DPicture(listTag,
+                JGeometry::TBox2<f32>(72.0f, top, 151.0f, top + 35.0f),
+                info, nullptr);
             configure_hd_picture(listPicture);
             group->appendChild(listPicture);
-            makeText(MULTI_CHAR('hd_fn00') + index,
-                {45.0f, top + 33.0f, 178.0f, top + 52.0f}, "", 10.5f,
-                HBIND_CENTER);
+        }
+        if (group->search(nameTag) == nullptr) {
+            auto* listName = JKR_NEW J2DTextBox(nameTag,
+                JGeometry::TBox2<f32>(45.0f, top + 33.0f,
+                    178.0f, top + 52.0f), nullptr, "", 96,
+                HBIND_CENTER, VBIND_CENTER);
+            listName->setFont(mDoExt_getSubFont());
+            listName->setFontSize(10.5f, 10.5f);
+            listName->setFontColor(JUtility::TColor(83, 56, 21, 255),
+                JUtility::TColor(125, 86, 31, 255));
+            group->appendChild(listName);
         }
     }
     group->show();
@@ -11032,8 +11103,7 @@ void ensure_fish_journal_overlay(dMenu_Fishing_c* menu) {
             if (caught) listName->show(); else listName->hide();
         }
         if (J2DPane* listPicture = group->search(MULTI_CHAR('hd_fl00') + index)) {
-            listPicture->resize(85.0f, 38.0f);
-            listPicture->move(listLeft, listTop);
+            fit_fish_artwork(listPicture, listLeft, listTop, 85.0f, 38.0f);
             if (caught) listPicture->show(); else listPicture->hide();
         }
         if (index == s_fishJournal.selected) {
@@ -11044,6 +11114,7 @@ void ensure_fish_journal_overlay(dMenu_Fishing_c* menu) {
             }
         }
         if (J2DPane* detail = group->search(MULTI_CHAR('hd_fd00') + index)) {
+            fit_fish_artwork(detail, 430.0f, 103.0f, 110.0f, 60.0f);
             if (caught && index == s_fishJournal.selected) detail->show();
             else detail->hide();
         }
@@ -12741,16 +12812,44 @@ HookAction before_option_move(ModContext*, void*, void*, void*) {
     return HOOK_CONTINUE;
 }
 
+dMenu_Option_c* s_drawingOptionMenu = nullptr;
+
+HookAction before_option_vibration_move(ModContext*, void* args, void*, void*) {
+    auto* menu = mods::arg<dMenu_Option_c*>(args, 0);
+    if (menu == nullptr || menu->field_0x3f3 != 5 || menu->mpStick == nullptr)
+        return HOOK_CONTINUE;
+    // Trigger checks mutate repeat timers. Probe Up on a copy so the native
+    // handler still receives it when we are not handling Down.
+    STControl probe = *menu->mpStick;
+    if (!probe.checkUpTrigger() && menu->mpStick->checkDownTrigger()) {
+        // Sound follows Rumble in both regional selection tables. Let _move
+        // detect this transition and run the native sound_init afterward.
+        ++menu->field_0x3ef;
+        return HOOK_SKIP_ORIGINAL;
+    }
+    return HOOK_CONTINUE;
+}
+
+HookAction before_option_screen_draw(ModContext*, void* args, void*, void*) {
+    if (s_drawingOptionMenu != nullptr &&
+        mods::arg<J2DScreen*>(args, 0) == s_drawingOptionMenu->mpBackScreen) {
+        // Native _draw has now presented all animations, including the warning.
+        apply_option_hd_style(s_drawingOptionMenu);
+    }
+    return HOOK_CONTINUE;
+}
+
 HookAction before_option_draw(ModContext*, void* args, void*, void*) {
     // The native option animation recalculates row, arrow, and cursor
     // positions during movement. Reassert the HD presentation immediately
     // before drawing without touching its values or state machine.
-    apply_option_hd_style(mods::arg<dMenu_Option_c*>(args, 0));
+    s_drawingOptionMenu = mods::arg<dMenu_Option_c*>(args, 0);
     ++s_descenderCorrectionDrawDepth;
     return HOOK_CONTINUE;
 }
 
 void after_option_draw(ModContext*, void*, void*, void*) {
+    s_drawingOptionMenu = nullptr;
     if (s_descenderCorrectionDrawDepth > 0) {
         --s_descenderCorrectionDrawDepth;
     }
@@ -12813,18 +12912,28 @@ void after_file_select_create(ModContext*, void* args, void*, void*) {
     s_activeFileSelect = mods::arg<dFile_select_c*>(args, 0);
     s_fileSelectScreenActive = true;
     s_fileSelectYesNoLayoutReady = false;
-    apply_file_select_hd_style(s_activeFileSelect);
+    // Avoid allocating custom panes during native scene construction.
+    // The first draw must run the complete pass, including one-time prompt
+    // sizing and removal of the native decorative textures.
+    s_fileSelectStylePending = true;
 }
 
 void after_file_select_move(ModContext*, void* args, void*, void*) {
     // The native move pass runs before Dusklight's widescreen transform.
     // Positioning here and again before draw makes the two transforms fight
     // while a desktop window is being resized, producing visible flashing.
-    // before_file_select_draw applies the final idempotent placement instead.
+    // after_file_select_draw applies the final idempotent placement instead.
 }
 
-HookAction before_file_select_draw(ModContext*, void* args, void*, void*) {
+void after_file_select_draw(ModContext*, void* args, void*, void*) {
+    // Nightly 402 presents native animations and widescreen transforms inside
+    // _draw before queueing the screens. Apply our geometry afterwards so
+    // native presentation cannot overwrite it before those screens render.
     auto* menu = mods::arg<dFile_select_c*>(args, 0);
+    if (s_fileSelectStylePending && menu != nullptr && menu->fileSel.Scr != nullptr) {
+        apply_file_select_hd_style(menu);
+        s_fileSelectStylePending = false;
+    }
     s_fileSelectScreenActive = true;
     if (menu->mDataSelProc == dFile_select_c::DATASELPROC_NEXT_MODE_WAIT &&
         menu->mIsSelectEnd)
@@ -12863,7 +12972,6 @@ HookAction before_file_select_draw(ModContext*, void* args, void*, void*) {
     // animation has run so neither button can slide during selection changes.
     style_copy_destination_yes_no(menu,
         copy_destination_confirm_state(menu));
-    return HOOK_CONTINUE;
 }
 
 HookAction before_file_select_main_draw(ModContext*, void*, void*, void*) {
@@ -13536,8 +13644,23 @@ void after_meter_button_execute(ModContext*, void* args, void*, void*) {
     hide_legacy_overlay_z(buttons);
 }
 
+dMeter2Draw_c* s_pendingMeterDraw = nullptr;
+
 HookAction before_meter_draw(ModContext*, void* args, void*, void*) {
-    auto* meter = mods::arg<dMeter2Draw_c*>(args, 0);
+    s_pendingMeterDraw = mods::arg<dMeter2Draw_c*>(args, 0);
+    return HOOK_CONTINUE;
+}
+
+HookAction before_meter_screen_draw(ModContext*, void* args, void*, void*) {
+    auto* screen = mods::arg<J2DScreen*>(args, 0);
+    auto* meter = s_pendingMeterDraw;
+    if (meter == nullptr || screen != meter->mpScreen) {
+        return HOOK_CONTINUE;
+    }
+    // Nightly 402 applies HUD presentation inside dMeter2Draw_c::draw.
+    // Prepare once at the actual screen draw, after those animations and
+    // before either the panes or the item counts are rendered.
+    s_pendingMeterDraw = nullptr;
     refresh_native_face_button_items_for_touch_transition(meter);
     update_z_hud_item(meter);
     restore_archive_face_button_diamond(meter);
@@ -13577,6 +13700,7 @@ void after_meter_draw_kantera_meter(ModContext*, void* args, void*, void*) {
 
 void after_meter_draw(ModContext*, void* args, void*, void*) {
     auto* meter = mods::arg<dMeter2Draw_c*>(args, 0);
+    s_pendingMeterDraw = nullptr;
     restore_wii_u_item_num_layout(meter);
     draw_z_hud_item_meters(meter);
     if (!menu_overlay_hides_rupees() && s_activeCollectMenu == nullptr &&
@@ -13760,6 +13884,14 @@ HookAction before_message_screen_draw(ModContext*, void* args, void*, void*) {
 
 void after_meter_midna_alpha(ModContext*, void* args, void*, void*) {
     position_midna_hud(mods::arg<dMeter2Draw_c*>(args, 0));
+}
+
+HookAction before_meter_draw_button_cross(ModContext*, void* args, void*, void*) {
+    // Both simulation and presentation update the native cross. Keep its
+    // established minimap-off anchor in both paths; Midna shares this anchor.
+    mods::arg_ref<f32>(args, 1) = g_drawHIO.mButtonCrossOFFPosX;
+    mods::arg_ref<f32>(args, 2) = 0.0f;
+    return HOOK_CONTINUE;
 }
 
 void after_meter_draw_button_cross(ModContext*, void* args, void*, void*) {
@@ -14503,6 +14635,12 @@ void initialize_face_button_textures() {
             &s_fishJournalRuleResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the Fish Journal screen rules");
     }
+    for (std::size_t index = 0; index < 6; ++index) {
+        char path[96];
+        std::snprintf(path, sizeof(path), "menu/fish/%s.bti", kFishArtworkNames[index]);
+        if (svc_resource->load(mod_ctx, path, &s_fishArtworkResources[index]) != MOD_OK)
+            svc_log->warn(mod_ctx, "HD fish artwork unavailable; using native texture");
+    }
     if (svc_resource->load(mod_ctx, "menu/letters-corner.bti",
             &s_lettersCornerResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the Letters parchment ornaments");
@@ -14646,6 +14784,7 @@ void shutdown_face_button_textures() {
     free_resource(s_fishJournalDividerResource);
     free_resource(s_fishJournalRecordValueResource);
     free_resource(s_fishJournalRuleResource);
+    for (auto& resource : s_fishArtworkResources) free_resource(resource);
     free_resource(s_lettersCornerResource);
     free_resource(s_lettersScrollArrowResource);
     for (ResourceBuffer& resource : s_lettersScrollStateResources) {
@@ -14706,6 +14845,7 @@ void shutdown_item_slot_resources() {
     s_collectTitleLabel = nullptr;
     s_descenderCorrectionDrawDepth = 0;
     s_fileSelectYesNoLayoutReady = false;
+    s_fileSelectStylePending = false;
     s_fixedMidnaHeld = false;
     s_fixedMidnaTrig = false;
     s_fixedOpenMapTrig = false;
@@ -14824,9 +14964,13 @@ ModResult install_item_slot_hooks(ModError* error) {
         "hide legacy item-ring Z overlay");
     ADD_POST(MeterButtonDrawHook, after_meter_button_draw, "restore native action text size");
     ADD_PRE(MeterDrawHook, before_meter_draw, "HUD draw (before)");
+    ADD_PRE(ScreenDrawHook, before_meter_screen_draw,
+        "HUD layout after native presentation");
     ADD_POST(MeterDrawHook, after_meter_draw, "HUD draw (after)");
     ADD_POST(MeterDrawKanteraMeterHook, after_meter_draw_kantera_meter,
         "TPHD lantern meter layout");
+    ADD_PRE(MeterDrawButtonCrossHook, before_meter_draw_button_cross,
+        "stationary D-pad anchor with minimap visible");
     ADD_POST(MeterDrawButtonCrossHook, after_meter_draw_button_cross,
         "persistent TPHD D-pad scale after viewport refresh");
     ADD_PRE(MeterDrawButtonZHook, before_meter_draw_button_z,
@@ -14929,6 +15073,8 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_POST(BrightCheckScreenSetHook, after_brightness_check_screen_set,
         "brightness check HD style");
     ADD_PRE(OptionMoveHook, before_option_move, "options display button mapping");
+    ADD_PRE(OptionVibrationMoveHook, before_option_vibration_move, "options sound row navigation");
+    ADD_PRE(ScreenDrawHook, before_option_screen_draw, "options final presentation layout");
     ADD_PRE(OptionDrawHook, before_option_draw, "options menu HD draw");
     ADD_POST(OptionDrawHook, after_option_draw, "options descender scope");
     ADD_PRE(BrightCheckDrawHook, before_brightness_check_draw,
@@ -14939,9 +15085,9 @@ ModResult install_item_slot_hooks(ModError* error) {
         "menu font descender correction");
     ADD_PRE(OptionDrawArrowsHook, before_option_draw_arrows,
         "options menu selection arrows");
-    ADD_POST(FileSelectCreateHook, after_file_select_create, "file selection HD style");
+    ADD_POST(FileSelectCreateHook, after_file_select_create, "file selection HD state");
     ADD_POST(FileSelectMoveHook, after_file_select_move, "file selection HD prompt position");
-    ADD_PRE(FileSelectDrawHook, before_file_select_draw, "file selection HD text");
+    ADD_POST(FileSelectDrawHook, after_file_select_draw, "file selection HD text");
     ADD_PRE(FileSelectMainDrawHook, before_file_select_main_draw,
         "file selection descender scope");
     ADD_POST(FileSelectMainDrawHook, after_file_select_main_draw,

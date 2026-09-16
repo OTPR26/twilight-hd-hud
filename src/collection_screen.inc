@@ -656,7 +656,12 @@ void position_collection_cursor(dMenu_Collect2D_c* menu) {
     const Vec first = menu->mpLinkPm->getGlobalVtx(target, &matrix, 0, false, 0);
     const Vec last = menu->mpLinkPm->getGlobalVtx(target, &matrix, 3, false, 0);
     auto* cursor = menu->mpDrawCursor;
-    cursor->setPos((first.x + last.x) * 0.5f, (first.y + last.y) * 0.5f, nullptr, false);
+    const float centerX = (first.x + last.x) * 0.5f;
+    const float centerY = (first.y + last.y) * 0.5f;
+    cursor->setPos(centerX, centerY, target, false);
+    // This helper also runs after update(): move the rendered root, not only
+    // the position that the next update will consume.
+    if (cursor->mpPaneMgr != nullptr) cursor->mpPaneMgr->translate(centerX, centerY);
     const float scale = current_collection_viewport().scale;
     const float halfWidth = collection_cursor_half_extent(std::fabs(last.x - first.x), scale);
     const float halfHeight = collection_cursor_half_extent(std::fabs(last.y - first.y), scale);

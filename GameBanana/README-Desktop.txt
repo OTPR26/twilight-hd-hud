@@ -1,6 +1,6 @@
-Twilight HD v1.8.2
+Twilight HD v2.0.1
 
-Requires Dusklight Nightly v1.4.1-259 or newer.
+Requires Dusklight Nightly v1.4.1-402 or newer.
 
 Updating: Twilight HD can automatically check for a newer release and install
 it in game when Auto Update Checks is enabled. If updating manually, remove the
@@ -14,8 +14,10 @@ Supported platforms:
 - macOS Apple Silicon
 - Android ARM64
 
-New in v1.8.2:
-- Corrected Hero’s Shade training and skill-acquisition prompts
+New in v2.0.1:
+- Updated compatibility with Dusklight Nightly build 402.
+- Added higher-resolution artwork for all six fish in the Fish Journal.
+- Improved fish artwork loading reliability.
 
 Installation:
 1. Extract this ZIP and place the included .dusk file in the mods folder inside the active Dusklight data folder.

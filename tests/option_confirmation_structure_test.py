@@ -20,8 +20,12 @@ assert 'titleGroup->hide()' in style and 'else titleGroup->show()' in style
 assert 'warningReady && option_confirmation_active(menu)' in style
 active = source.split('bool option_confirmation_active(', 1)[1].split(
     'bool fit_option_warning_frame(', 1)[0]
-for state in ('OPEN', 'MOVE', 'SELECT', 'CLOSE'):
-    assert f'PROC_CONFIRM_{state}_MOVE_e' in active
+# Warning animation state is region-neutral; process indices differ when
+# the Japanese-only Ruby option is omitted.
+assert 'menu->mpWarning != nullptr' in active
+assert 'menu->mpWarning->field_0x28 > 2849.0f' in active
+assert 'menu->mpWarning->field_0x2c > 2849' in active
+assert 'PROC_CONFIRM_' not in active
 
 # Compare actual authored rectangles, not approximate button placement.
 # Options must use the same whole flourish/label/disc geometry as Quest Log
