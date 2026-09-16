@@ -124,7 +124,7 @@ Dusklight's **Minimal HUD** setting to hide the HUD.
 
 ## Controller layouts
 
-Both **BAYX** layouts use Xbox shoulder/trigger prompts: LB, RB, LT, and RT,
+All **BAYX** layouts use Xbox shoulder/trigger prompts: LB, RB, LT, and RT,
 in either Silver or Black Pro style.
 
 The optional **BAYX Flipped** button layout retains Nintendo-style face-button
@@ -147,15 +147,30 @@ put Attack on East and Action on South. Custom bindings remain unchanged.
 
 Physical controller bindings still depend on the active Dusklight controller profile.
 
+**ABXY (BOTW Style)**, **BAYX (BOTW Style)**, and **Universal (BOTW Style)**
+place Attack on West, Action on South, and the two face-button items on North
+and East. These are visual presets, not input remaps. Configure the matching
+bindings in Dusklight: native B/Attack to West, native A/Action to South,
+native X/item to North, and native Y/item to East. L, R, triggers, and D-Pad
+bindings are unchanged. Menu, dialogue, and item-assignment prompts show the
+same selected face-button labels; actual menu behavior follows Dusklight's
+bindings. The mod does not detect or rewrite arbitrary custom bindings.
+
 The **Button Layout** setting includes a PlayStation option that displays Circle for the east
 action, Cross for the south attack, Triangle and Square for the two face-button items, R1 for the
 third item, L2 for enemy lock-on, and R2 for Gale Boomerang multi-target lock.
 
 The **Button Style** setting switches between the standard silver TPHD prompts and dark graphite
 **Black Pro** prompts. Button Style is independent of the ABXY, BAYX, Universal, and PlayStation
-layouts, including BAYX Flipped.
+layouts, including BAYX Flipped and the BOTW Style presets. Both Universal
+layouts additionally offer **Transparent**, preserving their former blank
+background appearance. Universal **Silver** now uses a letterless version of
+the standard silver button artwork. Transparent is unavailable for lettered
+layouts; switching to one returns that style to Silver.
 
-The default **Follow Dusklight Bindings** controller mode leaves that profile unchanged and honors
+The **Shoulder & D-Pad Behavior** setting controls Midna, shoulder/trigger handling,
+and related D-Pad shortcuts. Face-button bindings are always configured in Dusklight.
+The default **Follow Dusklight Bindings** mode leaves that profile unchanged and honors
 the configured **Call Midna** action without also triggering the control's normal game action. Its
 HUD prompt follows that assignment, including the default R shoulder and either vertical D-Pad
 direction. The optional **TPHD Fixed Bindings** mode ignores the separate Call Midna binding and

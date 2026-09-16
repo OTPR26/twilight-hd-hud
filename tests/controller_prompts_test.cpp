@@ -20,6 +20,36 @@ struct LiteralTextBox {
 };
 
 int main() {
+    for (auto layout : {ButtonLayout::NintendoBotw, ButtonLayout::XboxBotw,
+            ButtonLayout::UniversalBotw}) {
+        assert(is_botw_layout(layout));
+        assert(face_position_for_action(layout, 'A') == 'B'); // South
+        assert(face_position_for_action(layout, 'B') == 'Y'); // West
+        assert(face_position_for_action(layout, 'X') == 'X'); // North
+        assert(face_position_for_action(layout, 'Y') == 'A'); // East
+        assert(face_position_for_action(layout, 'L') == 'L');
+        assert(face_position_for_action(layout, 'R') == 'R');
+        assert(std::string(item_combo_button_label(layout)) ==
+            (layout == ButtonLayout::XboxBotw ? "LT" : "ZL"));
+    }
+    assert(face_letter_for_action(ButtonLayout::NintendoBotw, 'A') == 'B');
+    assert(face_letter_for_action(ButtonLayout::NintendoBotw, 'B') == 'Y');
+    assert(face_letter_for_action(ButtonLayout::NintendoBotw, 'X') == 'X');
+    assert(face_letter_for_action(ButtonLayout::NintendoBotw, 'Y') == 'A');
+    assert(face_letter_for_action(ButtonLayout::XboxBotw, 'A') == 'A');
+    assert(face_letter_for_action(ButtonLayout::XboxBotw, 'B') == 'X');
+    assert(face_letter_for_action(ButtonLayout::XboxBotw, 'X') == 'Y');
+    assert(face_letter_for_action(ButtonLayout::XboxBotw, 'Y') == 'B');
+    for (auto layout : {ButtonLayout::Nintendo, ButtonLayout::Xbox, ButtonLayout::BayxFlipped,
+            ButtonLayout::PlayStation, ButtonLayout::Universal}) {
+        assert(!is_botw_layout(layout));
+        for (char action : {'A', 'B', 'X', 'Y'}) assert(face_position_for_action(layout, action) == action);
+    }
+    std::ifstream silver("res/hud/face-button-blank-silver.bti", std::ios::binary);
+    const std::vector<unsigned char> blank{std::istreambuf_iterator<char>(silver), {}};
+    assert(blank.size() == 32 + 88 * 88 * 4);
+    assert(blank[0] == 6 && blank[3] == 88 && blank[5] == 88);
+    assert(blank[32] == 0); // Transparent outer canvas, not a black square.
     LiteralTextBox combo;
     for (auto layout : {ButtonLayout::BayxFlipped, ButtonLayout::Xbox,
              ButtonLayout::PlayStation, ButtonLayout::Nintendo, ButtonLayout::Universal}) {

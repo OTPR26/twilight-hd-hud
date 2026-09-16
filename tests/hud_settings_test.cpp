@@ -18,6 +18,11 @@ static std::vector<std::string> names;
 static std::map<std::string, ConfigVarType> types;
 static std::vector<UiControlDesc> controls;
 static UiMenuTabDesc menuTab{};
+static std::map<UiElementHandle, bool> visible;
+static ModResult set_visible(ModContext*, UiElementHandle handle, bool value) {
+    visible[handle] = value;
+    return MOD_OK;
+}
 
 static ModResult register_var(ModContext*, const ConfigVarDesc* desc, ConfigVarHandle* handle) {
     assert(desc->type == CONFIG_VAR_INT || desc->type == CONFIG_VAR_BOOL);
@@ -54,25 +59,30 @@ static ModResult section(ModContext*, UiElementHandle pane, const char*) {
 static ModResult text(ModContext*, UiElementHandle pane, const char*, UiElementHandle*) {
     assert(pane == 2); return MOD_OK;
 }
-static ModResult control(ModContext*, UiElementHandle pane, const UiControlDesc* desc, UiElementHandle*) {
-    assert(pane == 2); controls.push_back(*desc); return MOD_OK;
+static ModResult control(ModContext*, UiElementHandle pane, const UiControlDesc* desc, UiElementHandle* handle) {
+    assert(pane == 2); controls.push_back(*desc);
+    if (handle) *handle = controls.size();
+    return MOD_OK;
 }
 static ModResult window(ModContext*, const UiWindowDesc* desc, UiWindowHandle* handle) {
     assert(desc->tab_count == 2);
     assert(std::string(desc->tabs[1].title) == "HUD Sizing");
     assert(desc->tabs[0].build(nullptr, 1, 2, 3, nullptr, nullptr) == MOD_OK);
-    assert(controls[0].kind == UI_CONTROL_SELECT && controls[0].option_count == 5);
+    assert(controls[0].kind == UI_CONTROL_SELECT && controls[0].option_count == 8);
     assert(std::string(controls[0].options[0]) == "ABXY");
-    assert(std::string(controls[0].options[1]) == "BAYX");
-    assert(std::string(controls[0].options[2]) == "BAYX Flipped");
-    assert(std::string(controls[0].options[3]) == "Universal");
-    assert(std::string(controls[0].options[4]) == "PlayStation");
+    assert(std::string(controls[0].options[1]) == "ABXY (BOTW Style)");
+    assert(std::string(controls[0].options[2]) == "BAYX");
+    assert(std::string(controls[0].options[3]) == "BAYX Flipped");
+    assert(std::string(controls[0].options[4]) == "BAYX (BOTW Style)");
+    assert(std::string(controls[0].options[5]) == "Universal");
+    assert(std::string(controls[0].options[6]) == "Universal (BOTW Style)");
+    assert(std::string(controls[0].options[7]) == "PlayStation");
     assert(std::string(controls[0].help_rml).find("BAYX") == std::string::npos);
     // Reordering the menu must not reinterpret existing saved choices.
-    constexpr int64_t persisted[] = {0, 1, 4, 2, 3};
+    constexpr int64_t persisted[] = {0, 5, 1, 4, 6, 2, 7, 3};
     const auto& layout = controls[0];
     assert(layout.binding == UI_BINDING_CALLBACKS);
-    for (int64_t index = 0; index < 5; ++index) {
+    for (int64_t index = 0; index < 8; ++index) {
         saved["button-layout"] = persisted[index];
         UiControlValue value = UI_CONTROL_VALUE_INIT;
         layout.get(nullptr, nullptr, &value);
@@ -80,22 +90,40 @@ static ModResult window(ModContext*, const UiWindowDesc* desc, UiWindowHandle* h
         saved["button-layout"] = 0;
         layout.set(nullptr, nullptr, &value);
         assert(saved.at("button-layout") == persisted[index]);
+        const bool universal = index == 5 || index == 6;
+        assert(visible.at(2) == !universal && visible.at(3) == universal);
     }
-    for (int64_t invalid : {-1, 5}) {
+    for (int64_t invalid : {-1, 8}) {
         UiControlValue value = UI_CONTROL_VALUE_INIT;
         value.int_value = invalid;
         layout.set(nullptr, nullptr, &value);
         assert(saved.at("button-layout") == 3);
     }
     saved["button-layout"] = 0;
-    assert(std::string(controls[3].help_rml) ==
+    assert(controls[1].option_count == 2 && controls[2].option_count == 3);
+    assert(std::string(controls[3].label) == "Shoulder & D-Pad Behavior");
+    assert(controls[3].config_var == controller_compatibility_config_var());
+    assert(std::string(controls[3].help_rml).find(
+        "Face-button bindings are always configured in Dusklight.") != std::string::npos);
+    assert(std::string(controls[2].options[2]) == "Transparent");
+    for (int64_t raw = 0; raw < 8; ++raw) {
+        saved["button-layout"] = raw;
+        saved["button-style"] = 2;
+        assert(button_style() == (is_universal_layout(button_layout()) ?
+            ButtonStyle::Transparent : ButtonStyle::Silver));
+    }
+    UiControlValue normal = UI_CONTROL_VALUE_INIT;
+    normal.int_value = 0;
+    layout.set(nullptr, nullptr, &normal);
+    assert(saved["button-style"] == 0);
+    assert(std::string(controls[4].help_rml) ==
         "Choose the in-game text font. Restart Dusklight to apply changes.");
-    assert(std::string(controls[4].label) == "Items Screen");
-    assert(controls[4].option_count == 2);
-    assert(std::string(controls[4].options[0]) == "TPHD Bank");
-    assert(std::string(controls[4].options[1]) == "Original Wheel");
-    assert(controls.size() == 6);
-    const auto& swap = controls[5];
+    assert(std::string(controls[5].label) == "Items Screen");
+    assert(controls[5].option_count == 2);
+    assert(std::string(controls[5].options[0]) == "TPHD Bank");
+    assert(std::string(controls[5].options[1]) == "Original Wheel");
+    assert(controls.size() == 7);
+    const auto& swap = controls[6];
     assert(swap.kind == UI_CONTROL_TOGGLE);
     assert(std::string(swap.label) == "TPHD Items / Collection Buttons");
     assert(swap.binding == UI_BINDING_CONFIG_VAR);
@@ -155,6 +183,8 @@ int main() {
     saved["button-layout"] = 4;
     assert(button_layout() == ButtonLayout::BayxFlipped);
     saved["button-layout"] = 5;
+    assert(button_layout() == ButtonLayout::NintendoBotw);
+    saved["button-layout"] = 8;
     assert(button_layout() == ButtonLayout::Nintendo);
     saved["button-layout"] = 0;
     assert(hud_size_percent(HudSizeSetting::Overall) == 125);
@@ -181,6 +211,7 @@ int main() {
     assert(hud_scales().minimap == 1.14f);
 
     UiService ui{};
+    ui.elem_set_visible = set_visible;
     ui.pane_add_section = section;
     ui.pane_add_text = text;
     ui.pane_add_control = control;

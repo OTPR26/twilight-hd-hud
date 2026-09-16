@@ -323,6 +323,7 @@ ResourceBuffer s_xboxShoulderButtonResources[2][4] = {
     {RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT},
 };
 ResourceBuffer s_blackProBlankFaceButtonResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_silverBlankFaceButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_blackProShoulderButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_lShoulderButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_blackProLShoulderButtonResource = RESOURCE_BUFFER_INIT;
@@ -1365,6 +1366,11 @@ ResTIMG const* styled_zr_button_texture() {
 }
 
 ResTIMG const* styled_blank_face_button_texture() {
+    if (button_style() == ButtonStyle::Silver) {
+        if (ResTIMG const* texture = resource_texture(s_silverBlankFaceButtonResource)) {
+            return texture;
+        }
+    }
     if (button_style() == ButtonStyle::BlackPro) {
         if (ResTIMG const* texture = resource_texture(s_blackProBlankFaceButtonResource)) {
             return texture;
@@ -1374,6 +1380,10 @@ ResTIMG const* styled_blank_face_button_texture() {
 }
 
 ResTIMG const* menu_face_button_texture(const bool nativeAAction) {
+    if (is_botw_layout(button_layout())) {
+        return is_universal_layout(button_layout()) ? styled_blank_face_button_texture() :
+            styled_face_button_texture(face_letter_for_action(button_layout(), nativeAAction ? 'A' : 'B'));
+    }
     ResTIMG const* buttonA = styled_face_button_texture('A');
     ResTIMG const* buttonB = styled_face_button_texture('B');
 
@@ -1389,11 +1399,16 @@ ResTIMG const* menu_face_button_texture(const bool nativeAAction) {
         return styled_blank_face_button_texture();
     case ButtonLayout::PlayStation:
         return playstation_face_button_texture(nativeAAction ? 'A' : 'B');
+    default: break; // BOTW presets handled above.
     }
     return nativeAAction ? buttonA : buttonB;
 }
 
 ResTIMG const* item_assignment_button_texture(const bool nativeXButton) {
+    if (is_botw_layout(button_layout())) {
+        return is_universal_layout(button_layout()) ? styled_blank_face_button_texture() :
+            styled_face_button_texture(face_letter_for_action(button_layout(), nativeXButton ? 'X' : 'Y'));
+    }
     switch (button_layout()) {
     case ButtonLayout::Nintendo:
     case ButtonLayout::BayxFlipped:
@@ -1404,6 +1419,7 @@ ResTIMG const* item_assignment_button_texture(const bool nativeXButton) {
         return styled_blank_face_button_texture();
     case ButtonLayout::PlayStation:
         return playstation_face_button_texture(nativeXButton ? 'X' : 'Y');
+    default: break;
     }
     return styled_face_button_texture(nativeXButton ? 'X' : 'Y');
 }
@@ -7689,27 +7705,8 @@ void apply_collect_menu_button_layout(dMenu_Collect2D_c* menu) {
     ResTIMG const* aGlyphTexture = collect_archive_texture("tt_zelda_button_a_text.bti");
     ResTIMG const* bGlyphTexture = collect_archive_texture("tt_zelda_button_b_text.bti");
     ResTIMG const* decorationTexture = collect_archive_texture("tt_gold_uzu_long2.bti");
-    ResTIMG const* buttonA = styled_face_button_texture('A');
-    ResTIMG const* buttonB = styled_face_button_texture('B');
-
-    switch (button_layout()) {
-    case ButtonLayout::Nintendo:
-    case ButtonLayout::BayxFlipped:
-        break;
-    case ButtonLayout::Xbox:
-        std::swap(buttonA, buttonB);
-        break;
-    case ButtonLayout::Universal: {
-        ResTIMG const* blank = styled_blank_face_button_texture();
-        buttonA = blank;
-        buttonB = blank;
-        break;
-    }
-    case ButtonLayout::PlayStation:
-        buttonA = playstation_face_button_texture('A');
-        buttonB = playstation_face_button_texture('B');
-        break;
-    }
+    ResTIMG const* buttonA = menu_face_button_texture(true);
+    ResTIMG const* buttonB = menu_face_button_texture(false);
 
     replace_collect_buttons_in_tree(screen, baseTexture, aGlyphTexture,
         bGlyphTexture, decorationTexture, buttonA, buttonB);
@@ -7842,7 +7839,8 @@ JGeometry::TBox2<f32> collection_submenu_global_bounds(J2DPane* pane) {
 // In-game HUD ---------------------------------------------------------------
 
 void apply_flipped_diamond_positions(dMeter2Draw_c* meter) {
-    if (button_layout() != ButtonLayout::BayxFlipped || meter == nullptr ||
+    const bool botw = is_botw_layout(button_layout());
+    if ((!botw && button_layout() != ButtonLayout::BayxFlipped) || meter == nullptr ||
         meter->mpScreen == nullptr || meter->mpButtonA == nullptr ||
         meter->mpButtonB == nullptr) return;
     J2DPane* aPicture = meter->mpScreen->search(MULTI_CHAR('a_btn'));
@@ -7854,6 +7852,22 @@ void apply_flipped_diamond_positions(dMeter2Draw_c* meter) {
     // so changing layouts repeatedly cannot accumulate this offset.
     const Vec action = meter->mpButtonA->getGlobalVtxCenter(aPicture, false, 0);
     const Vec attack = meter->mpButtonB->getGlobalVtxCenter(bPicture, false, 0);
+    if (botw) {
+        J2DPane* yPicture = meter->mpScreen->search(MULTI_CHAR('y_btn'));
+        if (meter->mpButtonXY[1] == nullptr || yPicture == nullptr) return;
+        // Capture all three original centers before moving any subtree.
+        const Vec item = meter->mpButtonXY[1]->getGlobalVtxCenter(yPicture, false, 0);
+        offset_diamond_group<J2DPane, 3>({pane_ptr(meter->mpButtonA), pane_ptr(meter->mpTextA), nullptr},
+            attack.x - action.x, attack.y - action.y);
+        offset_diamond_group<J2DPane, 3>({pane_ptr(meter->mpButtonB), pane_ptr(meter->mpTextB),
+            pane_ptr(meter->mpItemB)}, item.x - attack.x, item.y - attack.y);
+        offset_diamond_group<J2DPane, 4>({pane_ptr(meter->mpButtonXY[1]), pane_ptr(meter->mpTextXY[1]),
+            pane_ptr(meter->mpItemXY[1]), pane_ptr(meter->mpLightXY[1])},
+            action.x - item.x, action.y - item.y);
+        // Counts, oil gauges and combo attachments follow mpItemXY's final bounds.
+        // The North item, R item and all shoulder prompts remain untouched.
+        return;
+    }
     offset_diamond_group<J2DPane, 3>({pane_ptr(meter->mpButtonA), pane_ptr(meter->mpTextA), nullptr},
         attack.x - action.x, attack.y - action.y);
     offset_diamond_group<J2DPane, 3>({pane_ptr(meter->mpButtonB), pane_ptr(meter->mpTextB),
@@ -7866,6 +7880,13 @@ void apply_button_layout_preference(dMeter2Draw_c* meter) {
     }
 
     const ButtonLayout layout = button_layout();
+    if (is_botw_layout(layout)) {
+        set_face_button_texture(meter, MULTI_CHAR('a_btn'), menu_face_button_texture(true));
+        set_face_button_texture(meter, MULTI_CHAR('b_btn'), menu_face_button_texture(false));
+        set_face_button_texture(meter, MULTI_CHAR('x_btn'), item_assignment_button_texture(true));
+        set_face_button_texture(meter, MULTI_CHAR('y_btn'), item_assignment_button_texture(false));
+        return;
+    }
     ResTIMG const* buttonA = styled_face_button_texture('A');
     ResTIMG const* buttonB = styled_face_button_texture('B');
 
@@ -8892,17 +8913,7 @@ void apply_item_wheel_z_offset(Vec& pos) {
 }
 
 ResTIMG const* ring_assignment_face_texture(const bool xButton) {
-    const ButtonLayout layout = button_layout();
-    if (layout == ButtonLayout::Universal) {
-        return styled_blank_face_button_texture();
-    }
-    if (layout == ButtonLayout::Xbox) {
-        return styled_face_button_texture(xButton ? 'Y' : 'X');
-    }
-    if (layout == ButtonLayout::PlayStation) {
-        return playstation_face_button_texture(xButton ? 'X' : 'Y');
-    }
-    return styled_face_button_texture(xButton ? 'X' : 'Y');
+    return item_assignment_button_texture(xButton);
 }
 
 void style_ring_assignment_face_buttons(dMenu_Ring_c* ring) {
@@ -14537,6 +14548,10 @@ void initialize_face_button_textures() {
             &s_blackProBlankFaceButtonResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the blank Black Pro button texture");
     }
+    if (svc_resource->load(mod_ctx, "hud/face-button-blank-silver.bti",
+            &s_silverBlankFaceButtonResource) != MOD_OK) {
+        svc_log->warn(mod_ctx, "Unable to load the blank Silver button texture");
+    }
     if (svc_resource->load(mod_ctx, "hud/shoulder-button-r-black-pro.bti",
             &s_blackProShoulderButtonResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the Black Pro R button texture");
@@ -14759,6 +14774,7 @@ void shutdown_face_button_textures() {
         free_resource(resource);
     }
     free_resource(s_blackProBlankFaceButtonResource);
+    free_resource(s_silverBlankFaceButtonResource);
     free_resource(s_blackProShoulderButtonResource);
     free_resource(s_lShoulderButtonResource);
     free_resource(s_blackProLShoulderButtonResource);

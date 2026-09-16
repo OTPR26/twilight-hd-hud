@@ -140,7 +140,7 @@ ControllerCompatibility controller_compatibility() {
 ButtonLayout button_layout() {
     const int64_t value = get_int(s_buttonLayout, static_cast<int64_t>(ButtonLayout::Nintendo));
     if (value < static_cast<int64_t>(ButtonLayout::Nintendo) ||
-        value > static_cast<int64_t>(ButtonLayout::BayxFlipped))
+        value > static_cast<int64_t>(ButtonLayout::UniversalBotw))
     {
         return ButtonLayout::Nintendo;
     }
@@ -150,7 +150,9 @@ ButtonLayout button_layout() {
 ButtonStyle button_style() {
     const int64_t value = get_int(s_buttonStyle, static_cast<int64_t>(ButtonStyle::Silver));
     if (value < static_cast<int64_t>(ButtonStyle::Silver) ||
-        value > static_cast<int64_t>(ButtonStyle::BlackPro))
+        value > static_cast<int64_t>(ButtonStyle::Transparent) ||
+        (value == static_cast<int64_t>(ButtonStyle::Transparent) &&
+            !is_universal_layout(button_layout())))
     {
         return ButtonStyle::Silver;
     }

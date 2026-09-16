@@ -13,12 +13,25 @@ enum class ButtonLayout : int {
     Universal = 2,
     PlayStation = 3,
     BayxFlipped = 4,
+    NintendoBotw = 5,
+    XboxBotw = 6,
+    UniversalBotw = 7,
 };
 
 enum class ButtonStyle : int {
     Silver = 0,
     BlackPro = 1,
+    Transparent = 2,
 };
+
+constexpr bool is_botw_layout(ButtonLayout layout) {
+    return layout == ButtonLayout::NintendoBotw || layout == ButtonLayout::XboxBotw ||
+        layout == ButtonLayout::UniversalBotw;
+}
+
+constexpr bool is_universal_layout(ButtonLayout layout) {
+    return layout == ButtonLayout::Universal || layout == ButtonLayout::UniversalBotw;
+}
 
 enum class TextFont : int {
     Original = 0,

@@ -14,6 +14,17 @@ namespace {
 
 UiWindowHandle s_settingsWindow = 0;
 UiMenuTabHandle s_menuTab = 0;
+UiElementHandle s_standardStyle = 0;
+UiElementHandle s_universalStyle = 0;
+
+ModResult update_hud_tab(ModContext* ctx, void*, ModError*) {
+    const bool universal = is_universal_layout(button_layout());
+    if (s_standardStyle != 0)
+        svc_ui->elem_set_visible(ctx, s_standardStyle, !universal);
+    if (s_universalStyle != 0)
+        svc_ui->elem_set_visible(ctx, s_universalStyle, universal);
+    return MOD_OK;
+}
 
 ModResult add_section(ModContext* ctx, UiElementHandle pane, const char* title) {
     return svc_ui->pane_add_section(ctx, pane, title);
@@ -45,7 +56,7 @@ ModResult add_toggle(ModContext* ctx, UiElementHandle pane, const char* label,
 
 ModResult add_select(ModContext* ctx, UiElementHandle pane, const char* label,
     ConfigVarHandle var, const char* const* options, size_t optionCount,
-    const char* help = nullptr) {
+    const char* help = nullptr, UiElementHandle* handle = nullptr) {
     UiControlDesc desc = UI_CONTROL_DESC_INIT;
     desc.kind = UI_CONTROL_SELECT;
     desc.label = label;
@@ -54,12 +65,13 @@ ModResult add_select(ModContext* ctx, UiElementHandle pane, const char* label,
     desc.config_var = var;
     desc.options = options;
     desc.option_count = optionCount;
-    return svc_ui->pane_add_control(ctx, pane, &desc, nullptr);
+    return svc_ui->pane_add_control(ctx, pane, &desc, handle);
 }
 
 // Display order is independent of the saved enum values.
-constexpr ButtonLayout kLayoutOrder[] = {ButtonLayout::Nintendo, ButtonLayout::Xbox,
-    ButtonLayout::BayxFlipped, ButtonLayout::Universal, ButtonLayout::PlayStation};
+constexpr ButtonLayout kLayoutOrder[] = {ButtonLayout::Nintendo, ButtonLayout::NintendoBotw,
+    ButtonLayout::Xbox, ButtonLayout::BayxFlipped, ButtonLayout::XboxBotw,
+    ButtonLayout::Universal, ButtonLayout::UniversalBotw, ButtonLayout::PlayStation};
 
 void get_layout(ModContext*, void*, UiControlValue* value) {
     value->int_value = 0;
@@ -77,6 +89,14 @@ void set_layout(ModContext* ctx, void*, const UiControlValue* value) {
         value->int_value < static_cast<int64_t>(std::size(kLayoutOrder))) {
         svc_config->set_int(ctx, button_layout_config_var(),
             static_cast<int64_t>(kLayoutOrder[value->int_value]));
+        if (!is_universal_layout(button_layout())) {
+            int64_t style = 0;
+            svc_config->get_int(ctx, button_style_config_var(), &style);
+            if (style == static_cast<int64_t>(ButtonStyle::Transparent))
+                svc_config->set_int(ctx, button_style_config_var(),
+                    static_cast<int64_t>(ButtonStyle::Silver));
+        }
+        update_hud_tab(ctx, nullptr, nullptr);
     }
 }
 
@@ -89,15 +109,20 @@ ModResult build_hud_tab(
         != MOD_OK) return MOD_ERROR;
     static constexpr const char* kButtonLayouts[] = {
         "ABXY",
+        "ABXY (BOTW Style)",
         "BAYX",
         "BAYX Flipped",
+        "BAYX (BOTW Style)",
         "Universal",
+        "Universal (BOTW Style)",
         "PlayStation",
     };
     UiControlDesc layout = UI_CONTROL_DESC_INIT;
     layout.kind = UI_CONTROL_SELECT;
     layout.label = "Button Layout";
-    layout.help_rml = "Changes the button prompts. Universal leaves face buttons blank.";
+    layout.help_rml = "Visual presets only; configure controller bindings in Dusklight. "
+        "BOTW Style places Attack on West, Action on South, and items on North/East. "
+        "L and R are unchanged. Universal leaves face buttons blank.";
     layout.options = kButtonLayouts;
     layout.option_count = std::size(kButtonLayouts);
     layout.get = get_layout;
@@ -113,20 +138,30 @@ ModResult build_hud_tab(
     if (add_select(ctx, left, "Button Style", button_style_config_var(),
             kButtonStyles, std::size(kButtonStyles),
             "Silver uses the Twilight Princess HD-style prompts. Black Pro uses dark graphite "
-            "buttons with light lettering.")
+            "buttons with light lettering.", &s_standardStyle)
         != MOD_OK)
     {
         return MOD_ERROR;
     }
+    static constexpr const char* kUniversalStyles[] = {"Silver", "Black Pro", "Transparent"};
+    if (add_select(ctx, left, "Button Style", button_style_config_var(),
+            kUniversalStyles, std::size(kUniversalStyles),
+            "Silver uses blank silver buttons. Transparent preserves the original "
+            "Universal backgrounds. Black Pro uses blank dark buttons.", &s_universalStyle)
+        != MOD_OK) return MOD_ERROR;
+    update_hud_tab(ctx, nullptr, nullptr);
     static constexpr const char* kControllerCompatibility[] = {
         "Follow Dusklight Bindings",
         "TPHD Fixed Bindings",
     };
-    if (add_select(ctx, left, "Controller Compatibility",
+    if (add_select(ctx, left, "Shoulder & D-Pad Behavior",
             controller_compatibility_config_var(), kControllerCompatibility,
             std::size(kControllerCompatibility),
-            "Follow Dusklight Bindings respects the custom bindings for Midna.<br/><br/>"
-            "TPHD Fixed Bindings follows TPHD bindings.")
+            "Controls Midna, shoulder/trigger handling, and related D-Pad shortcuts.<br/><br/>"
+            "Follow Dusklight Bindings respects the configured Midna assignment and adjusts "
+            "D-Pad shortcuts around it. TPHD Fixed Bindings puts Midna on L and uses TPHD "
+            "shoulder/trigger and D-Pad behavior.<br/><br/>"
+            "Face-button bindings are always configured in Dusklight.")
         != MOD_OK)
     {
         return MOD_ERROR;
@@ -253,6 +288,7 @@ void open_settings(ModContext* ctx, void*) {
     tabs[0] = UI_TAB_DESC_INIT;
     tabs[0].title = "HUD";
     tabs[0].build = build_hud_tab;
+    tabs[0].update = update_hud_tab;
     tabs[1] = UI_TAB_DESC_INIT;
     tabs[1].title = "HUD Sizing";
     tabs[1].build = build_hud_sizing_tab;
