@@ -209,7 +209,12 @@ DEFINE_HOOK(&dMsgScrn3Select_c::draw, ThreeSelectDrawHook);
 DEFINE_HOOK(&dMsgScrnExplain_c::draw, ExplainDrawHook);
 DEFINE_HOOK(&dMenu_Fmap_c::_move, FmapMoveHook);
 DEFINE_HOOK(&dMenu_Fmap_c::_draw, FmapDrawHook);
+#if defined(_MSC_VER)
+// Resolve the same native function without MSVC's non-constant virtual thunk.
+DEFINE_HOOK_SYMBOL("dMenu_Fmap2DBack_c::draw", void(dMenu_Fmap2DBack_c*), FmapBackDrawHook);
+#else
 DEFINE_HOOK(&dMenu_Fmap2DBack_c::draw, FmapBackDrawHook);
+#endif
 DEFINE_HOOK(&dMenu_Fmap2DBack_c::regionTextureDraw, FmapRegionDrawHook);
 DEFINE_HOOK(&J2DGrafContext::setScissor, FmapScissorHook);
 DEFINE_HOOK(&dMenu_Fmap_c::getNextStatus, FmapNextStatusHook);

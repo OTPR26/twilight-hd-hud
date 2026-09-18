@@ -17,6 +17,10 @@ assert 'frame_for_content({minX, minY, maxX - minX, maxY - minY})' in source
 assert 'picture->resize(outer.width, outer.height)' in source
 assert 'picture->move(outer.x, outer.y)' in source
 assert 'ADD_POST(FmapBackDrawHook, after_fmap_back_draw' in hooks
+registration = hooks.split('// Resolve the same native function without MSVC', 1)[1].split(
+    'DEFINE_HOOK(&dMenu_Fmap2DBack_c::regionTextureDraw', 1)[0]
+assert 'DEFINE_HOOK_SYMBOL("dMenu_Fmap2DBack_c::draw", void(dMenu_Fmap2DBack_c*), FmapBackDrawHook)' in registration
+assert '#else\nDEFINE_HOOK(&dMenu_Fmap2DBack_c::draw, FmapBackDrawHook);\n#endif' in registration
 assert 'ADD_PRE(FmapRegionDrawHook, before_fmap_region_draw' in hooks
 assert 'ADD_POST(FmapScissorHook, after_fmap_scissor' in hooks
 assert 'GXSetProjectionv(s_fmapPresentation.projection)' in source
