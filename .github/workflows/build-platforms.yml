@@ -60,6 +60,8 @@ jobs:
           python3 tests/option_confirmation_structure_test.py
           python3 tests/options_presentation_structure_test.py
           python3 tests/fish_journal_structure_test.py
+          python3 tests/fish_journal_input_test.py
+          python3 tests/warp_map_details_structure_test.py
           python3 tests/collection_screen_structure_test.py
           python3 tests/golden_bugs_structure_test.py
           python3 tests/hidden_skills_structure_test.py

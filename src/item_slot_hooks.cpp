@@ -209,6 +209,9 @@ DEFINE_HOOK(&dMsgScrn3Select_c::draw, ThreeSelectDrawHook);
 DEFINE_HOOK(&dMsgScrnExplain_c::draw, ExplainDrawHook);
 DEFINE_HOOK(&dMenu_Fmap_c::_move, FmapMoveHook);
 DEFINE_HOOK(&dMenu_Fmap_c::_draw, FmapDrawHook);
+DEFINE_HOOK(&dMenu_Fmap2DBack_c::draw, FmapBackDrawHook);
+DEFINE_HOOK(&dMenu_Fmap2DBack_c::regionTextureDraw, FmapRegionDrawHook);
+DEFINE_HOOK(&J2DGrafContext::setScissor, FmapScissorHook);
 DEFINE_HOOK(&dMenu_Fmap_c::getNextStatus, FmapNextStatusHook);
 DEFINE_HOOK(&dMenu_Fmap2DTop_c::draw, FmapTopDrawHook);
 DEFINE_HOOK(&renderingFmap_c::preDrawPath, FmapPaletteHook);
@@ -3755,10 +3758,6 @@ void apply_fmap_background(dMenu_Fmap2DBack_c* map) {
         mDoGph_gInf_c::getMinYF());
     picture->setAlpha(static_cast<u8>(255 * std::clamp(map->mAlphaRate, 0.0f, 1.0f)));
     screen->show();
-
-    // Center the native map origin, shared by artwork and portal coordinates.
-    g_fmapHIO.mMapTopLeftPosX =
-        overworld_map_layout::map_origin_x(g_fmapHIO.mMapScale);
 }
 
 void add_fmap_top_overlay(dMenu_Fmap2DTop_c* map) {
@@ -11155,14 +11154,16 @@ void ensure_fish_journal_overlay(dMenu_Fishing_c* menu) {
 void after_fishing_move(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Fishing_c*>(args, 0);
     if (menu == nullptr || s_fishJournal.menu != menu) return;
-    const bool up = mDoCPd_c::getTrigUp(PAD_1) ||
-        (menu->mpStick != nullptr && menu->mpStick->checkUpTrigger());
-    const bool down = mDoCPd_c::getTrigDown(PAD_1) ||
-        (menu->mpStick != nullptr && menu->mpStick->checkDownTrigger());
-    const bool left = mDoCPd_c::getTrigLeft(PAD_1) ||
-        (menu->mpStick != nullptr && menu->mpStick->checkLeftTrigger());
-    const bool right = mDoCPd_c::getTrigRight(PAD_1) ||
-        (menu->mpStick != nullptr && menu->mpStick->checkRightTrigger());
+    // STControl already includes the D-pad. Always consume its initial trigger
+    // so a raw press cannot leave a second move pending on the following frame.
+    const bool up = menu->mpStick != nullptr ? menu->mpStick->checkUpTrigger() :
+        mDoCPd_c::getTrigUp(PAD_1);
+    const bool down = menu->mpStick != nullptr ? menu->mpStick->checkDownTrigger() :
+        mDoCPd_c::getTrigDown(PAD_1);
+    const bool left = menu->mpStick != nullptr ? menu->mpStick->checkLeftTrigger() :
+        mDoCPd_c::getTrigLeft(PAD_1);
+    const bool right = menu->mpStick != nullptr ? menu->mpStick->checkRightTrigger() :
+        mDoCPd_c::getTrigRight(PAD_1);
     if (up) {
         s_fishJournal.selected = caught_fish_in_direction(
             s_fishJournal.selected, 0, -1);
@@ -12564,9 +12565,7 @@ void after_select_cursor_update(ModContext*, void* args, void*, void*) {
     }
 }
 
-HookAction before_fmap_move(ModContext*, void* args, void*, void*) {
-    auto* map = mods::arg<dMenu_Fmap_c*>(args, 0);
-    if (map != nullptr) position_fmap_viewport(map->mpDraw2DBack);
+HookAction before_fmap_move(ModContext*, void*, void*, void*) {
     // L/LB/L1 is the physical shoulder, not GameCube L (our ZL trigger).
     // Replace native Z only within map input processing, then restore it.
     interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
@@ -15068,6 +15067,9 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_PRE(FmapNextStatusHook, before_fmap_next_status, "overworld D-pad Up back");
     ADD_POST(FmapNextStatusHook, after_fmap_next_status, "restore overworld close input");
     ADD_PRE(FmapTopDrawHook, before_fmap_top_draw, "overworld Poe draw scope");
+    ADD_POST(FmapBackDrawHook, after_fmap_back_draw, "field map border foreground");
+    ADD_PRE(FmapRegionDrawHook, before_fmap_region_draw, "fit field map presentation");
+    ADD_POST(FmapScissorHook, after_fmap_scissor, "fit field map clipping");
     ADD_PRE(FmapPaletteHook, before_fmap_palette, "overworld terrain colors");
     ADD_POST(FmapTopDrawHook, after_fmap_top_draw, "restore overworld Poe draw scope");
     ADD_PRE(FmapDrawHook, before_fmap_draw,

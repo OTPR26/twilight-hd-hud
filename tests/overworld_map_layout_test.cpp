@@ -8,6 +8,67 @@
 #include <iostream>
 using namespace twilight_hd_hud::overworld_map_layout;
 int main() {
+    for (float width : {448.f, 608.f, 448.f * 16 / 9, 1064.f}) {
+        const float left = (608 - width) / 2;
+        const auto target = reference_content(left, width);
+        const auto rim = frame_for_content(target);
+        assert(std::abs(rim.y - 70) < .001f);
+        assert(rim.y > bannerY + bannerHeight);
+        assert(rim.y > zoomBY + 8);
+        assert(std::abs((rim.x - left) / width - 85.f / 608) < .001f);
+        const Rect native{left + width * .128f, 54, width * .75f, 342};
+        for (float slide : {-448.f, 0.f, 448.f}) {
+            const auto fit = presentation_fit(native, target, slide, slide);
+            // All layers and their clipping use this same affine mapping;
+            // native slide distance is preserved, not shrunk a second time.
+            assert(std::abs((native.x + slide) * fit.sx + fit.dx - target.x - slide) < .001f);
+            assert(std::abs((native.y + slide) * fit.sy + fit.dy - target.y - slide) < .001f);
+            assert(std::abs(native.width * fit.sx - target.width) < .001f);
+            assert(std::abs(native.height * fit.sy - target.height) < .001f);
+        }
+    }
+    // Opening/closing in all four directions: apply the presentation slide
+    // once, preserving frame size, and return exactly to rest at zero offset.
+    for (float dx : {-608.f, -304.f, 0.f, 304.f, 608.f}) {
+        for (float dy : {-448.f, -224.f, 0.f, 224.f, 448.f}) {
+            const auto moved = transition_bounds(frame, dx, dy);
+            assert(moved.x == frame.x + dx && moved.y == frame.y + dy);
+            assert(moved.width == frame.width && moved.height == frame.height);
+            const auto restored = transition_bounds(moved, -dx, -dy);
+            assert(restored.x == frame.x && restored.y == frame.y);
+        }
+    }
+    assert(zoomAY + 20 <= zoomBY);
+    assert(zoomAY - zoomIconSize * .5f >= topRule);
+    assert(zoomBFraction < zoomAFraction);
+    assert(zoomLabelInset > zoomIconSize * .5f);
+    // Approved 1920px reference centers: A=1816, B=1770.
+    assert(std::abs(1920 * zoomAFraction - 1816) < 1);
+    assert(std::abs(1920 * zoomBFraction - 1770) < 1);
+    assert(zoomIconSize == 28);
+    for (const auto& part : borderPieces) {
+        assert(part.x >= 0 && part.y >= 0);
+        assert(part.x + part.width <= frame.width);
+        assert(part.y + part.height <= frame.height);
+        // No foreground geometry may cover the center of the map.
+        assert(part.x + part.width <= 12 || part.x >= frame.width - 12 ||
+               part.y + part.height <= 12 || part.y >= frame.height - 12);
+        for (const auto& other : borderPieces) {
+            if (&part == &other) continue;
+            assert(part.x + part.width <= other.x || other.x + other.width <= part.x ||
+                   part.y + part.height <= other.y || other.y + other.height <= part.y);
+        }
+    }
+    for (Rect bounds : {content, Rect{75, 54, 450, 342},
+                        Rect{-25, 40, 640, 330}, Rect{110, 80, 300, 220}}) {
+        const Rect outer = frame_for_content(bounds);
+        const float sx = outer.width / frame.width;
+        const float sy = outer.height / frame.height;
+        assert(std::abs(outer.x + (content.x - frame.x) * sx - bounds.x) < .001f);
+        assert(std::abs(outer.y + (content.y - frame.y) * sy - bounds.y) < .001f);
+        assert(std::abs(content.width * sx - bounds.width) < .001f);
+        assert(std::abs(content.height * sy - bounds.height) < .001f);
+    }
     assert(bannerTitleTop > 0 && bannerTitleBottom < bannerHeight);
     assert(bannerTitleHeight >= 22);
     assert(bannerTitleTop + bannerTitleHeight * .5f ==
@@ -31,10 +92,6 @@ int main() {
     assert(!twilight_hd_hud::map_palette::terrain(48, 88, 72)); // Already teal.
     assert(muted(0x801f) == 0x801f); // Water blue.
     assert(muted(0xffe0) == 0xffe0); // Gold markers.
-    for (float mapSize : {200.0f, 320.0f, 426.0f, 600.0f}) {
-        assert(std::fabs(map_origin_x(mapSize) + mapSize * 0.5f -
-            (content.x + content.width * 0.5f)) < 0.001f);
-    }
     assert(content.x > frame.x && content.y > frame.y);
     assert(areaNameX > content.x && areaNameY > content.y);
     assert(areaNameFontSize > 14);

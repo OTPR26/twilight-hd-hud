@@ -4,6 +4,82 @@ J2DTextBox::TFontSize s_fmapPoeFont{};
 float s_fmapPoeSpacing = 0;
 bool s_fmapPoeScaled = false;
 
+// Transform only the finished 2D map presentation. Native world projection,
+// zoom, selection, terrain render target, and marker coordinates stay intact.
+struct FmapPresentationState {
+    bool active = false;
+    float projection[7]{};
+    u32 scissor[4]{};
+    overworld_map_layout::PresentationFit fit{};
+} s_fmapPresentation;
+
+void end_fmap_presentation() {
+    if (!s_fmapPresentation.active) return;
+    s_fmapPresentation.active = false;
+    GXSetProjectionv(s_fmapPresentation.projection);
+    const auto* s = s_fmapPresentation.scissor;
+    GXSetScissor(s[0], s[1], s[2], s[3]);
+}
+
+void after_fmap_scissor(ModContext*, void*, void*, void*) {
+    if (!s_fmapPresentation.active) return;
+    u32 x, y, w, h;
+    GXGetScissor(&x, &y, &w, &h);
+    // Preserve the latest native scissor, including its restoration after
+    // drawing markers, rather than restoring the initial map-only clip.
+    auto* saved = s_fmapPresentation.scissor;
+    saved[0] = x; saved[1] = y; saved[2] = w; saved[3] = h;
+    const auto& fit = s_fmapPresentation.fit;
+    // Scissors use framebuffer coordinates, projection uses logical UI units.
+    const float rx = mDoGph_gInf_c::getWidthF() / FB_WIDTH;
+    const float ry = mDoGph_gInf_c::getHeightF() / FB_HEIGHT;
+    const float dx = (fit.dx + mDoGph_gInf_c::getMinXF() * (fit.sx - 1)) / rx;
+    const float dy = fit.dy / ry;
+    const float l = std::clamp(std::ceil(x * fit.sx + dx), 0.0f, float(FB_WIDTH));
+    const float t = std::clamp(std::ceil(y * fit.sy + dy), 0.0f, float(FB_HEIGHT));
+    const float r = std::clamp(std::floor((x + w) * fit.sx + dx), l, float(FB_WIDTH));
+    const float b = std::clamp(std::floor((y + h) * fit.sy + dy), t, float(FB_HEIGHT));
+    GXSetScissor(u32(l), u32(t), u32(r - l), u32(b - t));
+}
+
+HookAction before_fmap_region_draw(ModContext*, void* args, void*, void*) {
+    auto* map = mods::arg<dMenu_Fmap2DBack_c*>(args, 0);
+    if (!map || !map->mpMapArea || s_fmapPresentation.active ||
+        !resource_texture(s_fmapFrameResource)) return HOOK_CONTINUE;
+    Mtx matrix;
+    const Vec tl = map->mpMapArea->getGlobalVtx(&matrix, 0, false, 0);
+    const Vec br = map->mpMapArea->getGlobalVtx(&matrix, 3, false, 0);
+    if (br.x <= tl.x || br.y <= tl.y) return HOOK_CONTINUE;
+    GXGetProjectionv(s_fmapPresentation.projection);
+    if (s_fmapPresentation.projection[0] != 1) return HOOK_CONTINUE;
+    auto* s = s_fmapPresentation.scissor;
+    GXGetScissor(&s[0], &s[1], &s[2], &s[3]);
+    const auto target = overworld_map_layout::reference_content(
+        mDoGph_gInf_c::getSafeMinXF(), 608 * mDoGph_gInf_c::hudAspectScaleUp);
+    s_fmapPresentation.fit = overworld_map_layout::presentation_fit(
+        {tl.x, tl.y, br.x - tl.x, br.y - tl.y}, target, map->mTransX, map->mTransZ);
+    const auto& fit = s_fmapPresentation.fit;
+    float projection[7];
+    std::copy_n(s_fmapPresentation.projection, 7, projection);
+    projection[1] *= fit.sx;
+    projection[2] += s_fmapPresentation.projection[1] * fit.dx;
+    projection[3] *= fit.sy;
+    projection[4] += s_fmapPresentation.projection[3] * fit.dy;
+    GXSetProjectionv(projection);
+    s_fmapPresentation.active = true;
+    after_fmap_scissor(nullptr, nullptr, nullptr, nullptr);
+    // The native black pane was hidden with the replaced frame artwork.
+    // Fill beneath the map, not in the foreground: its uncovered interior
+    // must stay black while the patterned backdrop remains outside the rim.
+    // Use the same fitted projection, clipping, slide, and fade as the map.
+    dComIfGp_getCurrentGrafPort()->setup2D();
+    J2DFillBox(tl.x + map->mTransX, tl.y + map->mTransZ,
+        br.x - tl.x, br.y - tl.y,
+        JUtility::TColor(0, 0, 0,
+            static_cast<u8>(255 * std::clamp(map->mAlphaRate, 0.0f, 1.0f))));
+    return HOOK_CONTINUE;
+}
+
 void style_fmap_portal(dSelect_cursor_c* cursor) {
     auto* map = dMenu_Fmap_c::MyClass;
     const auto* texture = resource_texture(s_fmapPortalResource);
@@ -37,6 +113,9 @@ struct FmapPictureState {
 
 void before_fmap_picture(J2DPicture* picture) {
     auto* menu = dMenu_Fmap_c::MyClass;
+    // The final full-screen dimmer is not part of the fitted map.
+    if (menu && menu->mpDraw2DBack && picture == menu->mpDraw2DBack->mpBackTex)
+        end_fmap_presentation();
     if (!picture || !menu || !menu->mpDraw2DBack || s_fmapPicture.picture) return;
     auto* map = menu->mpDraw2DBack;
     const bool player = picture == map->mPictures[ICON_LINK_e];
@@ -128,36 +207,22 @@ void add_fmap_back_hint(dMenu_Fmap2DTop_c* map, J2DPane* overlay) {
     if (auto* nativeHints = map->mpTitleScreen->search(MULTI_CHAR('btn_i_n'))) nativeHints->hide();
 }
 
-void position_fmap_viewport(dMenu_Fmap2DBack_c* map) {
-    if (map == nullptr || map->mpBaseScreen == nullptr || map->mpMapArea == nullptr ||
+void style_fmap_cursor(dMenu_Fmap2DBack_c* map) {
+    if (map == nullptr ||
         resource_texture(s_fmapFrameResource) == nullptr) return;
-    using namespace overworld_map_layout;
-    map->fMapBackWide();
+    // Only the cursor artwork changes size. Leave the native clipping panes,
+    // render target, projection and map origins untouched so all layers agree.
     if (map->mpPointParent) {
         map->mpPointParent->scale(g_fmapHIO.mCursorScale * .65f,
             g_fmapHIO.mCursorScale * .65f);
     }
-    for (auto* manager : {map->mpMapArea, map->mpMapBlack}) {
-        if (manager == nullptr) continue;
-        auto* pane = manager->getPanePtr();
-        pane->resize(content.width, content.height);
-        position_dmap_global_center(pane,
-            mDoGph_gInf_c::getSafeMinXF() +
-                (content.x + content.width * 0.5f) * mDoGph_gInf_c::hudAspectScaleUp,
-            content.y + content.height * 0.5f);
-    }
-    // Native projection, scrolling and cursor calculations read these same bounds.
-    dMeter2Info_set2DWidth(map->getMapScissorAreaSizeX());
-    dMeter2Info_set2DHeight(map->getMapScissorAreaSizeY());
-    dMeter2Info_set2DPosH(map->getMapScissorAreaLX());
-    dMeter2Info_set2DPosV(map->getMapScissorAreaLY());
 }
 
 void style_fmap_frame(dMenu_Fmap2DBack_c* map) {
     const auto* texture = resource_texture(s_fmapFrameResource);
     if (map == nullptr || map->mpBaseScreen == nullptr || texture == nullptr) return;
     using namespace overworld_map_layout;
-    position_fmap_viewport(map);
+    style_fmap_cursor(map);
     auto* screen = map->mpBaseScreen;
     // Hide just the native frame artwork, never the native hierarchy itself.
     hide_dmap_picture_tree(screen->search(MULTI_CHAR('ROOT')));
@@ -169,7 +234,85 @@ void style_fmap_frame(dMenu_Fmap2DBack_c* map) {
         configure_hd_picture(picture);
         screen->appendChild(picture); // Outside mpBaseRoot's fixed alpha cache.
     }
+    if (map->mpMapArea != nullptr) {
+        // Read native clipping bounds, then express them in this picture's
+        // parent coordinates. Cancel the shared screen transform rather than
+        // applying another aspect correction or moving a native map pane.
+        CPaneMgr manager;
+        Mtx parent;
+        manager.getGlobalVtx(screen, &parent, 0, false, 0);
+        const float determinant = parent[0][0] * parent[1][1] -
+            parent[0][1] * parent[1][0];
+        if (std::abs(determinant) > .0001f) {
+            float minX = 0, minY = 0, maxX = 0, maxY = 0;
+            for (u8 corner = 0; corner < 4; ++corner) {
+                Mtx nativeMatrix;
+                const Vec vertex = map->mpMapArea->getGlobalVtx(
+                    &nativeMatrix, corner, false, 0);
+                const float dx = vertex.x - parent[0][3];
+                const float dy = vertex.y - parent[1][3];
+                const float x = (parent[1][1] * dx - parent[0][1] * dy) / determinant;
+                const float y = (parent[0][0] * dy - parent[1][0] * dx) / determinant;
+                if (corner == 0) {
+                    minX = maxX = x;
+                    minY = maxY = y;
+                } else {
+                    minX = std::min(minX, x); maxX = std::max(maxX, x);
+                    minY = std::min(minY, y); maxY = std::max(maxY, y);
+                }
+            }
+            if (maxX > minX && maxY > minY) {
+                const auto outer = frame_for_content({minX, minY, maxX - minX, maxY - minY});
+                picture->resize(outer.width, outer.height);
+                picture->move(outer.x, outer.y);
+            }
+        }
+    }
     picture->setAlpha(static_cast<u8>(255 * std::clamp(map->mAlphaRate, 0.0f, 1.0f)));
+    // The base screen is drawn BEFORE the map textures. Draw this decoration
+    // only after the map, otherwise the rectangular map overwrites its corners.
+    picture->hide();
+}
+
+void after_fmap_back_draw(ModContext*, void* args, void*, void*) {
+    end_fmap_presentation(); // Also restore on paths without a final dimmer.
+    auto* map = mods::arg<dMenu_Fmap2DBack_c*>(args, 0);
+    if (!map || !map->mpBaseScreen) return;
+    auto* picture = as_picture(map->mpBaseScreen->search(MULTI_CHAR('hd_fmfr')));
+    if (!picture) return;
+    // getGlobalVtx calls J2DScreen::calcMtx, rebuilding the base matrix WITHOUT
+    // the draw-time slide offset. Add the native presentation offset exactly
+    // once, just as the map textures do; otherwise the border stays stationary.
+    CPaneMgr manager;
+    Mtx matrix;
+    const Vec tl = manager.getGlobalVtx(picture, &matrix, 0, false, 0);
+    const Vec br = manager.getGlobalVtx(picture, &matrix, 3, false, 0);
+    if (br.x <= tl.x || br.y <= tl.y) return;
+    dComIfGp_getCurrentGrafPort()->setup2D();
+    picture->setAlpha(static_cast<u8>(255 * std::clamp(map->mAlphaRate, 0.0f, 1.0f)));
+    picture->show();
+    // This texture has an OPAQUE black center. Never draw its full rectangle
+    // in the foreground. drawOut selects matching UVs for each border piece.
+    Mtx identity;
+    MTXIdentity(identity);
+    GXLoadPosMtxImm(identity, GX_PNMTX0);
+    GXSetCurrentMtx(GX_PNMTX0);
+    const auto target = overworld_map_layout::frame_for_content(
+        overworld_map_layout::reference_content(mDoGph_gInf_c::getSafeMinXF(),
+            608 * mDoGph_gInf_c::hudAspectScaleUp));
+    const auto bounds = overworld_map_layout::transition_bounds(
+        target, map->mTransX, map->mTransZ);
+    const JGeometry::TBox2<f32> full(bounds.x, bounds.y,
+        bounds.x + bounds.width, bounds.y + bounds.height);
+    const float sx = bounds.width / overworld_map_layout::frame.width;
+    const float sy = bounds.height / overworld_map_layout::frame.height;
+    for (const auto& part : overworld_map_layout::borderPieces) {
+        picture->drawOut(JGeometry::TBox2<f32>(
+            bounds.x + part.x * sx, bounds.y + part.y * sy,
+            bounds.x + (part.x + part.width) * sx,
+            bounds.y + (part.y + part.height) * sy), full);
+    }
+    picture->hide();
 }
 
 void refine_fmap_top(dMenu_Fmap2DTop_c* map) {
@@ -252,19 +395,25 @@ void refine_fmap_top(dMenu_Fmap2DTop_c* map) {
     constexpr u64 labels[] = {MULTI_CHAR('hd_fpt0'), MULTI_CHAR('hd_fpt1'), MULTI_CHAR('hd_fpt2')};
     constexpr u64 icons[] = {MULTI_CHAR('hd_fri0'), MULTI_CHAR('hd_fai1'), MULTI_CHAR('hd_fbi2')};
     for (int i = 0; i < 3; ++i) {
-        const float x = safe_x(left, width, i == 0 ? 0.181f : i == 1 ? 0.946f : 0.922f);
+        const float x = safe_x(left, width,
+            i == 0 ? 0.181f : i == 1 ? zoomAFraction : zoomBFraction);
         const float y = i == 0 ? portalY : i == 1 ? zoomAY : zoomBY;
-        const float extent = (i == 0 ? 44 : 28) * size;
-        if (auto* icon = screen->search(icons[i])) {
-            icon->resize(extent, extent);
-            icon->move(x - extent * 0.5f, y - extent * 0.5f);
-        }
+        const float extent = (i == 0 ? 44 : zoomIconSize) * size;
+        const float iconX = x - extent * 0.5f;
         if (auto* text = static_cast<J2DTextBox*>(screen->search(labels[i]))) {
             text->setFont(mDoExt_getMesgFont());
             text->setFontSize(13 * size, 13 * size);
             text->setCharSpace(-0.6f * size);
+            set_text_binding(text, i == 0 ? HBIND_LEFT : HBIND_RIGHT, VBIND_CENTER);
             text->resize(115 * size, 22 * size);
-            text->move(i == 0 ? x + 24 * size : x - 130 * size, y - 11 * size);
+            // Anchor each label to its own button; do not align the two
+            // labels' left edges or compress their glyphs to fit a side rail.
+            text->move(i == 0 ? x + 24 * size : x - (115 + zoomLabelInset) * size,
+                y - 11 * size);
+        }
+        if (auto* icon = screen->search(icons[i])) {
+            icon->resize(extent, extent);
+            icon->move(iconX, y - extent * 0.5f);
         }
     }
     // Match the map-only physical L/LB/L1 portal input mapping.

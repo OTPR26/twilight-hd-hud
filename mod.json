@@ -1,7 +1,7 @@
 {
   "id": "org.twilight.hd_hud",
   "name": "Twilight HD",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "author": "Hyrule Hysteria",
   "description": "Requires Dusklight Nightly v1.4.1-402 or newer. Update Dusklight, then restart. A TPHD-inspired HUD and style package for Dusklight."
 }

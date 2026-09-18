@@ -26,7 +26,7 @@ assert 'begin_compact_dmap(s_dmapDrawing)' in source
 assert 'restore_compact_dmap();' in source
 assert 'add_dmap_back_hint(map, s_compactDmap.scale)' in source
 assert 'group->scale(size, size)' in world
-assert '(i == 0 ? 44 : 28) * size' in world
+assert '(i == 0 ? 44 : zoomIconSize) * size' in world
 assert 'text->setFontSize(13 * size, 13 * size)' in world
 assert 'setFontSize(s_fmapPoeFont)' in world
 print('PASS: uniform narrow-window layout, matching map/marker transforms, and native state restoration')
