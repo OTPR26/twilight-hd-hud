@@ -23,3 +23,8 @@ assert "ADD_PRE(PadSetVirtualStatusHook" in registration_scope
 assert "ADD_PRE(PadClearVirtualStatusHook" in registration_scope
 
 print("PASS: Windows excludes optional touch virtual-input hooks from mod initialization")
+
+assert '#if !defined(__APPLE__) || !TARGET_OS_IPHONE\nDEFINE_HOOK_SYMBOL("dusk::ui::midna_icon_source"' in source
+assert '"dusk::ui::get_equip_target", &touchTargetAddress' in source
+assert 's_getTouchEquipTarget(slot, target) && target.valid' in source
+print("PASS: Apple mobile queries touch targets instead of patching the icon source")

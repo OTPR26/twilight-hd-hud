@@ -24,6 +24,12 @@
 #include "ui_refinements.hpp"
 
 #include "global.h"
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+#include "dusk/ui/controls.hpp"
+#endif
 #include "Z2AudioLib/Z2AudioMgr.h"
 #include "Z2AudioLib/Z2SeMgr.h"
 #include "d/actor/d_a_alink.h"
@@ -260,8 +266,10 @@ DEFINE_HOOK(&mDoCPd_c::read, PadReadHook);
 DEFINE_HOOK(&PADSetVirtualStatus, PadSetVirtualStatusHook);
 DEFINE_HOOK(&PADClearVirtualStatus, PadClearVirtualStatusHook);
 #endif
+#if !defined(__APPLE__) || !TARGET_OS_IPHONE
 DEFINE_HOOK_SYMBOL("dusk::ui::midna_icon_source",
     std::string(), TouchZIconSourceHook);
+#endif
 DEFINE_HOOK(&daAlink_c::checkItemButtonChange, CheckItemButtonChangeHook);
 DEFINE_HOOK(&daAlink_c::checkItemChangeFromButton, CheckItemChangeFromButtonHook);
 DEFINE_HOOK(&daAlink_c::checkSetItemTrigger, CheckSetItemTriggerHook);
@@ -459,6 +467,10 @@ bool s_touchMidnaTrig = false;
 // small grace window because the Rml and game HUD draws are not guaranteed to
 // occur in the same order every frame.
 u8 s_touchControlsActiveFrames = 0;
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+using GetTouchEquipTargetFn = bool (*)(int, dusk::ui::EquipTarget&) noexcept;
+GetTouchEquipTargetFn s_getTouchEquipTarget = nullptr;
+#endif
 dMeter2Draw_c* s_touchHudMeter = nullptr;
 bool s_touchControlsWereActive = false;
 bool s_fixedZlHeld = false;
@@ -886,6 +898,7 @@ u8 hud_texture_item(u8 itemNo) {
     return itemNo == dItemNo_LIGHT_ARROW_e ? dItemNo_BOW_e : itemNo;
 }
 
+#if !defined(__APPLE__) || !TARGET_OS_IPHONE
 HookAction before_touch_z_icon_source(
     ModContext*, void*, void*, void*) {
     s_touchControlsActiveFrames = 8;
@@ -893,9 +906,26 @@ HookAction before_touch_z_icon_source(
     // Midna icon or the button's native behavior.
     return HOOK_CONTINUE;
 }
+#endif
 
 bool touch_controls_active() {
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+    // Query the same live targets that Dusklight uses for its native HUD.
+    // The host clears them when touch controls are disabled or suppressed.
+    // Unlike an icon-function detour, this needs no writable code or prepatch
+    // entry in the official signed iOS executable.
+    if (s_getTouchEquipTarget != nullptr) {
+        for (int slot = 0; slot < 4; ++slot) {
+            dusk::ui::EquipTarget target{};
+            if (s_getTouchEquipTarget(slot, target) && target.valid) {
+                return true;
+            }
+        }
+    }
+    return false;
+#else
     return !show_native_touch_replaced_hud(s_touchControlsActiveFrames != 0);
+#endif
 }
 
 void refresh_native_face_button_items_after_touch(dMeter2Draw_c* meter) {
@@ -10869,6 +10899,17 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_PRE(PadClearVirtualStatusHook, before_pad_clear_virtual_status,
         "touch virtual input clear");
 #endif
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+    void* touchTargetAddress = nullptr;
+    HookSymbolFlags touchTargetFlags = {};
+    const ModResult touchTargetResult = svc_hook->resolve(mod_ctx,
+        "dusk::ui::get_equip_target", &touchTargetAddress, &touchTargetFlags);
+    s_getTouchEquipTarget = touchTargetResult == MOD_OK ?
+        reinterpret_cast<GetTouchEquipTargetFn>(touchTargetAddress) : nullptr;
+    if (s_getTouchEquipTarget == nullptr) {
+        svc_log->warn(mod_ctx, "Touch HUD target query unavailable; preserving controller HUD");
+    }
+#else
     // This host-side helper is optional on older Dusklight builds. Failure to
     // resolve it must never abort registration of the mod's game hooks.
     if (TouchZIconSourceHook::resolved_target() != nullptr) {
@@ -10882,6 +10923,7 @@ ModResult install_item_slot_hooks(ModError* error) {
         svc_log->warn(mod_ctx,
             "Dusklight touch-icon observation unavailable; touch HUD adaptation may be unavailable");
     }
+#endif
     ADD_PRE(ItemActionTriggerHook, before_item_action_trigger,
         "boomerang ZR multi-target input");
     ADD_POST(SetStickDataHook, after_set_stick_data, "scoped third-item input");
