@@ -1,9 +1,10 @@
+from source_helpers import read_hook_source
 """Keep Options confirmation centered and its prompt artwork registered."""
 from pathlib import Path
 import re
 
 root = Path(__file__).resolve().parents[1]
-source = (root / 'src/item_slot_hooks.cpp').read_text()
+source = read_hook_source()
 fit = source.split('bool fit_option_warning_frame(', 1)[1].split(
     'void style_option_confirmation(', 1)[0]
 assert 'print.parse(' in fit  # Retain native localized measurement/wrapping.

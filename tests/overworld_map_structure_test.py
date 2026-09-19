@@ -1,7 +1,8 @@
+from source_helpers import read_hook_source
 from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 source = (root / 'src/overworld_map_screen.inc').read_text()
-hooks = (root / 'src/item_slot_hooks.cpp').read_text()
+hooks = read_hook_source()
 assert 'screen->appendChild(picture)' in source
 assert 'mpBaseRoot->' not in source  # never add children to the fixed native cache
 assert 'style_fmap_cursor(map);' in source

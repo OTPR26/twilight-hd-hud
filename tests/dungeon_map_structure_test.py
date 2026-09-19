@@ -1,7 +1,8 @@
+from source_helpers import read_hook_source
 """Prevent late child insertion into native fixed-size pane animation caches."""
 from pathlib import Path
 
-source = (Path(__file__).resolve().parents[1] / 'src/item_slot_hooks.cpp').read_text()
+source = read_hook_source()
 floors = source.split('void style_dmap_floor_rows(', 1)[1].split('void style_dmap_frame(', 1)[0]
 frame = source.split('void style_dmap_frame(', 1)[1].split('void add_dmap_edge_rules(', 1)[0]
 rules = source.split('void add_dmap_edge_rules(', 1)[1].split('void position_dmap_native_groups(', 1)[0]

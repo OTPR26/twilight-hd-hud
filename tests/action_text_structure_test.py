@@ -1,8 +1,9 @@
+from source_helpers import read_hook_source
 """Action text scaling stays local to contextual label draws."""
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
-source = (root / 'src/item_slot_hooks.cpp').read_text()
+source = read_hook_source()
 scaling = source.split('void scale_action_text_for_draw(', 1)[1].split(
     'void after_meter_button_draw(', 1)[0]
 assert 'buttons->mpTextBox[i]' in scaling

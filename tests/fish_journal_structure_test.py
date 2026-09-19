@@ -1,7 +1,8 @@
+from source_helpers import read_hook_source
 """Guard the first TPHD-style Fish Journal pass and save-backed records."""
 from pathlib import Path
 
-source = (Path(__file__).resolve().parents[1] / 'src/item_slot_hooks.cpp').read_text()
+source = read_hook_source()
 body = source.split('struct FishJournalState', 1)[1].split(
     'void after_skill_create(', 1)[0]
 move = source.split('void after_fishing_move(', 1)[1].split(

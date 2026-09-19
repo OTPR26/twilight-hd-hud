@@ -1,7 +1,8 @@
+from source_helpers import read_hook_source
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
-source = (root / 'src/item_slot_hooks.cpp').read_text()
+source = read_hook_source()
 collection = (root / 'src/collection_screen.inc').read_text()
 navigation = source.split('HookAction before_option_vibration_move(', 1)[1].split(
     'HookAction before_option_screen_draw(', 1)[0]

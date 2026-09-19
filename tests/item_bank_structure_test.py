@@ -1,9 +1,10 @@
+from source_helpers import read_hook_source
 """Keep Items independent of transient system-bar insets and prompt distortion."""
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
 source = (root / 'src/item_bank_screen.inc').read_text()
-hooks = (root / 'src/item_slot_hooks.cpp').read_text()
+hooks = read_hook_source()
 assert 'getSafe' not in source
 assert 'current_collection_viewport()' not in source
 assert source.count('auto viewport = item_bank_content_viewport();') == 2

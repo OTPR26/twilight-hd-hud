@@ -1,7 +1,8 @@
+from source_helpers import read_hook_source
 """Third-item presentation must not change native Midna/transform availability."""
 from pathlib import Path
 
-source = (Path(__file__).resolve().parents[1] / "src/item_slot_hooks.cpp").read_text()
+source = read_hook_source()
 
 assert "dMeter2Info_onUseButton(METER2_USEBUTTON_Z)" not in source
 assert "dMeter2Info_offUseButton(METER2_USEBUTTON_Z)" not in source

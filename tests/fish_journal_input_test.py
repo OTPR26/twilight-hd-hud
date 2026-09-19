@@ -1,3 +1,4 @@
+from source_helpers import read_hook_source
 """Execute the production selection/input block with a repeat-controller double."""
 from pathlib import Path
 import shutil
@@ -5,7 +6,7 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
-source = (root / 'src/item_slot_hooks.cpp').read_text()
+source = read_hook_source()
 selection = 'int caught_fish_in_direction(' + source.split(
     'int caught_fish_in_direction(', 1)[1].split('void ensure_fish_journal_overlay(', 1)[0]
 movement = source.split('void after_fishing_move(', 1)[1].split('#if TARGET_PC', 1)[0]

@@ -1,6 +1,7 @@
+from source_helpers import read_hook_source
 from pathlib import Path
 root = Path(__file__).parents[1]
-source = (root / 'src/item_slot_hooks.cpp').read_text()
+source = read_hook_source()
 world = (root / 'src/overworld_map_screen.inc').read_text()
 assert 'g_fmapHIO.mMapTopLeftPosX =' not in source
 assert 'g_fmapHIO.mMapTopLeftPosY =' not in source

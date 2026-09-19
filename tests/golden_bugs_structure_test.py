@@ -1,8 +1,9 @@
+from source_helpers import read_hook_source
 from pathlib import Path
 
 
 root = Path(__file__).resolve().parent.parent
-source = (root / "src/item_slot_hooks.cpp").read_text()
+source = read_hook_source()
 
 overlay = source.split("void ensure_golden_bugs_overlay(", 1)[1].split(
     "void after_insect_create(", 1

@@ -1,9 +1,10 @@
+from source_helpers import read_hook_source
 """Keep oil/oxygen centered on their artwork, not the oversized null panes."""
 from pathlib import Path
 import struct
 
 root = Path(__file__).resolve().parents[1]
-source = (root / 'src/item_slot_hooks.cpp').read_text()
+source = read_hook_source()
 draw = source.split('HookAction before_gauge_screen_draw(', 1)[1].split(
     'void after_meter_gauge_screen(', 1)[0]
 for tag in ('mw_ll', 'mw_lu', 'mw_rl', 'mw_ru', 'mm_base'):

@@ -1,8 +1,9 @@
+from source_helpers import read_hook_source
 """Guard the dialogue-only draw scope and native layout restoration."""
 from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 source = (root / 'src/dialogue_text_screen.inc').read_text()
-hooks = (root / 'src/item_slot_hooks.cpp').read_text()
+hooks = read_hook_source()
 assert 'dynamic_cast<dMsgScrnTalk_c*>(screen)' in source
 assert 'talk->mpTm_c[i] : talk->mpTmr_c[i - 7]' in source
 assert 'dialogue_text_multiplier(hud_scales().dialogueText, sourceMessageScale)' in source

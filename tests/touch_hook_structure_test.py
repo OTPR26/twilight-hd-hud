@@ -1,7 +1,8 @@
+from source_helpers import read_hook_source
 """Windows must never make optional touch-input observation a load dependency."""
 from pathlib import Path
 
-source = (Path(__file__).resolve().parents[1] / "src/item_slot_hooks.cpp").read_text()
+source = read_hook_source()
 
 declarations = """#if !defined(_WIN32)
 DEFINE_HOOK(&PADSetVirtualStatus, PadSetVirtualStatusHook);

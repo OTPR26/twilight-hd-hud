@@ -1,7 +1,8 @@
+from source_helpers import read_hook_source
 """HUD sizing keeps currency visibility, key geometry, and map state intact."""
 from pathlib import Path
 
-source = (Path(__file__).resolve().parents[1] / 'src/item_slot_hooks.cpp').read_text()
+source = read_hook_source()
 icon = source.split('void scale_rupee_icon_for_draw(', 1)[1].split(
     'void restore_rupee_icon_draw(', 1)[0]
 assert "MULTI_CHAR('rupi')" in icon

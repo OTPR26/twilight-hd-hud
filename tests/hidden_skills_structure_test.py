@@ -1,8 +1,9 @@
+from source_helpers import read_hook_source
 from pathlib import Path
 
 
 root = Path(__file__).resolve().parent.parent
-source = (root / "src/item_slot_hooks.cpp").read_text()
+source = read_hook_source()
 
 overlay = source.split("void ensure_hidden_skills_overlay(", 1)[1].split(
     "HookAction before_skill_wait_move(", 1

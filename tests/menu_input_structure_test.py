@@ -1,7 +1,8 @@
+from source_helpers import read_hook_source
 """Ensure gameplay input and minimap restoration stay scoped to their owners."""
 from pathlib import Path
 
-source = (Path(__file__).resolve().parents[1] / 'src/item_slot_hooks.cpp').read_text()
+source = read_hook_source()
 pad = source.split('void after_pad_read(', 1)[1].split('HookAction before_meter_map_ctrl_show(', 1)[0]
 assert 'daAlink_getAlinkActorClass() != nullptr, s_fileSelectScreenActive' in pad
 assert 'use_tphd_dpad_map_bindings() && gameplayShortcuts' in pad

@@ -1,6 +1,7 @@
+from source_helpers import read_hook_source
 from pathlib import Path
 
-source = (Path(__file__).parents[1] / 'src/item_slot_hooks.cpp').read_text()
+source = read_hook_source()
 eligible = source.split('bool item_needs_z_valid_button(int itemNo) {', 1)[1].split('\n}', 1)[0]
 for item in ('dItemNo_HVY_BOOTS_e', 'dItemNo_SPINNER_e', 'dItemNo_KANTERA_e'):
     assert f'itemNo == {item}' in eligible

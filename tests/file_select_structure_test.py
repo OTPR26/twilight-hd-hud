@@ -1,9 +1,10 @@
+from source_helpers import read_hook_source
 """Guard the shared play-time anchor and its authored texture coordinates."""
 from pathlib import Path
 import struct
 
 root = Path(__file__).resolve().parents[1]
-source = (root / 'src/item_slot_hooks.cpp').read_text()
+source = read_hook_source()
 confirmation = source.split('void style_copy_destination_yes_no(', 1)[1].split(
     'void style_copy_destination_screen(', 1)[0]
 # Native variable-delta presentation needs the animation attachment to
@@ -12,17 +13,24 @@ assert 'setAnimation(' not in confirmation
 assert 'group->scale(1.0f, 1.0f)' in confirmation
 cursor = source.split('void position_file_select_cursor(dFile_select_c* menu)', 1)[1].split(
     'void align_file_select_play_time(', 1)[0]
-guard = cursor.split('if (copy_destination_confirm_state(menu))', 1)[1].split(
+guard = cursor.split('if (file_select_confirmation_active(menu))', 1)[1].split(
     'constexpr u64 actionFrameTags[]', 1)[0]
-assert 'DATASELPROC_YES_NO_SELECT' in guard
-assert 'DATASELPROC_YES_NO_CURSOR_MOVE_ANM' in guard
-assert 'menu->field_0x0268 < 2' in guard
-assert "MULTI_CHAR('hd_cno')" in guard and "MULTI_CHAR('hd_cyes')" in guard
-assert 'position_cursor_outside_frame(menu->mSelIcon, frame,' in guard
-for placement in (confirmation, guard):
-    assert 'file_select_layout::kActionCursorPaddingX' in placement
-    assert 'file_select_layout::kActionCursorPaddingY' in placement
+interactive = source.split('bool file_select_confirmation_interactive(', 1)[1].split(
+    'constexpr u64 kFileSelectConfirmationFrames[]', 1)[0]
+assert 'DATASELPROC_YES_NO_SELECT' in interactive
+assert 'DATASELPROC_YES_NO_CURSOR_MOVE_ANM' in interactive
+placement = source.split('void position_file_select_confirmation_cursor(', 1)[1].split(
+    'f32 copy_title_text_width(', 1)[0]
+assert '!file_select_confirmation_interactive(menu)' in placement
+assert 'menu->field_0x0268 >= 2' in placement
+assert 'kFileSelectConfirmationFrames[index]' in placement
+assert 'position_cursor_outside_frame(menu->mSelIcon, frame,' in placement
+assert 'file_select_layout::kActionCursorPaddingX' in placement
+assert 'file_select_layout::kActionCursorPaddingY' in placement
+for caller in (confirmation, guard):
+    assert 'position_file_select_confirmation_cursor(menu)' in caller
 assert 'return;' in guard
+assert 'FileSelectMoveHook' not in source
 print('PASS: Yes/No animations remain attached and cursor cannot fall through to save rows')
 cursor_draw = source.split('HookAction before_select_cursor_draw(', 1)[1].split(
     'HookAction before_three_select_draw(', 1)[0]

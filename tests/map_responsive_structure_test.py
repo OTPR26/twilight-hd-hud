@@ -1,7 +1,8 @@
+from source_helpers import read_hook_source
 """Narrow-window fitting must restore native map state after each draw."""
 from pathlib import Path
 root = Path(__file__).resolve().parents[1]
-source = (root / 'src/item_slot_hooks.cpp').read_text()
+source = read_hook_source()
 compact = (root / 'src/map_responsive_screen.inc').read_text()
 world = (root / 'src/overworld_map_screen.inc').read_text()
 assert 'size >= 1' in compact  # Approved widescreen path stays untouched.

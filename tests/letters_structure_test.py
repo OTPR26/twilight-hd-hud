@@ -1,9 +1,10 @@
+from source_helpers import read_hook_source
 from pathlib import Path
 import struct
 
 
 root = Path(__file__).resolve().parent.parent
-source = (root / "src/item_slot_hooks.cpp").read_text()
+source = read_hook_source()
 
 overlay = source.split("void ensure_letters_overlay(", 2)[2].split(
     "HookAction before_letter_wait_move(", 1
