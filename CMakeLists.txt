@@ -21,13 +21,8 @@ if (NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(TWILIGHT_HUD_BUNDLE_ARG BUNDLE)
 endif ()
 
-# Apple mobile GPUs do not support the BC7 replacement textures used by the
-# desktop and Android package. Select the ASTC equivalents at build time so
-# direct/bundled iOS and tvOS builds cannot bypass the Apple packaging fix.
-set(TWILIGHT_HUD_TEXTURES_DIR textures)
-if (IOS OR PLATFORM STREQUAL "TVOS")
-    set(TWILIGHT_HUD_TEXTURES_DIR textures-apple)
-endif ()
+# Portable RGBA8 assets allow one bundle for desktop and mobile GPUs.
+set(TWILIGHT_HUD_TEXTURES_DIR textures-universal)
 
 add_mod(twilight_hd_hud
     FEATURES game
