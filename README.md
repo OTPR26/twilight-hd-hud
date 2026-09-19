@@ -93,7 +93,7 @@ No controller profile is rewritten.
 ## Installation: iPhone, iPad, and Apple TV
 
 Twilight HD includes native executable code. On standard iOS and tvOS devices,
-it must be bundled and signed with Dusklight. The **iOS and tvOS** `.dusk` file
+it must be bundled and signed with Dusklight. The universal `Twilight-HD-HUD.dusk` file
 in [Releases](../../releases/latest) is for that packaging workflow; copying an
 unsigned package into the writable `mods` folder is not sufficient.
 
@@ -187,7 +187,7 @@ The project builds against the Dusklight mod SDK. Supported build targets are:
 | Desktop and Android | Windows x64, Linux x64 / Steam Deck, macOS Apple Silicon, Android ARM64 |
 | iOS and tvOS | iPhone and iPad ARM64, Apple TV ARM64 |
 
-The included workflow builds and verifies Windows x64, Linux x64, macOS Apple Silicon, Android ARM64, iOS ARM64, and tvOS ARM64 against the compatible Dusklight revision recorded in the workflow file.
+The included workflow builds and verifies Windows x64 and ARM64, Linux x64 and ARM64, macOS Intel and Apple Silicon, Android ARM64, iOS ARM64, and tvOS ARM64 against the compatible Dusklight revision recorded in the workflow file. All nine native modules are combined into one universal `Twilight-HD-HUD.dusk` package.
 
 ### Host-platform build
 
@@ -212,7 +212,7 @@ python3 tests/font_manifest_test.py
 
 ### iOS and tvOS builds
 
-Apple mobile targets require the iOS or tvOS CMake toolchain and the matching Dusklight link stub. The complete, reproducible commands are in the `Build iOS and tvOS` job in [the build workflow](.github/workflows/build-platforms.yml). That job builds both ARM64 modules, verifies them, and combines them into the separate `Twilight-HD-HUD-iOS-tvOS.dusk` package.
+Apple mobile targets require the iOS or tvOS CMake toolchain and the matching Dusklight link stub. The complete, reproducible commands are in the `Build iOS and tvOS` job in [the build workflow](.github/workflows/build-platforms.yml). That job builds and verifies both ARM64 modules before the final universal package is assembled. The older platform-specific release filenames are retained as identical universal copies for compatibility with existing update checks; install only one copy.
 
 ## Credits and licensing
 

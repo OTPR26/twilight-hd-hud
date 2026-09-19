@@ -1,1 +1,1 @@
-optimizations
+Universal package for all supported platforms.

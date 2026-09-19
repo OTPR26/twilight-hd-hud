@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.1.5 - 2026-09-19
+
+- Universal package for all supported platforms.
+
 ## v2.0.1 - 2026-09-16
 
 - Updated compatibility with Dusklight Nightly build 402.
