@@ -43,19 +43,16 @@ release; see [COMPATIBILITY.md](COMPATIBILITY.md) for the maintenance checklist.
   Portals with L / Xbox LB / PlayStation L1. Minimap visibility is retained after warping.
 - TPHD-sized action and dialogue text, with the bottom-center A prompt on the left
 - Centered oil, oxygen, and lantern meters across supported display sizes
-- Native modules for Windows x64, Linux x64, macOS Apple Silicon, Android ARM64, iOS ARM64, and tvOS ARM64
+- Native modules for Windows x64 and ARM64, Linux x64 and ARM64, macOS Intel and Apple Silicon, Android ARM64, iOS ARM64, and tvOS ARM64
 
 Planned improvements are tracked in [ROADMAP.md](ROADMAP.md).
 Release history is recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## Downloads
 
-The release provides two `.dusk` packages, also available in ZIPs with installation notes:
+Download **Twilight-HD-HUD.dusk** from [Releases](../../releases/latest). This single universal package includes all supported platforms, including iPhone, iPad, and Apple TV.
 
-- **Desktop and Android:** Windows, Linux, Steam Deck, macOS Apple Silicon, and Android ARM64
-- **iOS and tvOS:** iPhone, iPad, and Apple TV
-
-Download the package for the device running Dusklight. The packages contain the same mod assets and settings; only their native modules differ.
+The older Desktop-Android and iOS-tvOS filenames are identical copies retained for existing update checks. Install only one package. Apple mobile devices still require the bundling and signing steps below.
 
 ## Installation: Windows, Linux, macOS, and Android
 
