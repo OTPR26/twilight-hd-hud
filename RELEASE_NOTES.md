@@ -1,1 +1,2 @@
-for 2.0 release of Dusklight
+- Fixed save-file Yes/No confirmation navigation, including deleting saves.
+- Tightened selection brackets around the Yes/No buttons.

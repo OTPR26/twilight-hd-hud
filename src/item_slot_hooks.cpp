@@ -6262,10 +6262,9 @@ void style_copy_destination_yes_no(dFile_select_c* menu, bool active) {
             continue;
         }
         group->show();
-        // File Selection normally scales/slides the old and new Yes/No panes
-        // for several frames. Those transforms fight this fixed TPHD layout
-        // and produce a visible flash when changing choices, so detach them.
-        group->setAnimation(static_cast<J2DAnmTransform*>(nullptr));
+        // Preserve native animation attachments: Dusklight advances the
+        // confirmation state through them. Override only the rendered pose
+        // after presentation; detaching here stalls selection/cancellation.
         group->scale(1.0f, 1.0f);
         if (s_fileSelectYesNoLayoutReady) {
             group->translate(s_fileSelectYesNoX[index],
@@ -6302,12 +6301,16 @@ void style_copy_destination_yes_no(dFile_select_c* menu, bool active) {
                 JUtility::TColor(242, 242, 236, 255) :
                 JUtility::TColor(155, 155, 150, 255));
         }
-        if (selected && menu->mSelIcon != nullptr) {
+        if (selected && menu->mSelIcon != nullptr &&
+            (menu->mDataSelProc == dFile_select_c::DATASELPROC_YES_NO_SELECT ||
+                menu->mDataSelProc == dFile_select_c::DATASELPROC_YES_NO_CURSOR_MOVE_ANM)) {
             // Native File Selection fades this cursor out while its original
             // Yes/No panes animate between choices. Our panes are fixed, so
             // keep the corners visible and simply move them to the new choice.
             menu->mSelIcon->setAlphaRate(1.0f);
-            position_cursor_outside_frame(menu->mSelIcon, frame);
+            position_cursor_outside_frame(menu->mSelIcon, frame,
+                file_select_layout::kActionCursorPaddingX,
+                file_select_layout::kActionCursorPaddingY);
         }
     }
     if (active) {
@@ -6520,6 +6523,26 @@ void position_cursor_outside_frame(dSelect_cursor_c* cursor, J2DPane* target,
 
 void position_file_select_cursor(dFile_select_c* menu) {
     if (menu == nullptr || menu->fileSel.Scr == nullptr || menu->mSelIcon == nullptr) {
+        return;
+    }
+
+    if (copy_destination_confirm_state(menu)) {
+        // Draw/update hooks run after styling and must not reattach the
+        // shared confirmation cursor to the selected save card.
+        if ((menu->mDataSelProc == dFile_select_c::DATASELPROC_YES_NO_SELECT ||
+                menu->mDataSelProc == dFile_select_c::DATASELPROC_YES_NO_CURSOR_MOVE_ANM) &&
+            menu->field_0x0268 < 2) {
+            const auto index = menu->field_0x0268;
+            J2DPane* group = menu->mYnSelPane[index] != nullptr ?
+                menu->mYnSelPane[index]->getPanePtr() : nullptr;
+            J2DPane* frame = group != nullptr ? group->search(index == 0 ?
+                MULTI_CHAR('hd_cno') : MULTI_CHAR('hd_cyes')) : nullptr;
+            if (frame != nullptr) {
+                position_cursor_outside_frame(menu->mSelIcon, frame,
+                    file_select_layout::kActionCursorPaddingX,
+                    file_select_layout::kActionCursorPaddingY);
+            }
+        }
         return;
     }
 
