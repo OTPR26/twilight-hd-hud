@@ -39,6 +39,7 @@ def main() -> None:
     parser.add_argument("inputs", nargs="+", type=Path, help="per-platform .dusk bundles")
     parser.add_argument("-o", "--output", required=True, type=Path, help="combined .dusk to write")
     parser.add_argument("--symgen", default="symgen", help="path to the symgen executable")
+    parser.add_argument("--platform", action="append", help="include only this platform (repeatable)")
     args = parser.parse_args()
 
     # Collect entries: non-lib content must be identical everywhere; lib/<platform>/ trees
@@ -76,6 +77,12 @@ def main() -> None:
 
     if "mod.json" not in content_hashes:
         fail("bundles contain no mod.json")
+    if args.platform:
+        missing = set(args.platform) - platform_sources.keys()
+        if missing:
+            fail(f"requested platforms not found: {', '.join(sorted(missing))}")
+        platform_sources = {p: source for p, source in platform_sources.items()
+                            if p in args.platform}
 
     with tempfile.TemporaryDirectory() as tmp:
         stage = Path(tmp)
@@ -84,7 +91,8 @@ def main() -> None:
                                                if not n.startswith("lib/")])
         for archive in archives:
             archive.extractall(stage, members=[n for n in entry_names(archive)
-                                               if n.startswith("lib/")])
+                                               if n.startswith("lib/")
+                                               and n.split("/")[1] in platform_sources])
 
         mod_libs = []
         for platform in sorted(platform_sources):

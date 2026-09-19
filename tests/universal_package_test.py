@@ -9,9 +9,11 @@ expected = {
     'windows-amd64': 'mod.dll', 'windows-arm64': 'mod.dll',
     'linux-x86_64': 'mod.so', 'linux-aarch64': 'mod.so',
     'macos-arm64': 'mod.so', 'macos-x86_64': 'mod.so',
-    'android-aarch64': 'mod.so', 'ios-arm64': 'mod.so', 'tvos-arm64': 'mod.so',
+    'android-aarch64': 'mod.so', 'ios-arm64': 'mod.so',
 }
 path = sys.argv[1]
+if sys.argv[2:] == ['--tvos']:
+    expected = {'tvos-arm64': 'mod.so'}
 with zipfile.ZipFile(path) as package:
     assert package.testzip() is None
     names = package.namelist()
@@ -33,6 +35,7 @@ with zipfile.ZipFile(path) as package:
         assert not entry.filename.startswith('/') and '..' not in entry.filename.split('/')
         if entry.filename.startswith('textures/') and entry.filename.endswith('.dds'):
             assert struct.unpack_from('<I', package.read(entry), 128)[0] == 28
-verify(path, 'amd64')
-verify(path, 'arm64')
-print('PASS: all eight required targets plus tvOS, metadata, textures, CRCs, and compression limits')
+if 'windows-amd64' in expected:
+    verify(path, 'amd64')
+    verify(path, 'arm64')
+print(f'PASS: {len(expected)} targets, metadata, textures, CRCs, and compression limits')

@@ -50,9 +50,12 @@ Release history is recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## Downloads
 
-Download **Twilight-HD-HUD.dusk** from [Releases](../../releases/latest). This single universal package includes all supported platforms, including iPhone, iPad, and Apple TV.
+Download from [Releases](../../releases/latest):
 
-The older Desktop-Android and iOS-tvOS filenames are identical copies retained for existing update checks. Install only one package. Apple mobile devices still require the bundling and signing steps below.
+- **Twilight-HD-HUD.dusk:** Windows x64/ARM64, Linux x64/ARM64, macOS Intel/Apple Silicon, Android ARM64, and iOS ARM64. Use this eight-platform package for the mod site.
+- **Twilight-HD-HUD-tvOS.dusk:** Apple TV only.
+
+The older Desktop-Android filename is a copy of the eight-platform package. The iOS-tvOS filename is a combined Apple-mobile compatibility package. Both are retained for existing update checks, not mod-site uploads. Install only one package. Apple mobile devices still require the bundling and signing steps below.
 
 ## Installation: Windows, Linux, macOS, and Android
 
@@ -90,7 +93,7 @@ No controller profile is rewritten.
 ## Installation: iPhone, iPad, and Apple TV
 
 Twilight HD includes native executable code. On standard iOS and tvOS devices,
-it must be bundled and signed with Dusklight. The universal `Twilight-HD-HUD.dusk` file
+it must be bundled and signed with Dusklight. Use `Twilight-HD-HUD.dusk` for iPhone/iPad or `Twilight-HD-HUD-tvOS.dusk` for Apple TV. The files
 in [Releases](../../releases/latest) is for that packaging workflow; copying an
 unsigned package into the writable `mods` folder is not sufficient.
 
@@ -184,7 +187,7 @@ The project builds against the Dusklight mod SDK. Supported build targets are:
 | Desktop and Android | Windows x64, Linux x64 / Steam Deck, macOS Apple Silicon, Android ARM64 |
 | iOS and tvOS | iPhone and iPad ARM64, Apple TV ARM64 |
 
-The included workflow builds and verifies Windows x64 and ARM64, Linux x64 and ARM64, macOS Intel and Apple Silicon, Android ARM64, iOS ARM64, and tvOS ARM64 against the compatible Dusklight revision recorded in the workflow file. All nine native modules are combined into one universal `Twilight-HD-HUD.dusk` package.
+The included workflow builds and verifies Windows x64 and ARM64, Linux x64 and ARM64, macOS Intel and Apple Silicon, Android ARM64, iOS ARM64, and tvOS ARM64 against the compatible Dusklight revision recorded in the workflow file. Eight native modules are combined into `Twilight-HD-HUD.dusk` for the mod site. Apple TV is packaged separately as `Twilight-HD-HUD-tvOS.dusk` because the site does not accept tvOS.
 
 ### Host-platform build
 
@@ -209,7 +212,7 @@ python3 tests/font_manifest_test.py
 
 ### iOS and tvOS builds
 
-Apple mobile targets require the iOS or tvOS CMake toolchain and the matching Dusklight link stub. The complete, reproducible commands are in the `Build iOS and tvOS` job in [the build workflow](.github/workflows/build-platforms.yml). That job builds and verifies both ARM64 modules before the final universal package is assembled. The older platform-specific release filenames are retained as identical universal copies for compatibility with existing update checks; install only one copy.
+Apple mobile targets require the iOS or tvOS CMake toolchain and the matching Dusklight link stub. The complete, reproducible commands are in the `Build iOS and tvOS` job in [the build workflow](.github/workflows/build-platforms.yml). That job builds and verifies both ARM64 modules before the eight-platform and separate tvOS packages are assembled.
 
 ## Credits and licensing
 

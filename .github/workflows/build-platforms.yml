@@ -402,11 +402,25 @@ jobs:
           curl -L --fail -o symgen https://github.com/encounter/symgen/releases/download/v1.3.2/symgen-linux-x86_64
           chmod +x symgen
       - name: Merge and verify metadata
-        run: python3 tools/merge_mod.py --symgen ./symgen -o Twilight-HD-HUD.dusk dist/*/*.dusk
+        run: |
+          python3 tools/merge_mod.py --symgen ./symgen -o Twilight-HD-HUD.dusk \
+            --platform windows-amd64 --platform windows-arm64 \
+            --platform linux-x86_64 --platform linux-aarch64 \
+            --platform macos-arm64 --platform macos-x86_64 \
+            --platform android-aarch64 --platform ios-arm64 dist/*/*.dusk
+          python3 tools/merge_mod.py --symgen ./symgen -o Twilight-HD-HUD-tvOS.dusk \
+            --platform tvos-arm64 dist/apple/*.dusk
       - name: Verify complete package
-        run: python3 tests/universal_package_test.py Twilight-HD-HUD.dusk
+        run: |
+          python3 tests/universal_package_test.py Twilight-HD-HUD.dusk
+          python3 tests/universal_package_test.py Twilight-HD-HUD-tvOS.dusk --tvos
       - uses: actions/upload-artifact@v4
         with:
           name: twilight-hd-hud-universal
           path: Twilight-HD-HUD.dusk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: twilight-hd-hud-tvos
+          path: Twilight-HD-HUD-tvOS.dusk
           if-no-files-found: error
