@@ -1,4 +1,4 @@
-Universal package for all supported platforms.
+Updates are now managed through Dusklight's Online mods.
 
 - **Twilight-HD-HUD.dusk** — Windows, Linux, macOS, Android, and iOS (eight targets). Upload this file to the mod site.
 - **Twilight-HD-HUD-tvOS.dusk** — separate Apple TV package.

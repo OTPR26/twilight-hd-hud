@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.1.6 - 2026-09-19
+
+- Updates are now managed through Dusklight's Online mods.
+
 ## v2.1.5 - 2026-09-19
 
 - Universal package for all supported platforms.

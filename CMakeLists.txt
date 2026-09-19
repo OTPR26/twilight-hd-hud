@@ -32,7 +32,6 @@ add_mod(twilight_hd_hud
         src/item_slot_hooks.cpp
         src/mod.cpp
         src/ui.cpp
-        src/update_service.cpp
     MOD_JSON mod.json
     RES_DIR res
     OVERLAY_DIR overlay
@@ -72,5 +71,4 @@ if (TWILIGHT_HUD_BUILD_TESTS)
         set_tests_properties(${test_name} PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
     endforeach()
     target_sources(hud_settings_test PRIVATE src/config.cpp src/ui.cpp)
-    target_compile_definitions(hud_settings_test PRIVATE TWILIGHT_HD_HUD_NO_UPDATE_SERVICE=1)
 endif ()

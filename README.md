@@ -100,9 +100,10 @@ unsigned package into the writable `mods` folder is not sufficient.
 Install a signed Dusklight app build containing the desired Twilight HD version,
 then enable the mod and choose your button-label layout and HUD size.
 
-Automatic and manual update checks are supported, but self-installation is not.
-When an update is available, the mod explains that an updated signed app build
-is required. Desktop and Android retain in-game self-installation.
+Updates are managed through Dusklight's built-in Online mods interface.
+Twilight HD no longer performs its own GitHub checks or displays separate update controls.
+On iOS and tvOS, native-code updates still require an updated signed Dusklight app
+containing the newer mod; the catalog cannot install native code on those platforms.
 
 The package does not contain game files. A compatible, legally obtained disc image is required by Dusklight.
 

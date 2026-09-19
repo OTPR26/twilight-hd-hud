@@ -1,6 +1,5 @@
 #include "config.hpp"
 #include "service_imports.hpp"
-#include "update_service.hpp"
 
 #include "mods/service.hpp"
 #include "mods/svc/host.h"
@@ -307,19 +306,7 @@ ModResult build_mod_panel(ModContext* ctx, UiElementHandle panel, void*, ModErro
     if (add_button(ctx, panel, "Open Twilight HD Settings", open_settings) != MOD_OK) {
         return MOD_ERROR;
     }
-    if (add_toggle(ctx, panel, "Auto Update Checks", check_for_updates_config_var(),
-            "Automatically checks for a newer Twilight HD release when the mod starts."
-            " When an update is found, Twilight HD can download and install it for you.")
-        != MOD_OK) {
-        return MOD_ERROR;
-    }
-    UiControlDesc update = UI_CONTROL_DESC_INIT;
-    update.kind = UI_CONTROL_BUTTON;
-    update.label = "Check Now";
-    update.on_pressed = request_update_check;
-    update.user_data = reinterpret_cast<void*>(1);
-    update.is_disabled = update_service_busy;
-    return svc_ui->pane_add_control(ctx, panel, &update, nullptr);
+    return MOD_OK;
 }
 
 }  // namespace
@@ -339,7 +326,6 @@ ModResult register_ui(ModError* error) {
     if (result != MOD_OK) {
         return mods::set_error(error, result, "failed to register Twilight HD menu tab");
     }
-    initialize_update_service();
     return MOD_OK;
 }
 
