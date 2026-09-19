@@ -77,6 +77,16 @@ jobs:
 
   windows:
     runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            msvc_arch: amd64
+            sdk_arch: amd64
+          - arch: arm64
+            msvc_arch: amd64_arm64
+            sdk_arch: arm64
     steps:
       - name: Check out HUD source
         uses: actions/checkout@v4
@@ -92,7 +102,7 @@ jobs:
       - name: Enable MSVC
         uses: ilammy/msvc-dev-cmd@v1
         with:
-          arch: amd64
+          arch: ${{ matrix.msvc_arch }}
 
       - name: Install Ninja
         run: choco install ninja --no-progress -y
@@ -100,7 +110,7 @@ jobs:
       - name: Download Nightly 402 Windows SDK
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run download 35071586760 --repo TwilitRealm/dusklight -n dusklight-v1.4.1-402-win32-msvc-x86_64 -D host-sdk
+        run: gh run download 35071586760 --repo TwilitRealm/dusklight -n dusklight-v1.4.1-402-win32-msvc-${{ matrix.arch }} -D host-sdk
 
       - name: Configure
         shell: pwsh
@@ -108,15 +118,18 @@ jobs:
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
           -DDUSK_DIR="$env:GITHUB_WORKSPACE/dusklight"
-          -DDUSK_GAME_EXE="$env:GITHUB_WORKSPACE/host-sdk/sdk/windows-amd64.lib"
+          -DDUSK_GAME_EXE="$env:GITHUB_WORKSPACE/host-sdk/sdk/windows-${{ matrix.sdk_arch }}.lib"
 
       - name: Build package
         run: cmake --build build
 
+      - name: Verify Windows DLL architecture
+        run: python tests/windows_package_test.py build/mods/twilight_hd_hud.dusk ${{ matrix.sdk_arch }}
+
       - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: twilight-hd-hud-windows-x86_64
+          name: twilight-hd-hud-windows-${{ matrix.arch }}
           path: build/mods/twilight_hd_hud.dusk
           if-no-files-found: error
 
@@ -228,6 +241,7 @@ jobs:
             -d package
           for platform in \
             twilight-hd-hud-windows-x86_64 \
+            twilight-hd-hud-windows-arm64 \
             twilight-hd-hud-macos-arm64 \
             twilight-hd-hud-android-aarch64
           do
@@ -242,6 +256,7 @@ jobs:
         run: |
           unzip -l Twilight-HD-HUD-Desktop-Android.dusk | grep 'lib/linux-x86_64/mod.so'
           unzip -l Twilight-HD-HUD-Desktop-Android.dusk | grep 'lib/windows-amd64/mod.dll'
+          unzip -l Twilight-HD-HUD-Desktop-Android.dusk | grep 'lib/windows-arm64/mod.dll'
           unzip -l Twilight-HD-HUD-Desktop-Android.dusk | grep 'lib/macos-arm64/mod.so'
           unzip -l Twilight-HD-HUD-Desktop-Android.dusk | grep 'lib/android-aarch64/mod.so'
 
