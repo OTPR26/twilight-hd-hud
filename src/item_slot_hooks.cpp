@@ -1,4 +1,5 @@
 #include "config.hpp"
+#include "localized_labels.hpp"
 #include "action_prompt_layout.hpp"
 #include "collection_layout.hpp"
 #include "controller_prompts.hpp"
@@ -111,6 +112,12 @@
 
 namespace twilight_hd_hud {
 namespace {
+
+std::string localized_label(MenuLabel label) {
+    char text[512]{};
+    dMeter2Info_getStringKanji(static_cast<u32>(label), text, nullptr);
+    return single_line_label(text);
+}
 
 constexpr u8 kZItemSlot = SELECT_ITEM_DOWN;
 // SDL_GamepadButton values are ABI-stable; the shoulders are L/R (L1/R1).
@@ -340,6 +347,10 @@ ResourceBuffer s_xboxShoulderButtonResources[2][4] = {
 };
 ResourceBuffer s_blackProBlankFaceButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_silverBlankFaceButtonResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_blankShoulderResources[5] = {
+    RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
+    RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
+};
 ResourceBuffer s_blackProShoulderButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_lShoulderButtonResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_blackProLShoulderButtonResource = RESOURCE_BUFFER_INIT;
@@ -596,6 +607,7 @@ int action_native_button(const DusklightActionBind action) {
 }
 
 bool use_tphd_midna_binding() {
+    if (!feature_enabled(Feature::ThirdItemSlot)) return false;
     return controller_compatibility() == ControllerCompatibility::FixedTphd ||
         midna_native_button() == PAD_NATIVE_BUTTON_INVALID;
 }
@@ -625,6 +637,11 @@ u32 game_button_mask_for_native(const int nativeButton) {
 }
 
 bool midna_action_triggered() {
+    if (!feature_enabled(Feature::ThirdItemSlot)) return false;
+    if (!feature_enabled(Feature::DpadShortcuts) &&
+        (game_button_mask_for_native(midna_native_button()) &
+            (PAD_BUTTON_UP | PAD_BUTTON_DOWN | PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT)) != 0)
+        return false;
     if (s_inputGate.blocked()) {
         return false;
     }
@@ -739,7 +756,7 @@ FollowDpadLayout follow_dpad_layout() {
 bool use_tphd_dpad_map_bindings() {
     // Fixed mode retains its established TPHD mapping. Follow mode resolves
     // the same roles around the live custom Midna direction below.
-    return true;
+    return feature_enabled(Feature::DpadShortcuts);
 }
 
 bool midna_uses_right_shoulder() {
@@ -1086,6 +1103,30 @@ const char* text_box_string(const J2DTextBox* text) {
 #else
     return text->getStringPtr();
 #endif
+}
+
+void fit_localized_label(J2DTextBox* text, float size) {
+    if (text == nullptr || text->getFont() == nullptr) return;
+    auto* font = text->getFont();
+    const auto* cursor = reinterpret_cast<const unsigned char*>(text_box_string(text));
+    float width = 0, line = 0;
+    while (cursor != nullptr && *cursor != 0) {
+        unsigned code = *cursor++;
+        if (code == '\n') { width = std::max(width, line); line = 0; continue; }
+        if (font->isLeadByte(code) && *cursor != 0) code = (code << 8) | *cursor++;
+        line += font->getWidth(code) * size / std::max(1, font->getHeight());
+    }
+    width = std::max(width, line);
+    const float scale = width > 0 ? std::min(1.0f, std::max(1.0f, text->getWidth() - 4) / width) : 1.0f;
+    text->setFontSize(size * scale, size * scale);
+    text->setLineSpace(size * scale * 1.25f);
+}
+
+void hide_other_text(J2DPane* parent, J2DPane* keep) {
+    if (parent == nullptr) return;
+    if (dynamic_cast<J2DTextBox*>(parent) != nullptr && parent != keep) parent->hide();
+    for (auto* child = parent->getFirstChildPane(); child != nullptr; child = child->getNextChildPane())
+        hide_other_text(child, keep);
 }
 
 J2DPicture* first_picture_pane(J2DPane* pane) {
@@ -1972,6 +2013,7 @@ void after_item_get_message_index_demo(ModContext*, void* args, void*, void*) {
 }
 
 void apply_item_explain_button_layout(dMenu_ItemExplain_c* menu) {
+    if (!feature_enabled(Feature::ThirdItemSlot)) return;
     if (menu == nullptr) {
         return;
     }
@@ -2012,12 +2054,13 @@ void apply_item_get_assignment_buttons(dMsgScrnItem_c* itemScreen) {
         {7, styled_r_button_texture()},
     }};
     for (const auto& [type, texture] : buttons) {
+        if (type == 7 && !feature_enabled(Feature::ThirdItemSlot)) continue;
         J2DPicture* picture = itemScreen->mpOutFont->mpPane[type];
         if (picture == nullptr || texture == nullptr) continue;
         picture->changeTexture(texture, 0);
         set_neutral_picture_colors(picture);
     }
-    if (itemScreen->mItemIndex == dItemNo_MAP_e) {
+    if (feature_enabled(Feature::DpadShortcuts) && itemScreen->mItemIndex == dItemNo_MAP_e) {
         // The Dungeon Map acquisition card uses out-font type 2 for its stock
         // white cross. Here it means D-pad Up, not the aiming stick used by
         // other item help, so replace it only on this card.
@@ -2749,7 +2792,7 @@ void style_collect_title_panel(J2DScreen* screen, const bool position) {
     const auto frameBounds = frame->getBounds();
     if (s_collectTitleLabel == nullptr) {
         s_collectTitleLabel = JKR_NEW J2DTextBox(MULTI_CHAR('hd_ctxt'),
-            frameBounds, nullptr, "Collection", 32, HBIND_CENTER,
+            frameBounds, nullptr, localized_label(MenuLabel::Collection).c_str(), 512, HBIND_CENTER,
             VBIND_CENTER);
         s_collectTitleLabel->setFont(titleFont);
         container->appendChild(s_collectTitleLabel);
@@ -2897,7 +2940,7 @@ void apply_collect_menu_typography(dMenu_Collect2D_c* menu) {
         saveLabel->setFontSize(15.0f, 15.0f);
         saveLabel->setFontColor(JUtility::TColor(242, 242, 237, 255),
             JUtility::TColor(255, 255, 255, 255));
-        saveLabel->setString(0x20, "Save Game");
+        saveLabel->setString(512, localized_label(MenuLabel::Save).c_str());
         // Keep the label centred in the visible HD frame.
         saveLabel->add(0.5f, 5.5f);
         saveLabel->show();
@@ -2907,6 +2950,7 @@ void apply_collect_menu_typography(dMenu_Collect2D_c* menu) {
         optionsLabel->setFontSize(15.0f, 15.0f);
         optionsLabel->setFontColor(JUtility::TColor(242, 242, 237, 255),
             JUtility::TColor(255, 255, 255, 255));
+        optionsLabel->setString(512, localized_label(MenuLabel::Options).c_str());
         // Keep the label centred in the visible HD frame.
         optionsLabel->add(2.5f, 5.5f);
         optionsLabel->show();
@@ -2968,18 +3012,30 @@ void configure_hd_picture(J2DPicture* picture) {
     picture->show();
 }
 
-J2DPicture* make_hd_prompt_label(u64 tag,
+J2DPane* make_hd_prompt_label(u64 tag,
     const JGeometry::TBox2<f32>& bounds, const char* value,
     J2DTextBoxHBinding alignment = HBIND_CENTER) {
-    (void)alignment;
+    const auto translated = localized_label(std::strcmp(value, "Confirm") == 0 ?
+        MenuLabel::Confirm : MenuLabel::Back);
+    // Keep the established English artwork; other languages need real text,
+    // not an English word baked into a texture.
+    if (translated != value && !translated.empty()) {
+        auto* label = JKR_NEW J2DTextBox(tag, bounds, nullptr, translated.c_str(),
+            512, alignment, VBIND_CENTER);
+        label->setFont(mDoExt_getMesgFont());
+        label->setFontSize(12.0f, 12.0f);
+        label->setCharSpace(0.0f);
+        label->setLineSpace(14.0f);
+        label->setFontColor(JUtility::TColor(238, 238, 232, 255),
+            JUtility::TColor(255, 255, 255, 255));
+        if (bounds.getWidth() > 1) fit_localized_label(label, 12.0f);
+        return label;
+    }
     ResTIMG const* texture = std::strcmp(value, "Confirm") == 0 ?
         resource_texture(s_promptConfirmLabelResource) :
         resource_texture(s_promptBackLabelResource);
     if (texture == nullptr) return nullptr;
     auto* label = JKR_NEW J2DPicture(tag, bounds, texture, nullptr);
-    // Preserve the label's authored black outline, gray face gradient, and
-    // shadow. configure_hd_picture's black/white remap is appropriate for
-    // tintable ornaments but would flatten this RGBA artwork again.
     label->setTexCoord(label->getTexture(0), BIND15, MIRROR0, false);
     label->setCornerColor(JUtility::TColor(255, 255, 255, 255));
     label->setAlpha(255);
@@ -3840,6 +3896,21 @@ void apply_flipped_diamond_positions(dMeter2Draw_c* meter) {
         attack.x - action.x, attack.y - action.y);
     offset_diamond_group<J2DPane, 3>({pane_ptr(meter->mpButtonB), pane_ptr(meter->mpTextB),
             pane_ptr(meter->mpItemB)}, action.x - attack.x, action.y - attack.y);
+    // Letter-matched Xbox bindings put native X on West and native Y on
+    // North. Move complete groups, not just the glyphs: Wolf actions and
+    // native ammo/lantern draws use these same button/item anchors.
+    auto* xPicture = meter->mpScreen->search(MULTI_CHAR('x_btn'));
+    auto* yPicture = meter->mpScreen->search(MULTI_CHAR('y_btn'));
+    if (xPicture == nullptr || yPicture == nullptr ||
+        meter->mpButtonXY[0] == nullptr || meter->mpButtonXY[1] == nullptr) return;
+    const Vec x = meter->mpButtonXY[0]->getGlobalVtxCenter(xPicture, false, 0);
+    const Vec y = meter->mpButtonXY[1]->getGlobalVtxCenter(yPicture, false, 0);
+    offset_diamond_group<J2DPane, 5>({pane_ptr(meter->mpButtonXY[0]), pane_ptr(meter->mpTextXY[0]),
+        pane_ptr(meter->mpItemXY[0]), pane_ptr(meter->mpLightXY[0]), pane_ptr(meter->mpBTextXY[0])},
+        y.x - x.x, y.y - x.y);
+    offset_diamond_group<J2DPane, 5>({pane_ptr(meter->mpButtonXY[1]), pane_ptr(meter->mpTextXY[1]),
+        pane_ptr(meter->mpItemXY[1]), pane_ptr(meter->mpLightXY[1]), pane_ptr(meter->mpBTextXY[1])},
+        x.x - y.x, x.y - y.y);
 }
 
 void apply_button_layout_preference(dMeter2Draw_c* meter) {
@@ -3867,12 +3938,12 @@ void apply_button_layout_preference(dMeter2Draw_c* meter) {
     }
 
     if (layout == ButtonLayout::BayxFlipped) {
-        // A remains the Action glyph and B remains Attack, but their complete
-        // groups move to South/East below. Only the diamond swaps X/Y glyphs.
+        // All four native actions retain their letters; the complete groups
+        // move to Xbox's physical positions in apply_flipped_diamond_positions.
         set_face_button_texture(meter, MULTI_CHAR('a_btn'), buttonA);
         set_face_button_texture(meter, MULTI_CHAR('b_btn'), buttonB);
-        set_face_button_texture(meter, MULTI_CHAR('x_btn'), styled_face_button_texture('Y'));
-        set_face_button_texture(meter, MULTI_CHAR('y_btn'), styled_face_button_texture('X'));
+        set_face_button_texture(meter, MULTI_CHAR('x_btn'), styled_face_button_texture('X'));
+        set_face_button_texture(meter, MULTI_CHAR('y_btn'), styled_face_button_texture('Y'));
     } else if (layout == ButtonLayout::Universal) {
         ResTIMG const* blank = styled_blank_face_button_texture();
         set_face_button_texture(meter, MULTI_CHAR('a_btn'), blank);
@@ -3975,6 +4046,7 @@ void restore_archive_face_button_diamond(dMeter2Draw_c* meter) {
         restore_archive_pane(meter->mpItemXY[i]);
         restore_archive_pane(meter->mpLightXY[i]);
         restore_archive_pane(meter->mpTextXY[i]);
+        restore_archive_pane(meter->mpBTextXY[i]);
     }
 
     // Wolf actions use labels instead of equipped-item artwork. The stock
@@ -4118,6 +4190,7 @@ void restore_wii_u_item_num_layout(dMeter2Draw_c* meter) {
 }
 
 void apply_wii_u_r_button_art(dMeter2Draw_c* meter) {
+    if (!feature_enabled(Feature::ThirdItemSlot)) return;
     if (meter == nullptr || meter->mpScreen == nullptr) {
         return;
     }
@@ -4232,6 +4305,7 @@ void apply_wii_u_r_button_art(dMeter2Draw_c* meter) {
 }
 
 void apply_wii_u_dpad_transform(dMeter2Draw_c* meter) {
+    if (!feature_enabled(Feature::DpadShortcuts)) return;
     if (meter == nullptr) {
         return;
     }
@@ -4279,10 +4353,14 @@ void apply_wii_u_archive_layout_corrections(dMeter2Draw_c* meter) {
             meter->mpButtonParent->getInitScaleY() * scales.controllerDiamond);
     }
 
+    // The shoulder prompt shares one offset from the diamond in both forms.
+    // Both the item button and blank Midna backing use the same 64-unit
+    // canvas. Disabling the third item changes ownership, not geometry.
+    constexpr f32 shoulderScale = 0.45f;
     apply_hud_pane_transform(HudPaneSlot::ButtonZ, meter->mpButtonXY[2], true,
-        31.0f, -4.0f, 0.45f);
-    apply_hud_pane_transform(HudPaneSlot::TextZ, meter->mpTextXY[2], true, 31.0f,
-        -4.0f, 0.45f);
+        31.0f, -4.0f, shoulderScale);
+    apply_hud_pane_transform(HudPaneSlot::TextZ, meter->mpTextXY[2], true,
+        31.0f, -4.0f, shoulderScale);
 
     apply_wii_u_dpad_transform(meter);
     apply_hud_pane_transform(HudPaneSlot::Hearts, meter->mpLifeParent, true, -22.0f,
@@ -4497,6 +4575,7 @@ void draw_wolf_action_icons(dMeter2Draw_c* meter) {
 }
 
 void draw_tphd_map_icon(dMeter2Draw_c* meter) {
+    if (!feature_enabled(Feature::DpadShortcuts)) return;
     if (touch_controls_active()) {
         return;
     }
@@ -4619,6 +4698,7 @@ void align_dpad_labels(dMeter2Draw_c* meter) {
 }
 
 void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
+    if (!feature_enabled(Feature::DpadShortcuts)) return;
     if (meter == nullptr || meter->mpScreen == nullptr) {
         return;
     }
@@ -4735,6 +4815,11 @@ void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
         MULTI_CHAR('cont_at1'), MULTI_CHAR('cont_at2'), MULTI_CHAR('cont_at3'),
         MULTI_CHAR('cont_at4'), MULTI_CHAR('cont_at'),
     };
+    const bool swappedMenus = swap_menu_buttons();
+    const auto collectionLabelText = swappedMenus ?
+        collection_shortcut_label(localized_label(MenuLabel::Collection), localized_label(MenuLabel::Save)) :
+        localized_label(MenuLabel::Items);
+    const auto minimapLabelText = localized_label(MenuLabel::Minimap);
     for (int layer = 0; layer < 5; ++layer) {
         auto* actionText = static_cast<J2DTextBox*>(
             meter->mpScreen->search(actionTextTags[layer]));
@@ -4757,11 +4842,10 @@ void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
             // With Midna on Down, Left remains a deliberately unlabeled
             // minimap toggle and the existing right-side group labels the menu.
             const bool collectionLabel = destination < 5 || followMidnaOwnsDown;
-            const bool swappedMenus = swap_menu_buttons();
-            const char* label = collectionLabel ? dpad_menu_label(swappedMenus) : "Minimap";
+            const char* label = collectionLabel ? collectionLabelText.c_str() : minimapLabelText.c_str();
             const char* currentLabel = text_box_string(text);
             if (currentLabel == nullptr || std::strcmp(currentLabel, label) != 0) {
-                text->setString(0x40, label);
+                text->setString(512, label);
             }
             if (!collectionLabel) {
                 // Restore the unchanged Minimap row after a live Follow-mode
@@ -4781,7 +4865,7 @@ void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
             constexpr f32 outlineY[] = {1, -1, 1, -1, 0};
             const f32 lineSpace = actionFontSize.mSizeY * 1.25f;
             const f32 width = std::max(120.0f, copy_title_text_width(text->getFont(),
-                swappedMenus ? "Collection/" : "Items",
+                collectionLabelText.substr(0, collectionLabelText.find('\n')).c_str(),
                 actionFontSize.mSizeX, text->getCharSpace()) + 8.0f);
             text->setLineSpace(lineSpace);
             text->resize(width, (swappedMenus ? lineSpace : 0.0f) + actionFontSize.mSizeY + 4.0f);
@@ -4917,6 +5001,7 @@ void hide_picture_descendants(J2DPane* pane) {
 }
 
 void style_ring_combo_prompt(dMenu_Ring_c* ring) {
+    if (!feature_enabled(Feature::ThirdItemSlot)) return;
     if (ring == nullptr || ring->mpScreen == nullptr) {
         return;
     }
@@ -4928,6 +5013,7 @@ void style_ring_combo_prompt(dMenu_Ring_c* ring) {
 }
 
 void style_ring_direct_select_prompt(dMenu_Ring_c* ring) {
+    if (!feature_enabled(Feature::ThirdItemSlot)) return;
     if (ring == nullptr || ring->mpScreen == nullptr) {
         return;
     }
@@ -4971,6 +5057,7 @@ void destroy_ring_z_prompt(dMenu_Ring_c* ring) {
 }
 
 void create_ring_z_prompt(dMenu_Ring_c* ring) {
+    if (!feature_enabled(Feature::ThirdItemSlot)) return;
     destroy_ring_z_prompt(s_ringZPrompt.ring);
     if (ring == nullptr || ring->mPlayerIsWolf || ring->mpScreen == nullptr) {
         return;
@@ -5052,6 +5139,7 @@ void create_ring_z_prompt(dMenu_Ring_c* ring) {
 }
 
 void draw_ring_z_prompt(dMenu_Ring_c* ring) {
+    if (!feature_enabled(Feature::ThirdItemSlot)) return;
     if (s_ringZPrompt.ring != ring || s_ringZPrompt.screen == nullptr ||
         ring == nullptr || ring->mpScreen == nullptr ||
         !show_ring_assignment_prompts(ring->mPlayerIsWolf,
@@ -5306,7 +5394,8 @@ void fix_xy_hud_bow_combo_layering(dMeter2Draw_c* meter) {
     // The R-slot layout is rebuilt every frame, so its two combo pictures
     // need the same final alignment after layout_z_hud_item() has run. Doing
     // this here also keeps the result stable when the HUD scale changes.
-    if (meter->mpItemR != nullptr && meter->mpItemXYPane[2] != nullptr) {
+    if (feature_enabled(Feature::ThirdItemSlot) &&
+        meter->mpItemR != nullptr && meter->mpItemXYPane[2] != nullptr) {
         const u8 itemNo = dComIfGp_getSelectItem(kZItemSlot);
         arrange_hud_bow_combo_layers(itemNo,
             static_cast<J2DPicture*>(meter->mpItemR->getPanePtr()),
@@ -5622,6 +5711,7 @@ void draw_z_oil_meter(dMeter2Draw_c* meter, const u8 itemNo, const f32 itemAlpha
 }
 
 void draw_z_hud_item_meters(dMeter2Draw_c* meter) {
+    if (!feature_enabled(Feature::ThirdItemSlot)) return;
     if (meter == nullptr || meter->mpItemR == nullptr ||
         meter->mpButtonParent == nullptr || daPy_py_c::checkNowWolf())
     {
@@ -5646,6 +5736,7 @@ void draw_z_hud_item_meters(dMeter2Draw_c* meter) {
 }
 
 void update_z_hud_item(dMeter2Draw_c* meter) {
+    if (!feature_enabled(Feature::ThirdItemSlot)) return;
     if (meter == nullptr || meter->mpItemR == nullptr ||
         meter->mpLightXY[2] == nullptr || meter->mpButtonXY[2] == nullptr ||
         meter->mpItemXYPane[2] == nullptr)
@@ -5704,7 +5795,89 @@ void update_z_hud_item(dMeter2Draw_c* meter) {
     update_z_hud_item_alpha(meter);
 }
 
+void style_native_midna_backing(dMeter2Draw_c* meter) {
+    if (feature_enabled(Feature::ThirdItemSlot)) return;
+    if (meter == nullptr || meter->mpScreen == nullptr || meter->mpButtonMidona == nullptr) return;
+    auto* button = as_picture(meter->mpScreen->search(MULTI_CHAR('zbtn')));
+    auto* parent = meter->mpButtonMidona->getPanePtr();
+    auto* cap = as_picture(meter->mpScreen->search(MULTI_CHAR('hd_mcap')));
+    int style = button_style() == ButtonStyle::BlackPro ? 1 :
+        button_style() == ButtonStyle::Transparent ? 2 : 0;
+    if (style != 2 && (uses_xbox_prompts(button_layout()) || button_layout() == ButtonLayout::PlayStation))
+        style += 3;
+    const auto* texture = resource_texture(s_blankShoulderResources[style]);
+    if (button == nullptr || texture == nullptr) return;
+    button->changeTexture(texture, 0);
+    button->setTexCoord(button->getTexture(0), BIND15, MIRROR0, false);
+    set_neutral_picture_colors(button);
+    resize_pane_around_center(button, 64.0f, 64.0f);
+    // Custom Midna bindings can fade the native Z prompt independently of
+    // the portrait. Use it only as an anchor; the blank backing inherits
+    // Midna's own visibility and alpha instead.
+    button->setAlpha(0);
+    constexpr float capSize = 64.0f;
+    if (cap == nullptr) {
+        cap = JKR_NEW J2DPicture(MULTI_CHAR('hd_mcap'),
+            JGeometry::TBox2<f32>(0, 0, capSize, capSize), texture, nullptr);
+        // Keep custom artwork out of Midna's native animated subtree.
+        auto* hudParent = parent->getParentPane();
+        if (hudParent == nullptr) { delete cap; return; }
+        hudParent->insertChild(parent, cap);
+        cap->setInfluencedAlpha(true, true);
+    }
+    cap->changeTexture(texture, 0);
+    cap->setAlpha(parent->getAlpha());
+    if (touch_controls_active() || !parent->isVisible()) cap->hide();
+    else cap->show();
+}
+
+void align_native_midna_hud(dMeter2Draw_c* meter) {
+    if (feature_enabled(Feature::ThirdItemSlot)) return;
+    if (meter == nullptr || meter->mpScreen == nullptr ||
+        meter->mpButtonMidona == nullptr || meter->mpButtonXY[2] == nullptr) return;
+
+    auto* midnaPane = meter->mpButtonMidona->getPanePtr();
+    auto* portrait = first_picture_pane(midnaPane);
+    auto* button = meter->mpScreen->search(MULTI_CHAR('zbtn'));
+    if (portrait == nullptr || button == nullptr) return;
+
+    // Keep native ownership, visibility, and bindings. Only center the portrait
+    // over the native shoulder prompt in the replacement HUD artwork. Restore
+    // the native pose first so repeated draws cannot accumulate an offset.
+    constexpr float portraitScale = 0.70f;
+    meter->mpButtonMidona->scale(g_drawHIO.mMidnaIconScale * portraitScale,
+        g_drawHIO.mMidnaIconScale * portraitScale);
+    meter->mpButtonMidona->paneTrans(g_drawHIO.mMidnaIconPosX, g_drawHIO.mMidnaIconPosY);
+    const Vec face = meter->mpButtonMidona->getGlobalVtxCenter(portrait, false, 0);
+    const Vec shoulder = meter->mpButtonXY[2]->getGlobalVtxCenter(button, false, 0);
+    offset_diamond_group<J2DPane, 1>({meter->mpButtonMidona->getPanePtr()},
+        shoulder.x - face.x, shoulder.y - face.y);
+    if (auto* cap = meter->mpScreen->search(MULTI_CHAR('hd_mcap'))) {
+        // Match the real R picture's world size, independent of Midna's scale
+        // and despite the cap living under a different parent.
+        float scaleX = 1.0f, scaleY = 1.0f;
+        for (auto* pane = button; pane != nullptr; pane = pane->getParentPane()) {
+            scaleX *= pane->getScaleX();
+            scaleY *= pane->getScaleY();
+        }
+        for (auto* pane = cap->getParentPane(); pane != nullptr; pane = pane->getParentPane()) {
+            scaleX /= std::max(0.01f, std::abs(pane->getScaleX()));
+            scaleY /= std::max(0.01f, std::abs(pane->getScaleY()));
+        }
+        cap->resize(button->getWidth(), button->getHeight());
+        cap->scale(scaleX, scaleY);
+        cap->move(0.0f, 0.0f);
+        const Vec capCenter = meter->mpButtonMidona->getGlobalVtxCenter(cap, false, 0);
+        // The cap shares the R anchor exactly; lift only the portrait to leave
+        // the cap's lower edge visible.
+        offset_diamond_group<J2DPane, 1>({cap},
+            shoulder.x - capCenter.x, shoulder.y - capCenter.y);
+        offset_diamond_group<J2DPane, 1>({midnaPane}, 0.0f, -6.0f);
+    }
+}
+
 void position_midna_hud(dMeter2Draw_c* meter) {
+    if (!feature_enabled(Feature::ThirdItemSlot)) return;
     if (meter == nullptr || meter->mpScreen == nullptr) {
         return;
     }
@@ -5794,6 +5967,15 @@ void position_midna_hud(dMeter2Draw_c* meter) {
         return;
     }
 
+    if (!feature_enabled(Feature::DpadShortcuts) &&
+        nativeButton != kSdlRightShoulderButton) {
+        parentScale = std::max(0.01f, std::abs(anchorPane->getScaleY()));
+        // The native ITEMS row occupies the space above MAP. Keep Midna
+        // above both rows instead of using the compact TPHD stack offset.
+        positionX = 8.0f;
+        positionY = -65.0f;
+    }
+
     if (midnaPane->getParentPane() != anchorPane) {
         anchorPane->appendChild(midnaPane);
     }
@@ -5817,6 +5999,7 @@ void position_midna_hud(dMeter2Draw_c* meter) {
 }
 
 void update_midna_shoulder_badge(dMeter2Draw_c* meter) {
+    if (!feature_enabled(Feature::ThirdItemSlot)) return;
     if (meter == nullptr || meter->mpScreen == nullptr) {
         return;
     }
@@ -5862,17 +6045,14 @@ void update_midna_shoulder_badge(dMeter2Draw_c* meter) {
     constexpr f32 badgeSize = 35.0f;
     constexpr f32 effectiveMidnaScale = 0.90f;
     const f32 localSize = badgeSize / effectiveMidnaScale;
-    // This picture is now a child of Midna's pane, whose authored visible
-    // art sits below the pane's geometric center. Compensate in local space
-    // so the cap lands beneath the face while Midna remains the top layer.
-    const f32 localOffsetY = 26.0f / effectiveMidnaScale;
-    const JGeometry::TBox2<f32> midnaBounds = midnaPane->getBounds();
-    // The visible Midna art is authored right of this pane's geometric
-    // center. Pull the shoulder cap back beneath the visible mask rather than
-    // centering it on the larger transparent pane bounds.
-    const f32 centerX = (midnaBounds.i.x + midnaBounds.f.x) * 0.5f -
+    // Child coordinates must not include Midna's position in the D-pad pane:
+    // getBounds() includes that translation and would apply it a second time.
+    // Preserve the established badge alignment from the TPHD (8, -30) pose,
+    // but express it relative to Midna's size so both move as one unit.
+    const f32 localOffsetY = 26.0f / effectiveMidnaScale - 30.0f;
+    const f32 centerX = midnaPane->getWidth() * 0.5f + 8.0f -
         (7.5f / effectiveMidnaScale);
-    const f32 centerY = (midnaBounds.i.y + midnaBounds.f.y) * 0.5f;
+    const f32 centerY = midnaPane->getHeight() * 0.5f;
 
     if (badge == nullptr) {
         badge = JKR_NEW J2DPicture(badgeTag,
@@ -6486,6 +6666,8 @@ void after_pad_read(ModContext*, void*, void*, void*) {
 
     }
 
+    if (!feature_enabled(Feature::ThirdItemSlot)) return;
+
     const bool leftShoulderHeld = fixedMidnaAvailable &&
         physical_button_held(kSdlLeftShoulderButton);
     s_fixedMidnaTrig = leftShoulderHeld && !s_fixedMidnaHeld;
@@ -6495,8 +6677,10 @@ void after_pad_read(ModContext*, void*, void*, void*) {
     // logical button the active profile assigned to that shoulder before the
     // TPHD ZL/ZR reconstruction below restores the two physical triggers.
     if (fixedMidnaAvailable) {
-        const u32 fixedMidnaMask =
+        u32 fixedMidnaMask =
             game_button_mask_for_native(kSdlLeftShoulderButton);
+        if (!feature_enabled(Feature::DpadShortcuts))
+            fixedMidnaMask &= ~(PAD_BUTTON_UP | PAD_BUTTON_DOWN | PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT);
         pad.mButtonFlags &= ~fixedMidnaMask;
         pad.mPressedButtonFlags &= ~fixedMidnaMask;
     }
@@ -6861,7 +7045,7 @@ void ensure_fish_journal_overlay(dMenu_Fishing_c* menu) {
             group->appendChild(titleBanner);
             auto* title = JKR_NEW J2DTextBox(MULTI_CHAR('hd_fjtt'),
                 JGeometry::TBox2<f32>(-46.0f, 23.0f, 178.0f, 59.0f), nullptr,
-                "Fish Journal", 24, HBIND_CENTER, VBIND_CENTER);
+                localized_label(MenuLabel::FishJournal).c_str(), 512, HBIND_CENTER, VBIND_CENTER);
             title->setFont(mDoExt_getMesgFont());
             title->setFontSize(20.0f, 20.0f);
             title->setCharSpace(0.0f);
@@ -7297,7 +7481,7 @@ void ensure_letters_overlay(dMenu_Letter_c* menu) {
 
         auto* title = JKR_NEW J2DTextBox(MULTI_CHAR('hd_lttt'),
             JGeometry::TBox2<f32>(-46.0f, 23.0f, 178.0f, 59.0f), nullptr,
-            "Letters", 24, HBIND_CENTER, VBIND_CENTER);
+            localized_label(MenuLabel::Letters).c_str(), 512, HBIND_CENTER, VBIND_CENTER);
         title->setFont(mDoExt_getMesgFont());
         title->setFontSize(20.0f, 20.0f);
         title->setCharSpace(0.0f);
@@ -7730,7 +7914,7 @@ void ensure_hidden_skills_overlay(dMenu_Skill_c* menu) {
 
         auto* title = JKR_NEW J2DTextBox(MULTI_CHAR('hd_hstt'),
             JGeometry::TBox2<f32>(-46.0f, 23.0f, 178.0f, 59.0f), nullptr,
-            "Skills", 24, HBIND_CENTER, VBIND_CENTER);
+            localized_label(MenuLabel::Skills).c_str(), 512, HBIND_CENTER, VBIND_CENTER);
         title->setFont(mDoExt_getMesgFont());
         title->setFontSize(20.0f, 20.0f);
         title->setCharSpace(0.0f);
@@ -8055,7 +8239,7 @@ void ensure_golden_bugs_overlay(dMenu_Insect_c* menu) {
 
         auto* title = JKR_NEW J2DTextBox(MULTI_CHAR('hd_gbtt'),
             JGeometry::TBox2<f32>(-46.0f, 23.0f, 178.0f, 59.0f), nullptr,
-            "Golden Bugs", 24, HBIND_CENTER, VBIND_CENTER);
+            localized_label(MenuLabel::GoldenBugs).c_str(), 512, HBIND_CENTER, VBIND_CENTER);
         title->setFont(mDoExt_getMesgFont());
         title->setFontSize(20.0f, 20.0f);
         title->setCharSpace(0.0f);
@@ -9147,6 +9331,7 @@ void after_ring_set_mix_message(ModContext*, void* args, void*, void*) {
 }
 
 void hide_legacy_overlay_z(dMeterButton_c* buttons) {
+    if (!feature_enabled(Feature::ThirdItemSlot)) return;
     if (buttons == nullptr) {
         return;
     }
@@ -9356,6 +9541,7 @@ void apply_context_button_layout(dMeterButton_c* buttons) {
 }
 
 void hide_ring_stock_z_prompt(dMeter2Draw_c* meter) {
+    if (!feature_enabled(Feature::ThirdItemSlot)) return;
     if (meter == nullptr || s_ringZPrompt.ring == nullptr) {
         return;
     }
@@ -9653,10 +9839,12 @@ HookAction before_meter_screen_draw(ModContext*, void* args, void*, void*) {
     stabilize_wii_u_rupee_counter(meter, hideRupees);
     scale_rupee_icon_for_draw(meter);
     apply_wii_u_dpad_style(meter);
+    style_native_midna_backing(meter);
+    align_native_midna_hud(meter);
     position_midna_hud(meter);
     update_midna_shoulder_badge(meter);
     apply_hud_backing_visibility(meter);
-    if (meter->mpLightXY[2] != nullptr) {
+    if (feature_enabled(Feature::ThirdItemSlot) && meter->mpLightXY[2] != nullptr) {
         // Run after all native/restored HUD styling, including form changes.
         meter->mpLightXY[2]->hide();
         meter->mpLightXY[2]->setAlpha(0);
@@ -9961,6 +10149,10 @@ HookAction before_ring_is_mix_item_off(ModContext*, void* args, void* retval, vo
 }
 
 HookAction before_midna_talk_trigger(ModContext*, void* args, void* retval, void*) {
+    if (!feature_enabled(Feature::DpadShortcuts) &&
+        (game_button_mask_for_native(midna_native_button()) &
+            (PAD_BUTTON_UP | PAD_BUTTON_DOWN | PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT)) != 0)
+        return HOOK_CONTINUE;
     auto* link = mods::arg<const daAlink_c*>(args, 0);
     if (link == nullptr) {
         return HOOK_CONTINUE;
@@ -10043,6 +10235,7 @@ HookAction before_menu_window_execute(ModContext*, void* args, void*, void*) {
     preserve_map_minimap_preference(window);
     s_fmapInputScope = nullptr;
     s_fmapBackTriggered = false;
+    if (!feature_enabled(Feature::DpadShortcuts)) return HOOK_CONTINUE;
     if (window != nullptr && window->mpMenuFmap != nullptr &&
         window->mMenuProc >= dMw_c::FMAP_OPEN && window->mMenuProc <= dMw_c::FMAP_CLOSE) {
         auto& pad = mDoCPd_c::getCpadInfo(PAD_1);
@@ -10092,7 +10285,7 @@ HookAction before_menu_window_execute(ModContext*, void* args, void*, void*) {
         // the TPHD default: physical L. An explicit Dusklight action below is
         // the only thing that replaces this default.
         suppressMask = game_button_mask_for_native(kSdlLeftShoulderButton);
-    } else if (midna_action_triggered()) {
+    } else if (feature_enabled(Feature::ThirdItemSlot) && midna_action_triggered()) {
         // Follow mode leaves the controller profile untouched. When its Call
         // Midna action fires, suppress the normal game button fed by that same
         // physical control only while the item-menu dispatcher processes it.
@@ -10513,6 +10706,18 @@ void initialize_face_button_textures() {
             &s_silverBlankFaceButtonResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the blank Silver button texture");
     }
+    constexpr const char* blankShoulderPaths[] = {
+        "hud/shoulder-button-blank-silver.bti",
+        "hud/shoulder-button-blank-black-pro.bti",
+        "hud/shoulder-button-blank-transparent.bti",
+        "hud/shoulder-button-blank-rounded-silver.bti",
+        "hud/shoulder-button-blank-rounded-black-pro.bti",
+    };
+    for (int style = 0; style < 5; ++style) {
+        if (svc_resource->load(mod_ctx, blankShoulderPaths[style],
+                &s_blankShoulderResources[style]) != MOD_OK)
+            svc_log->warn(mod_ctx, "Unable to load blank shoulder artwork");
+    }
     if (svc_resource->load(mod_ctx, "hud/shoulder-button-r-black-pro.bti",
             &s_blackProShoulderButtonResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the Black Pro R button texture");
@@ -10736,6 +10941,7 @@ void shutdown_face_button_textures() {
     }
     free_resource(s_blackProBlankFaceButtonResource);
     free_resource(s_silverBlankFaceButtonResource);
+    for (auto& resource : s_blankShoulderResources) free_resource(resource);
     free_resource(s_blackProShoulderButtonResource);
     free_resource(s_lShoulderButtonResource);
     free_resource(s_blackProLShoulderButtonResource);
@@ -10886,8 +11092,10 @@ ModResult install_item_slot_hooks(ModError* error) {
         return result; \
     }
 
-    ADD_PRE(GetSelectItemHook, before_get_select_item, "get selected item");
-    ADD_POST(SetSelectItemHook, after_set_select_item, "set selected item");
+    if (feature_enabled(Feature::ThirdItemSlot)) {
+        ADD_PRE(GetSelectItemHook, before_get_select_item, "get selected item");
+        ADD_POST(SetSelectItemHook, after_set_select_item, "set selected item");
+    }
     ADD_POST(PadReadHook, after_pad_read, "controller read");
 #if !defined(_WIN32)
     // Windows' runtime detour backend cannot patch these small host input
@@ -10924,9 +11132,11 @@ ModResult install_item_slot_hooks(ModError* error) {
             "Dusklight touch-icon observation unavailable; touch HUD adaptation may be unavailable");
     }
 #endif
-    ADD_PRE(ItemActionTriggerHook, before_item_action_trigger,
-        "boomerang ZR multi-target input");
-    ADD_POST(SetStickDataHook, after_set_stick_data, "scoped third-item input");
+    if (feature_enabled(Feature::ThirdItemSlot)) {
+        ADD_PRE(ItemActionTriggerHook, before_item_action_trigger,
+            "boomerang ZR multi-target input");
+        ADD_POST(SetStickDataHook, after_set_stick_data, "scoped third-item input");
+    }
     ADD_POST(RingCreateHook, after_ring_create, "item ring create");
     ADD_PRE(RingMoveHook, before_item_bank_move, "item bank positions");
     ADD_POST(RingRotateHook, after_item_bank_rotate, "item bank fixed positions");
@@ -10939,14 +11149,20 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_PRE(ItemExplainDrawHook, before_item_explain_draw,
         "item description button styling");
     ADD_POST(ItemExplainDrawHook, after_item_explain_draw, "item description scope cleanup");
-    ADD_POST(ItemHelpMessageHook, after_item_help_message, "three-button item instructions");
-    ADD_POST(ItemHelpMessageHook, after_collection_wallet_message, "live wallet capacity description");
-    ADD_POST(ItemGetMessageIndexHook, after_item_get_message_index,
-        "three-button soup item-get instructions");
-    ADD_POST(ItemGetMessageIndexDemoHook, after_item_get_message_index_demo,
-        "three-button demo soup item-get instructions");
-    ADD_PRE(MeterButtonExecuteHook, before_meter_button_execute,
-        "disable legacy item-ring Z overlay");
+    if (feature_enabled(Feature::ThirdItemSlot)) {
+        ADD_POST(ItemHelpMessageHook, after_item_help_message, "three-button item instructions");
+    }
+    if (feature_enabled(Feature::CollectionScreen)) {
+        ADD_POST(ItemHelpMessageHook, after_collection_wallet_message, "live wallet capacity description");
+    }
+    if (feature_enabled(Feature::ThirdItemSlot)) {
+        ADD_POST(ItemGetMessageIndexHook, after_item_get_message_index,
+            "three-button soup item-get instructions");
+        ADD_POST(ItemGetMessageIndexDemoHook, after_item_get_message_index_demo,
+            "three-button demo soup item-get instructions");
+        ADD_PRE(MeterButtonExecuteHook, before_meter_button_execute,
+            "disable legacy item-ring Z overlay");
+    }
     ADD_POST(MeterButtonExecuteHook, after_meter_button_execute,
         "collapse legacy item-ring Z overlay");
     ADD_PRE(MeterButtonDrawHook, before_meter_button_draw,
@@ -10958,15 +11174,21 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_POST(MeterDrawHook, after_meter_draw, "HUD draw (after)");
     ADD_POST(MeterDrawKanteraMeterHook, after_meter_draw_kantera_meter,
         "TPHD lantern meter layout");
-    ADD_PRE(MeterDrawButtonCrossHook, before_meter_draw_button_cross,
-        "stationary D-pad anchor with minimap visible");
-    ADD_POST(MeterDrawButtonCrossHook, after_meter_draw_button_cross,
-        "persistent TPHD D-pad scale after viewport refresh");
-    ADD_PRE(MeterDrawButtonZHook, before_meter_draw_button_z,
-        "disable item-ring Z action label");
-    ADD_POST(MeterDrawButtonZHook, after_meter_draw_button_z,
-        "replace item-ring Z prompt with R");
-    ADD_POST(MeterMoveButtonCrossHook, after_meter_move_button_cross, "D-pad update");
+    if (feature_enabled(Feature::DpadShortcuts)) {
+        ADD_PRE(MeterDrawButtonCrossHook, before_meter_draw_button_cross,
+            "stationary D-pad anchor with minimap visible");
+        ADD_POST(MeterDrawButtonCrossHook, after_meter_draw_button_cross,
+            "persistent TPHD D-pad scale after viewport refresh");
+    }
+    if (feature_enabled(Feature::ThirdItemSlot)) {
+        ADD_PRE(MeterDrawButtonZHook, before_meter_draw_button_z,
+            "disable item-ring Z action label");
+        ADD_POST(MeterDrawButtonZHook, after_meter_draw_button_z,
+            "replace item-ring Z prompt with R");
+    }
+    if (feature_enabled(Feature::DpadShortcuts)) {
+        ADD_POST(MeterMoveButtonCrossHook, after_meter_move_button_cross, "D-pad update");
+    }
     ADD_PRE(MeterGaugeScreenHook, before_meter_gauge_screen, "oil and oxygen meter setup");
     ADD_PRE(ScreenDrawHook, before_gauge_screen_draw, "top-center oil and oxygen meters");
     ADD_PRE(ScreenDrawHook, before_item_explain_screen_draw,
@@ -10978,29 +11200,37 @@ ModResult install_item_slot_hooks(ModError* error) {
         "item-get text and inline button metrics");
     ADD_PRE(MessageScreenDrawHook, before_message_screen_draw, "Howl button prompt");
     ADD_POST(MessageScreenDrawHook, after_message_screen_draw, "Restore dialogue draw geometry");
-    ADD_POST(MeterMidnaAlphaHook, after_meter_midna_alpha, "Midna icon opacity");
+    if (feature_enabled(Feature::ThirdItemSlot)) {
+        ADD_POST(MeterMidnaAlphaHook, after_meter_midna_alpha, "Midna icon opacity");
+    }
     ADD_PRE(MeterMapDrawHook, before_meter_map_draw, "minimap draw (before)");
     ADD_POST(MeterMapDrawHook, after_meter_map_draw, "minimap draw (after)");
-    ADD_PRE(MeterMapCtrlShowHook, before_meter_map_ctrl_show,
-        "fixed TPHD map controls");
-    ADD_POST(CollectCreateHook, after_collect_create, "collection menu buttons");
-    ADD_PRE(CollectCursorHook, before_collection_cursor, "collection spatial navigation");
-    ADD_PRE(CollectModelMoveHook, before_collection_model_move, "collection model scope");
-    ADD_POST(CollectModelMoveHook, after_collection_model_move, "collection model scope cleanup");
-    ADD_PRE(CollectLinkPoseHook, before_collection_link_pose, "collection model placement");
-    ADD_PRE(CollectProjectionHook, before_collection_projection, "collection full-height viewport");
-    ADD_PRE(CollectPositionHook, before_collection_position, "collection projection coordinates");
-    ADD_PRE(CollectIconMeasureHook, before_collection_icon_measure, "collection icon measurement");
-    ADD_POST(CollectIconMeasureHook, after_collection_icon_measure, "collection icon measurement restore");
-    ADD_PRE(CollectIconRenderHook, before_collection_icon_render, "collection inline icon size");
-    ADD_POST(CollectIconRenderHook, after_collection_icon_render, "collection inline icon restore");
-    ADD_PRE(CollectTextParseHook, before_collection_text_parse, "collection rendered text slots");
-    ADD_POST(CollectTextParseHook, after_collection_text_parse, "collection rendered text scope cleanup");
-    ADD_PRE(CollectTextEscapeHook, before_collection_text_escape, "collection inline slot start");
-    ADD_POST(CollectTextEscapeHook, after_collection_text_escape, "collection inline slot end");
-    ADD_PRE(CollectOutFontDrawHook, before_collection_out_font_draw, "collection final inline alignment");
-    ADD_PRE(CollectOutFontDrawHook, before_item_help_out_font_draw, "item help icon spacing");
-    ADD_POST(CollectOutFontDrawHook, after_item_help_out_font_draw, "item help icon position restore");
+    if (feature_enabled(Feature::DpadShortcuts)) {
+        ADD_PRE(MeterMapCtrlShowHook, before_meter_map_ctrl_show,
+            "fixed TPHD map controls");
+    }
+    if (feature_enabled(Feature::CollectionScreen)) {
+        ADD_POST(CollectCreateHook, after_collect_create, "collection menu buttons");
+        ADD_PRE(CollectCursorHook, before_collection_cursor, "collection spatial navigation");
+        ADD_PRE(CollectModelMoveHook, before_collection_model_move, "collection model scope");
+        ADD_POST(CollectModelMoveHook, after_collection_model_move, "collection model scope cleanup");
+        ADD_PRE(CollectLinkPoseHook, before_collection_link_pose, "collection model placement");
+        ADD_PRE(CollectProjectionHook, before_collection_projection, "collection full-height viewport");
+        ADD_PRE(CollectPositionHook, before_collection_position, "collection projection coordinates");
+        ADD_PRE(CollectIconMeasureHook, before_collection_icon_measure, "collection icon measurement");
+        ADD_POST(CollectIconMeasureHook, after_collection_icon_measure, "collection icon measurement restore");
+        ADD_PRE(CollectIconRenderHook, before_collection_icon_render, "collection inline icon size");
+        ADD_POST(CollectIconRenderHook, after_collection_icon_render, "collection inline icon restore");
+        ADD_PRE(CollectTextParseHook, before_collection_text_parse, "collection rendered text slots");
+        ADD_POST(CollectTextParseHook, after_collection_text_parse, "collection rendered text scope cleanup");
+        ADD_PRE(CollectTextEscapeHook, before_collection_text_escape, "collection inline slot start");
+        ADD_POST(CollectTextEscapeHook, after_collection_text_escape, "collection inline slot end");
+        ADD_PRE(CollectOutFontDrawHook, before_collection_out_font_draw, "collection final inline alignment");
+    }
+    if (feature_enabled(Feature::ThirdItemSlot)) {
+        ADD_PRE(CollectOutFontDrawHook, before_item_help_out_font_draw, "item help icon spacing");
+        ADD_POST(CollectOutFontDrawHook, after_item_help_out_font_draw, "item help icon position restore");
+    }
     ADD_POST(LetterCreateHook, after_letter_create, "letter menu buttons");
     ADD_POST(LetterMoveHook, after_letter_move, "persistent HD letter journal");
     ADD_PRE(LetterWaitMoveHook, before_letter_wait_move, "letter journal navigation");
@@ -11019,12 +11249,16 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_POST(InsectMoveHook, after_insect_move, "golden bugs HD layout and touch");
     ADD_PRE(InsectDrawHook, before_insect_draw, "golden bugs responsive buttons");
     ADD_POST(InsectDrawHook, after_insect_draw, "golden bugs draw state restore");
-    ADD_POST(CollectMoveHook, after_collect_move, "collection menu frame styling");
-    ADD_PRE(CollectDrawHook, before_collect_draw, "collection menu HD draw");
-    ADD_PRE(CollectDeleteHook, before_collect_delete, "collection menu cleanup");
+    if (feature_enabled(Feature::CollectionScreen)) {
+        ADD_POST(CollectMoveHook, after_collect_move, "collection menu frame styling");
+        ADD_PRE(CollectDrawHook, before_collect_draw, "collection menu HD draw");
+        ADD_PRE(CollectDeleteHook, before_collect_delete, "collection menu cleanup");
+    }
 #if defined(_WIN32)
-    ADD_POST(CollectWideHook, after_collect_wide,
-        "collection Windows final title anchor");
+    if (feature_enabled(Feature::CollectionScreen)) {
+        ADD_POST(CollectWideHook, after_collect_wide,
+            "collection Windows final title anchor");
+    }
 #endif
     ADD_POST(SelectCursorUpdateHook, after_select_cursor_update,
         "collection footer cursor final alignment");
@@ -11038,8 +11272,10 @@ ModResult install_item_slot_hooks(ModError* error) {
         "restore field-map warp question geometry");
     ADD_PRE(FmapMoveHook, before_fmap_move, "field map portals L button mapping");
     ADD_POST(FmapMoveHook, after_fmap_move, "restore field map portal input");
-    ADD_PRE(FmapNextStatusHook, before_fmap_next_status, "overworld D-pad Up back");
-    ADD_POST(FmapNextStatusHook, after_fmap_next_status, "restore overworld close input");
+    if (feature_enabled(Feature::DpadShortcuts)) {
+        ADD_PRE(FmapNextStatusHook, before_fmap_next_status, "overworld D-pad Up back");
+        ADD_POST(FmapNextStatusHook, after_fmap_next_status, "restore overworld close input");
+    }
     ADD_PRE(FmapTopDrawHook, before_fmap_top_draw, "overworld Poe draw scope");
     ADD_POST(FmapBackDrawHook, after_fmap_back_draw, "field map border foreground");
     ADD_PRE(FmapRegionDrawHook, before_fmap_region_draw, "fit field map presentation");
@@ -11050,7 +11286,9 @@ ModResult install_item_slot_hooks(ModError* error) {
         "field map HD background, title, and prompts");
     ADD_PRE(DmapDrawHook, before_dmap_draw,
         "dungeon map HD background, title, and prompts");
-    ADD_PRE(DmapNextStatusHook, before_dmap_next_status, "dungeon map D-pad Up back");
+    if (feature_enabled(Feature::DpadShortcuts)) {
+        ADD_PRE(DmapNextStatusHook, before_dmap_next_status, "dungeon map D-pad Up back");
+    }
     ADD_PRE(DmapBgDrawHook, before_dmap_bg_draw,
         "dungeon map draw scope");
     ADD_POST(DmapWideHook, after_dmap_wide, "dungeon map narrow-window attachments");
@@ -11092,20 +11330,22 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_PRE(SaveDlstDrawHook, before_save_dlst_draw, "save menu HD final draw");
     ADD_PRE(MenuWindowExecuteHook, before_menu_window_execute, "Collection and Items shortcuts");
     ADD_POST(MenuWindowExecuteHook, after_menu_window_execute, "Menu shortcut input restore");
-    ADD_PRE(RingSetActiveCursorHook, before_ring_set_active_cursor, "item ring cursor (before)");
-    ADD_POST(RingSetActiveCursorHook, after_ring_set_active_cursor, "item ring cursor (after)");
-    ADD_POST(RingSetMixMessageHook, after_ring_set_mix_message,
-             "item ring combo prompt");
-    ADD_PRE(RingIsMixItemOnHook, before_ring_is_mix_item_on, "item combination enable");
-    ADD_PRE(RingIsMixItemOffHook, before_ring_is_mix_item_off, "item combination disable");
-    ADD_PRE(MidnaTalkTriggerHook, before_midna_talk_trigger, "Midna input");
-    ADD_PRE(CheckItemButtonChangeHook, before_check_item_button_change, "item button change");
-    ADD_PRE(CheckItemChangeFromButtonHook, before_check_item_change_from_button,
-        "item change from button");
-    ADD_PRE(CheckSetItemTriggerHook, before_check_set_item_trigger, "item trigger");
-    ADD_PRE(CheckItemSetButtonHook, before_check_item_set_button, "item button lookup");
-    ADD_PRE(SetHeavyBootsHook, before_set_heavy_boots, "heavy boots toggle");
-    ADD_POST(PlayerExecuteHook, after_player_execute, "player update");
+    if (feature_enabled(Feature::ThirdItemSlot)) {
+        ADD_PRE(RingSetActiveCursorHook, before_ring_set_active_cursor, "item ring cursor (before)");
+        ADD_POST(RingSetActiveCursorHook, after_ring_set_active_cursor, "item ring cursor (after)");
+        ADD_POST(RingSetMixMessageHook, after_ring_set_mix_message,
+                 "item ring combo prompt");
+        ADD_PRE(RingIsMixItemOnHook, before_ring_is_mix_item_on, "item combination enable");
+        ADD_PRE(RingIsMixItemOffHook, before_ring_is_mix_item_off, "item combination disable");
+        ADD_PRE(MidnaTalkTriggerHook, before_midna_talk_trigger, "Midna input");
+        ADD_PRE(CheckItemButtonChangeHook, before_check_item_button_change, "item button change");
+        ADD_PRE(CheckItemChangeFromButtonHook, before_check_item_change_from_button,
+            "item change from button");
+        ADD_PRE(CheckSetItemTriggerHook, before_check_set_item_trigger, "item trigger");
+        ADD_PRE(CheckItemSetButtonHook, before_check_item_set_button, "item button lookup");
+        ADD_PRE(SetHeavyBootsHook, before_set_heavy_boots, "heavy boots toggle");
+        ADD_POST(PlayerExecuteHook, after_player_execute, "player update");
+    }
 
 #undef ADD_PRE
 #undef ADD_POST

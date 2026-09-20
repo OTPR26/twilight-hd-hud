@@ -504,6 +504,11 @@ void position_save_menu_prompts(dMenu_save_c* menu) {
     if (J2DPane* label = button->search(MULTI_CHAR('hd_sback'))) {
         label->resize(43.0f, 16.0f);
         label->move(-29.0f, (button->getHeight() - 16.0f) * 0.5f);
+        if (auto* text = dynamic_cast<J2DTextBox*>(label)) {
+            text->resize(65.0f, 16.0f);
+            text->move(-65.0f, (button->getHeight() - 16.0f) * 0.5f);
+            fit_localized_label(text, 12.0f);
+        }
     }
     if (J2DPane* flourish = button->search(MULTI_CHAR('hd_sswrl'))) {
         flourish->resize(30.0f, 32.0f);

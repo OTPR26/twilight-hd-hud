@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.2.0 - 2026-09-20
+
+- Added toggles for the third item slot, Collection screen, and D-pad shortcuts.
+- Fixed X/Y item and Wolf-action placement in BAYX Flipped mode.
+- Improved localized menu labels and text spacing; improved language support.
+
 ## v2.1.6 - 2026-09-19
 
 - Updates are now managed through Dusklight's Online mods.

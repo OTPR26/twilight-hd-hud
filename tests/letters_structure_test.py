@@ -16,7 +16,7 @@ wait = source.split("HookAction before_letter_wait_move(", 1)[1].split(
     "void after_letter_move(", 1
 )[0]
 
-assert '"Letters"' in overlay
+assert 'localized_label(MenuLabel::Letters)' in overlay
 assert '"ni_item_icon_letter.bti"' in overlay
 assert "dMenu_Letter::getLetterSubject(letter)" in overlay
 assert "dMenu_Letter::getLetterName(letter)" in overlay

@@ -197,6 +197,11 @@ void position_file_select_prompt_overlays(dFile_select_c* menu) {
         // overlap the button pane slightly so the visible word sits close to
         // the B disc, as it does in TPHD.
         label->move(-29.0f, (buttonHeight - 16.0f) * 0.5f);
+        if (auto* text = dynamic_cast<J2DTextBox*>(label)) {
+            text->resize(65.0f, 16.0f);
+            text->move(-65.0f, (buttonHeight - 16.0f) * 0.5f);
+            fit_localized_label(text, 12.0f);
+        }
     }
 
     if (flourish != nullptr) {

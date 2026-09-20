@@ -47,6 +47,10 @@ enum class ControllerCompatibility : int {
 
 enum class HudSizeSetting { Overall, ControllerDiamond, Dpad, Hearts, ActionText, DialogueText, Rupees, Minimap };
 
+enum class Feature { ThirdItemSlot, CollectionScreen, DpadShortcuts };
+bool feature_enabled(Feature feature);
+ConfigVarHandle feature_config_var(Feature feature);
+
 int64_t hud_size_percent(HudSizeSetting setting);
 int64_t displayed_hud_size_percent(HudSizeSetting setting);
 bool hud_size_locked(HudSizeSetting setting);

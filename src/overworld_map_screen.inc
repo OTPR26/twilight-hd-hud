@@ -173,6 +173,7 @@ bool fmap_accepts_back(dMenu_Fmap_c* map) {
 }
 
 void add_fmap_back_hint(dMenu_Fmap2DTop_c* map, J2DPane* overlay) {
+    if (!feature_enabled(Feature::DpadShortcuts)) return;
     auto* group = overlay->search(MULTI_CHAR('hd_fbak'));
     if (group == nullptr) {
         const auto* texture = resource_texture(s_dmapBackDpadResource);
@@ -184,7 +185,7 @@ void add_fmap_back_hint(dMenu_Fmap2DTop_c* map, J2DPane* overlay) {
         configure_hd_picture(icon);
         group->appendChild(icon);
         auto* text = JKR_NEW J2DTextBox(MULTI_CHAR('hd_fbtx'),
-            JGeometry::TBox2<f32>(31, 0, 110, 24), nullptr, "Back", 32, HBIND_LEFT, VBIND_CENTER);
+            JGeometry::TBox2<f32>(31, 0, 110, 24), nullptr, localized_label(MenuLabel::Back).c_str(), 512, HBIND_LEFT, VBIND_CENTER);
         text->setFont(mDoExt_getMesgFont());
         text->setFontSize(12.5f, 12.5f);
         text->setCharSpace(-0.6f);

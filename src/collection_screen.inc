@@ -303,7 +303,7 @@ void create_collection_screen(dMenu_Collect2D_c* menu) {
         }
     }
     auto* titleLabel = JKR_NEW J2DTextBox(MULTI_CHAR('hd_cbtxt'),
-        JGeometry::TBox2<f32>(48, 28, 271, 56), nullptr, "Collection", 32,
+        JGeometry::TBox2<f32>(48, 28, 271, 56), nullptr, localized_label(MenuLabel::Collection).c_str(), 512,
         HBIND_CENTER, VBIND_CENTER);
     titleLabel->setFont(s_collectTitleLabel->getFont());
     titleLabel->setFontSize(17, 17);
@@ -311,6 +311,7 @@ void create_collection_screen(dMenu_Collect2D_c* menu) {
     titleLabel->setFontColor(JUtility::TColor(245, 245, 238, 255),
         JUtility::TColor(255, 255, 255, 255));
     root->appendChild(titleLabel);
+    fit_localized_label(titleLabel, 17.0f);
     s_collectTitleFrame->hide();
     s_collectTitleLabel->hide();
 
@@ -560,6 +561,7 @@ HookAction before_collection_out_font_draw(ModContext*, void* args, void*, void*
 }
 
 void apply_collection_screen(dMenu_Collect2D_c* menu) {
+    if (!feature_enabled(Feature::CollectionScreen)) return;
     auto* root = s_collectionScreen.root;
     if (menu == nullptr || menu != s_activeCollectMenu || root == nullptr) return;
     collection_place(menu, root, 398, 224, 796, 448);
@@ -570,6 +572,18 @@ void apply_collection_screen(dMenu_Collect2D_c* menu) {
         if (child != root) child->hide();
     }
     root->show();
+    // Native localized shadow layers may be shown again by menu updates.
+    // Keep one label per footer, regardless of which language's panes exist.
+    for (int column = 0; column < 2; ++column) {
+        auto* label = static_cast<J2DTextBox*>(menu->mpScreen->search(
+            column == 0 ? MULTI_CHAR('f_sav_0') : MULTI_CHAR('f_opt_0')));
+        auto* footer = menu->mpSelPm[column][5]->getPanePtr();
+        hide_other_text(footer, label);
+        if (label != nullptr) {
+            label->show();
+            fit_localized_label(label, 14.0f);
+        }
+    }
     const auto viewport = current_collection_viewport();
     const float safeWidth = (mDoGph_gInf_c::getSafeMaxXF() - mDoGph_gInf_c::getSafeMinXF()) / viewport.scale;
     constexpr float ruleY[] = {20.35f, 23.35f, 420.35f, 423.35f};

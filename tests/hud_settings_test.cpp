@@ -122,7 +122,11 @@ static ModResult window(ModContext*, const UiWindowDesc* desc, UiWindowHandle* h
     assert(controls[5].option_count == 2);
     assert(std::string(controls[5].options[0]) == "TPHD Bank");
     assert(std::string(controls[5].options[1]) == "Original Wheel");
-    assert(controls.size() == 7);
+    assert(controls.size() == 10);
+    for (int i = 0; i < 3; ++i) {
+        assert(controls[7 + i].kind == UI_CONTROL_TOGGLE);
+        assert(controls[7 + i].config_var == feature_config_var(static_cast<Feature>(i)));
+    }
     const auto& swap = controls[6];
     assert(swap.kind == UI_CONTROL_TOGGLE);
     assert(std::string(swap.label) == "TPHD Items / Collection Buttons");
@@ -304,5 +308,16 @@ int main() {
              HudSizeSetting::DialogueText, HudSizeSetting::Rupees, HudSizeSetting::Minimap}) {
         assert(hud_size_percent(setting) == 100 && !hud_size_locked(setting));
     }
-    std::cout << "PASS: migration/reload, numeric UI, override display/disable, saved values, clamping, reset\n";
+    for (int mask = 0; mask < 8; ++mask) {
+        for (int i = 0; i < 3; ++i) {
+            const auto feature = static_cast<Feature>(i);
+            const bool active = feature_enabled(feature);
+            assert(svc_config->set_bool(nullptr, feature_config_var(feature), (mask & (1 << i)) != 0) == MOD_OK);
+            assert(feature_enabled(feature) == active); // Changes require restart.
+        }
+        assert(register_config(nullptr) == MOD_OK);
+        for (int i = 0; i < 3; ++i)
+            assert(feature_enabled(static_cast<Feature>(i)) == ((mask & (1 << i)) != 0));
+    }
+    std::cout << "PASS: settings, optional feature combinations, and restart snapshots\n";
 }

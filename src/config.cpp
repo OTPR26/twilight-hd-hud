@@ -23,6 +23,8 @@ ConfigVarHandle s_minimapSize = 0;
 ConfigVarHandle s_textFont = 0;
 ConfigVarHandle s_itemsScreen = 0;
 ConfigVarHandle s_swapMenuButtons = 0;
+std::array<ConfigVarHandle, 3> s_featureHandles{};
+std::array<bool, 3> s_activeFeatures{true, true, true};
 
 ModResult register_bool(const char* name, bool defaultValue, ConfigVarHandle& handle) {
     ConfigVarDesc desc = CONFIG_VAR_DESC_INIT;
@@ -102,6 +104,14 @@ ModResult register_hud_sizes() {
 }  // namespace
 
 ModResult register_config(ModError* error) {
+    constexpr const char* featureNames[] = {
+        "third-item-slot", "collection-screen", "dpad-shortcuts",
+    };
+    for (std::size_t i = 0; i < s_featureHandles.size(); ++i) {
+        if (register_bool(featureNames[i], true, s_featureHandles[i]) != MOD_OK ||
+            svc_config->get_bool(mod_ctx, s_featureHandles[i], &s_activeFeatures[i]) != MOD_OK)
+            return mods::set_error(error, MOD_ERROR, "failed to register feature settings");
+    }
     if (register_int("button-layout", static_cast<int64_t>(ButtonLayout::Nintendo),
             s_buttonLayout) != MOD_OK ||
         register_int("button-style", static_cast<int64_t>(ButtonStyle::Silver),
@@ -133,6 +143,14 @@ ControllerCompatibility controller_compatibility() {
         return ControllerCompatibility::FollowDusklight;
     }
     return static_cast<ControllerCompatibility>(value);
+}
+
+bool feature_enabled(Feature feature) {
+    return s_activeFeatures.at(static_cast<std::size_t>(feature));
+}
+
+ConfigVarHandle feature_config_var(Feature feature) {
+    return s_featureHandles.at(static_cast<std::size_t>(feature));
 }
 
 ButtonLayout button_layout() {

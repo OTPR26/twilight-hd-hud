@@ -189,7 +189,24 @@ ModResult build_hud_tab(
         "Off: D-Pad Down opens Items; Start / + opens Collection/Save.";
     swap.binding = UI_BINDING_CONFIG_VAR;
     swap.config_var = swap_menu_buttons_config_var();
-    return svc_ui->pane_add_control(ctx, left, &swap, nullptr);
+    if (svc_ui->pane_add_control(ctx, left, &swap, nullptr) != MOD_OK) return MOD_ERROR;
+    if (add_section(ctx, left, "Optional Features (restart required)") != MOD_OK)
+        return MOD_ERROR;
+    if (add_toggle(ctx, left, "Third Item Slot (Z/R)",
+            feature_config_var(Feature::ThirdItemSlot),
+            "Adds the third item slot and its shoulder-button controls. Turn off to leave "
+            "those controls to Dusklight or another mod. Restart Dusklight to apply.") != MOD_OK)
+        return MOD_ERROR;
+    if (add_toggle(ctx, left, "TPHD Collection Screen",
+            feature_config_var(Feature::CollectionScreen),
+            "Styles and rearranges the main Collection screen. Turn off to leave its layout "
+            "and navigation unchanged. Journals remain enabled. Restart Dusklight to apply.") != MOD_OK)
+        return MOD_ERROR;
+    return add_toggle(ctx, left, "D-Pad Shortcuts",
+        feature_config_var(Feature::DpadShortcuts),
+        "Adds TPHD map, minimap, and Items/Collection shortcuts and their HUD labels. "
+        "Turn off to let Dusklight or another mod handle the D-Pad. The Items / Collection "
+        "Buttons setting then has no effect. Restart Dusklight to apply.");
 }
 
 HudSizeSetting size_setting(void* data) {

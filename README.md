@@ -72,6 +72,23 @@ version in `mods`. Do not remove your saves, settings, or controller profiles.
 
 ## Items screen
 
+### Optional features
+
+Twilight HD Settings includes three independent switches, all on by default:
+
+- **Third Item Slot (Z/R):** turn off the extra item slot, its assignment prompts,
+  and Twilight HD's shoulder/Midna input handling.
+- **TPHD Collection Screen:** turn off the main Collection layout, model placement,
+  and navigation changes. Journal improvements remain enabled.
+- **D-Pad Shortcuts:** turn off Twilight HD's map/minimap and Items/Collection
+  shortcuts, D-Pad HUD adjustments, and D-Pad map-back hints. The Items / Collection
+  Buttons setting has no effect while this switch is off.
+
+Restart Dusklight after changing these switches. Turning a feature off leaves its
+controls and runtime hooks to Dusklight or other mods; it does not disable the
+rest of Twilight HD's shared artwork and styling. Compatibility with another
+mod still depends on which remaining features it changes.
+
 The new **TPHD Bank** is the default. Select **Items Screen > Original Wheel**
 in Twilight HD Settings to use the original layout instead; close and reopen
 Items to apply the change. X, Y, and R item assignment and supported combinations

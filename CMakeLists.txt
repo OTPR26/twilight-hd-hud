@@ -52,6 +52,7 @@ if (TWILIGHT_HUD_BUILD_TESTS)
         touch_input_state file_select_layout ui_refinements collection_layout
         item_bank_layout wallet_description dungeon_map_layout
         action_prompt_layout dialogue_text_layout overworld_map_layout
+        localized_labels
     )
         add_executable(${test_name}_test tests/${test_name}_test.cpp)
         target_compile_features(${test_name}_test PRIVATE cxx_std_20)

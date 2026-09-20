@@ -246,6 +246,7 @@ void position_dmap_native_groups(dMenu_DmapBg_c* map) {
 }
 
 void add_dmap_back_hint(dMenu_DmapBg_c* map, float size = 1.0f) {
+    if (!feature_enabled(Feature::DpadShortcuts)) return;
     auto* root = map->mBaseScreen; // Outside native fixed-size alpha caches.
     auto* group = root->search(MULTI_CHAR('hd_dbak'));
     if (group == nullptr) {
@@ -258,7 +259,7 @@ void add_dmap_back_hint(dMenu_DmapBg_c* map, float size = 1.0f) {
         configure_hd_picture(icon);
         group->appendChild(icon);
         auto* text = JKR_NEW J2DTextBox(MULTI_CHAR('hd_dbtx2'),
-            JGeometry::TBox2<f32>(31, 0, 110, 24), nullptr, "Back", 32, HBIND_LEFT, VBIND_CENTER);
+            JGeometry::TBox2<f32>(31, 0, 110, 24), nullptr, localized_label(MenuLabel::Back).c_str(), 512, HBIND_LEFT, VBIND_CENTER);
         text->setFont(mDoExt_getMesgFont());
         text->setFontSize(12.5f, 12.5f);
         text->setFontColor(JUtility::TColor(238, 238, 232, 255),

@@ -36,7 +36,7 @@ assert "MULTI_CHAR('hd_fjbk')" in body
 assert "MULTI_CHAR('hd_fjsm')" in body
 assert "MULTI_CHAR('hd_fjsc')" in body
 assert 's_fishJournalSelectionResource' in source
-assert "MULTI_CHAR('hd_fjbn')" in body and '"Fish Journal"' in body
+assert "MULTI_CHAR('hd_fjbn')" in body and 'localized_label(MenuLabel::FishJournal)' in body
 assert 'nativeTitle->hide();' in body
 assert 'menu->mpIconScreen->hide();' in body
 assert "MULTI_CHAR('hd_fjbb')" in body and "MULTI_CHAR('hd_fjbt')" in body
