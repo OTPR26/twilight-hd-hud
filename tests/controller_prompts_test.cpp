@@ -20,6 +20,22 @@ struct LiteralTextBox {
 };
 
 int main() {
+    const auto crossAction = ButtonLayout::PlayStationSwapped;
+    assert(is_playstation_layout(crossAction));
+    assert(!uses_xbox_prompts(crossAction) && !is_botw_layout(crossAction));
+    assert(face_position_for_action(crossAction, 'A') == 'B');
+    assert(face_position_for_action(crossAction, 'B') == 'A');
+    assert(face_position_for_action(crossAction, 'X') == 'X');
+    assert(face_position_for_action(crossAction, 'Y') == 'Y');
+    assert(std::string(item_combo_button_label(crossAction)) == "L2");
+    const auto flippedBotw = ButtonLayout::BayxFlippedBotw;
+    assert(is_botw_layout(flippedBotw) && uses_xbox_prompts(flippedBotw));
+    assert(face_position_for_action(flippedBotw, 'X') == 'A');
+    assert(face_position_for_action(flippedBotw, 'Y') == 'X');
+    assert(face_letter_for_action(flippedBotw, 'A') == 'A');
+    assert(face_letter_for_action(flippedBotw, 'B') == 'X');
+    assert(face_letter_for_action(flippedBotw, 'X') == 'B');
+    assert(face_letter_for_action(flippedBotw, 'Y') == 'Y');
     for (auto layout : {ButtonLayout::NintendoBotw, ButtonLayout::XboxBotw,
             ButtonLayout::UniversalBotw}) {
         assert(is_botw_layout(layout));

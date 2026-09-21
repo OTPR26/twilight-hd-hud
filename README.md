@@ -174,9 +174,18 @@ bindings are unchanged. Menu, dialogue, and item-assignment prompts show the
 same selected face-button labels; actual menu behavior follows Dusklight's
 bindings. The mod does not detect or rewrite arbitrary custom bindings.
 
+**BAYX Flipped (BOTW Style)** keeps Attack on West and Action on South, but
+exchanges the two item slots: bind native X/item to East and native Y/item to
+North. Item artwork, Wolf actions, counters, and instruction icons follow the
+swapped slots. Existing layout selections and controller bindings are unchanged.
+
 The **Button Layout** setting includes a PlayStation option that displays Circle for the east
 action, Cross for the south attack, Triangle and Square for the two face-button items, R1 for the
 third item, L2 for enemy lock-on, and R2 for Gale Boomerang multi-target lock.
+
+**PlayStation (Cross Action)** places Action on South/Cross and Attack on
+East/Circle. Triangle, Square, and shoulder prompts are unchanged. The complete
+Action/Attack groups move together; configure matching bindings in Dusklight.
 
 The **Button Style** setting switches between the standard silver TPHD prompts and dark graphite
 **Black Pro** prompts. Button Style is independent of the ABXY, BAYX, Universal, and PlayStation

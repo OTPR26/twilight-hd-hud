@@ -12,6 +12,11 @@ assert 'hide_other_text(footer, label)' in source
 assert 'saveLabel->setString(0x20, "Save Game")' not in source
 assert 'collection_shortcut_label(localized_label(MenuLabel::Collection)' in source
 assert 'localized_label(MenuLabel::Minimap)' in source
+for label in ('Options', 'Brightness', 'DeviceSettings', 'Complete', 'DisplayInstructions'):
+    assert f'localized_label(MenuLabel::{label})' in source
+assert 'textBounds.f.x -= 24.0f' in prompt
+assert 'textBounds.f.x -= 13.0f' in prompt
+assert '"Make the adjustments on the device."' not in source
 
 flipped = source.split('if (layout == ButtonLayout::BayxFlipped)', 1)[1].split('} else if', 1)[0]
 assert "MULTI_CHAR('x_btn'), styled_face_button_texture('X')" in flipped
@@ -23,4 +28,7 @@ for slot in (0, 1):
 assert 'y.x - x.x, y.y - x.y' in positions
 assert 'x.x - y.x, x.y - y.y' in positions
 assert 'restore_archive_pane(meter->mpBTextXY[i])' in source
+assert 'if (button_layout() != ButtonLayout::BayxFlippedBotw) return;' in positions
+assert 'if (!botw)' in positions  # Do not swap Attack/Action a second time.
+assert 'if (button_layout() == ButtonLayout::PlayStationSwapped) return;' in positions
 print('PASS: native localized labels, single-row assignment, footer layers, and full X/Y HUD groups')

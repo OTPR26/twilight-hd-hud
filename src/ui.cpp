@@ -16,6 +16,14 @@ UiMenuTabHandle s_menuTab = 0;
 UiElementHandle s_standardStyle = 0;
 UiElementHandle s_universalStyle = 0;
 
+bool standard_style_disabled(ModContext*, void*) {
+    return is_universal_layout(button_layout());
+}
+
+bool universal_style_disabled(ModContext*, void*) {
+    return !is_universal_layout(button_layout());
+}
+
 ModResult update_hud_tab(ModContext* ctx, void*, ModError*) {
     const bool universal = is_universal_layout(button_layout());
     if (s_standardStyle != 0)
@@ -55,7 +63,8 @@ ModResult add_toggle(ModContext* ctx, UiElementHandle pane, const char* label,
 
 ModResult add_select(ModContext* ctx, UiElementHandle pane, const char* label,
     ConfigVarHandle var, const char* const* options, size_t optionCount,
-    const char* help = nullptr, UiElementHandle* handle = nullptr) {
+    const char* help = nullptr, UiElementHandle* handle = nullptr,
+    UiPredicateFn disabled = nullptr) {
     UiControlDesc desc = UI_CONTROL_DESC_INIT;
     desc.kind = UI_CONTROL_SELECT;
     desc.label = label;
@@ -64,13 +73,16 @@ ModResult add_select(ModContext* ctx, UiElementHandle pane, const char* label,
     desc.config_var = var;
     desc.options = options;
     desc.option_count = optionCount;
+    desc.is_disabled = disabled;
     return svc_ui->pane_add_control(ctx, pane, &desc, handle);
 }
 
 // Display order is independent of the saved enum values.
 constexpr ButtonLayout kLayoutOrder[] = {ButtonLayout::Nintendo, ButtonLayout::NintendoBotw,
     ButtonLayout::Xbox, ButtonLayout::BayxFlipped, ButtonLayout::XboxBotw,
-    ButtonLayout::Universal, ButtonLayout::UniversalBotw, ButtonLayout::PlayStation};
+    ButtonLayout::BayxFlippedBotw,
+    ButtonLayout::Universal, ButtonLayout::UniversalBotw, ButtonLayout::PlayStation,
+    ButtonLayout::PlayStationSwapped};
 
 void get_layout(ModContext*, void*, UiControlValue* value) {
     value->int_value = 0;
@@ -112,9 +124,11 @@ ModResult build_hud_tab(
         "BAYX",
         "BAYX Flipped",
         "BAYX (BOTW Style)",
+        "BAYX Flipped (BOTW Style)",
         "Universal",
         "Universal (BOTW Style)",
         "PlayStation",
+        "PlayStation (Cross Action)",
     };
     UiControlDesc layout = UI_CONTROL_DESC_INIT;
     layout.kind = UI_CONTROL_SELECT;
@@ -137,7 +151,7 @@ ModResult build_hud_tab(
     if (add_select(ctx, left, "Button Style", button_style_config_var(),
             kButtonStyles, std::size(kButtonStyles),
             "Silver uses the Twilight Princess HD-style prompts. Black Pro uses dark graphite "
-            "buttons with light lettering.", &s_standardStyle)
+            "buttons with light lettering.", &s_standardStyle, standard_style_disabled)
         != MOD_OK)
     {
         return MOD_ERROR;
@@ -146,7 +160,8 @@ ModResult build_hud_tab(
     if (add_select(ctx, left, "Button Style", button_style_config_var(),
             kUniversalStyles, std::size(kUniversalStyles),
             "Silver uses blank silver buttons. Transparent preserves the original "
-            "Universal backgrounds. Black Pro uses blank dark buttons.", &s_universalStyle)
+            "Universal backgrounds. Black Pro uses blank dark buttons.", &s_universalStyle,
+            universal_style_disabled)
         != MOD_OK) return MOD_ERROR;
     update_hud_tab(ctx, nullptr, nullptr);
     static constexpr const char* kControllerCompatibility[] = {

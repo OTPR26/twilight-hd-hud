@@ -160,10 +160,11 @@ void add_option_background_and_title(dMenu_Option_c* menu) {
 
     auto* title = JKR_NEW J2DTextBox(MULTI_CHAR('hd_ottx'),
         JGeometry::TBox2<f32>(48.0f, 18.0f, 198.0f, 49.0f), nullptr,
-        "Options", 16, HBIND_CENTER, VBIND_CENTER);
+        localized_label(MenuLabel::Options).c_str(), 512, HBIND_CENTER, VBIND_CENTER);
     title->setFont(menu->mpFont);
     title->setFontSize(21.0f, 21.0f);
     title->setCharSpace(-0.5f);
+    fit_localized_label(title, 21.0f);
     title->setFontColor(JUtility::TColor(242, 242, 235, 255),
         JUtility::TColor(255, 255, 255, 255));
     titleGroup->appendChild(title);
@@ -262,9 +263,10 @@ void add_option_prompts(dMenu_Option_c* menu) {
 
     auto* displayPrompt = JKR_NEW J2DTextBox(MULTI_CHAR('hd_odsp'),
         JGeometry::TBox2<f32>(403.0f, 412.0f, 570.0f, 435.0f), nullptr,
-        "Brightness / Screen Ratio", 32, HBIND_RIGHT, VBIND_CENTER);
+        localized_label(MenuLabel::Brightness).c_str(), 512, HBIND_RIGHT, VBIND_CENTER);
     displayPrompt->setFont(menu->mpFont);
     displayPrompt->setFontSize(11.5f, 11.5f);
+    fit_localized_label(displayPrompt, 11.5f);
     displayPrompt->setFontColor(JUtility::TColor(205, 201, 176, 255),
         JUtility::TColor(244, 238, 191, 255));
     group->appendChild(displayPrompt);
@@ -638,9 +640,10 @@ void add_tv_settings_hd_overlay(J2DScreen* screen, JUTFont* font) {
     }
     auto* title = JKR_NEW J2DTextBox(MULTI_CHAR('hd_tvtx'),
         JGeometry::TBox2<f32>(48.0f, 18.0f, 198.0f, 49.0f), nullptr,
-        "Device Settings", 24, HBIND_CENTER, VBIND_CENTER);
+        localized_label(MenuLabel::DeviceSettings).c_str(), 512, HBIND_CENTER, VBIND_CENTER);
     title->setFont(font);
     title->setFontSize(19.0f, 19.0f);
+    fit_localized_label(title, 19.0f);
     title->setCharSpace(-0.5f);
     title->setFontColor(JUtility::TColor(242, 242, 235, 255),
         JUtility::TColor(255, 255, 255, 255));
@@ -648,9 +651,10 @@ void add_tv_settings_hd_overlay(J2DScreen* screen, JUTFont* font) {
 
     auto* complete = JKR_NEW J2DTextBox(MULTI_CHAR('hd_tvcp'),
         JGeometry::TBox2<f32>(475.0f, 17.0f, 555.0f, 41.0f), nullptr,
-        "Complete", 16, HBIND_RIGHT, VBIND_CENTER);
+        localized_label(MenuLabel::Complete).c_str(), 512, HBIND_RIGHT, VBIND_CENTER);
     complete->setFont(font);
     complete->setFontSize(14.0f, 14.0f);
+    fit_localized_label(complete, 14.0f);
     complete->setFontColor(JUtility::TColor(235, 235, 230, 255),
         JUtility::TColor(255, 255, 255, 255));
     overlay->appendChild(complete);
@@ -742,7 +746,8 @@ void update_tv_settings_wording(J2DScreen* screen) {
     for (u64 tag : {MULTI_CHAR('menu_t81'), MULTI_CHAR('menu_t4'),
              MULTI_CHAR('menu_t8s'), MULTI_CHAR('menu_t8')}) {
         if (auto* text = static_cast<J2DTextBox*>(screen->search(tag))) {
-            text->setString(48, "Make the adjustments on the device.");
+            text->setString(512, localized_label(MenuLabel::DisplayInstructions).c_str());
+            fit_localized_label(text, 14.0f);
         }
     }
 }

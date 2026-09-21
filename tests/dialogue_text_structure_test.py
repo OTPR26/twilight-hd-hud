@@ -27,4 +27,10 @@ out_font_layout = hooks.split('void apply_out_font_button_layout(', 1)[1].split(
 assert '{0, menu_face_button_texture(true)}' in out_font_layout
 assert '{1, menu_face_button_texture(false)}' in out_font_layout
 assert '{3, styled_zl_button_texture()}' in out_font_layout
+assert '{4, dialogue ? styled_zr_button_texture() : nullptr}' in out_font_layout
+assert '{5, item_assignment_button_texture(true)}' in out_font_layout
+assert '{6, item_assignment_button_texture(false)}' in out_font_layout
+assert '{7, dialogue ? dialogue_midna_texture(outFont) : nullptr}' in out_font_layout
+assert 'apply_out_font_button_layout(messageScreen->mpOutFont,' in hooks
+assert 'dynamic_cast<dMsgScrnItem_c*>(messageScreen) == nullptr' in hooks
 print('PASS: dialogue-only text/ruby/glow/symbol scaling, geometry restored, choices/parser unchanged')

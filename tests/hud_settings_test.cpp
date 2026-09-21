@@ -68,21 +68,23 @@ static ModResult window(ModContext*, const UiWindowDesc* desc, UiWindowHandle* h
     assert(desc->tab_count == 2);
     assert(std::string(desc->tabs[1].title) == "HUD Sizing");
     assert(desc->tabs[0].build(nullptr, 1, 2, 3, nullptr, nullptr) == MOD_OK);
-    assert(controls[0].kind == UI_CONTROL_SELECT && controls[0].option_count == 8);
+    assert(controls[0].kind == UI_CONTROL_SELECT && controls[0].option_count == 10);
     assert(std::string(controls[0].options[0]) == "ABXY");
     assert(std::string(controls[0].options[1]) == "ABXY (BOTW Style)");
     assert(std::string(controls[0].options[2]) == "BAYX");
     assert(std::string(controls[0].options[3]) == "BAYX Flipped");
     assert(std::string(controls[0].options[4]) == "BAYX (BOTW Style)");
-    assert(std::string(controls[0].options[5]) == "Universal");
-    assert(std::string(controls[0].options[6]) == "Universal (BOTW Style)");
-    assert(std::string(controls[0].options[7]) == "PlayStation");
+    assert(std::string(controls[0].options[5]) == "BAYX Flipped (BOTW Style)");
+    assert(std::string(controls[0].options[6]) == "Universal");
+    assert(std::string(controls[0].options[7]) == "Universal (BOTW Style)");
+    assert(std::string(controls[0].options[8]) == "PlayStation");
+    assert(std::string(controls[0].options[9]) == "PlayStation (Cross Action)");
     assert(std::string(controls[0].help_rml).find("BAYX") == std::string::npos);
     // Reordering the menu must not reinterpret existing saved choices.
-    constexpr int64_t persisted[] = {0, 5, 1, 4, 6, 2, 7, 3};
+    constexpr int64_t persisted[] = {0, 5, 1, 4, 6, 8, 2, 7, 3, 9};
     const auto& layout = controls[0];
     assert(layout.binding == UI_BINDING_CALLBACKS);
-    for (int64_t index = 0; index < 8; ++index) {
+    for (int64_t index = 0; index < 10; ++index) {
         saved["button-layout"] = persisted[index];
         UiControlValue value = UI_CONTROL_VALUE_INIT;
         layout.get(nullptr, nullptr, &value);
@@ -90,14 +92,16 @@ static ModResult window(ModContext*, const UiWindowDesc* desc, UiWindowHandle* h
         saved["button-layout"] = 0;
         layout.set(nullptr, nullptr, &value);
         assert(saved.at("button-layout") == persisted[index]);
-        const bool universal = index == 5 || index == 6;
+        const bool universal = index == 6 || index == 7;
         assert(visible.at(2) == !universal && visible.at(3) == universal);
+        assert(controls[1].is_disabled(nullptr, nullptr) == universal);
+        assert(controls[2].is_disabled(nullptr, nullptr) == !universal);
     }
-    for (int64_t invalid : {-1, 8}) {
+    for (int64_t invalid : {-1, 10}) {
         UiControlValue value = UI_CONTROL_VALUE_INIT;
         value.int_value = invalid;
         layout.set(nullptr, nullptr, &value);
-        assert(saved.at("button-layout") == 3);
+        assert(saved.at("button-layout") == 9);
     }
     saved["button-layout"] = 0;
     assert(controls[1].option_count == 2 && controls[2].option_count == 3);
@@ -106,7 +110,7 @@ static ModResult window(ModContext*, const UiWindowDesc* desc, UiWindowHandle* h
     assert(std::string(controls[3].help_rml).find(
         "Face-button bindings are always configured in Dusklight.") != std::string::npos);
     assert(std::string(controls[2].options[2]) == "Transparent");
-    for (int64_t raw = 0; raw < 8; ++raw) {
+    for (int64_t raw = 0; raw < 10; ++raw) {
         saved["button-layout"] = raw;
         saved["button-style"] = 2;
         assert(button_style() == (is_universal_layout(button_layout()) ?
@@ -188,7 +192,7 @@ int main() {
     assert(button_layout() == ButtonLayout::BayxFlipped);
     saved["button-layout"] = 5;
     assert(button_layout() == ButtonLayout::NintendoBotw);
-    saved["button-layout"] = 8;
+    saved["button-layout"] = 10;
     assert(button_layout() == ButtonLayout::Nintendo);
     saved["button-layout"] = 0;
     assert(hud_size_percent(HudSizeSetting::Overall) == 125);

@@ -16,6 +16,8 @@ enum class ButtonLayout : int {
     NintendoBotw = 5,
     XboxBotw = 6,
     UniversalBotw = 7,
+    BayxFlippedBotw = 8,
+    PlayStationSwapped = 9,
 };
 
 enum class ButtonStyle : int {
@@ -24,9 +26,13 @@ enum class ButtonStyle : int {
     Transparent = 2,
 };
 
+constexpr bool is_playstation_layout(ButtonLayout layout) {
+    return layout == ButtonLayout::PlayStation || layout == ButtonLayout::PlayStationSwapped;
+}
+
 constexpr bool is_botw_layout(ButtonLayout layout) {
     return layout == ButtonLayout::NintendoBotw || layout == ButtonLayout::XboxBotw ||
-        layout == ButtonLayout::UniversalBotw;
+        layout == ButtonLayout::UniversalBotw || layout == ButtonLayout::BayxFlippedBotw;
 }
 
 constexpr bool is_universal_layout(ButtonLayout layout) {

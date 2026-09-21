@@ -11,6 +11,8 @@ enum class MenuLabel : unsigned {
     Options = 0x5f, Save = 0x60, Items = 0x61, Minimap = 0x62,
     Assign = 0x380, Collection = 0x3e1, Back = 0x3f9, Confirm = 0x40c,
     Letters = 0x4d6, FishJournal = 0x5a1, GoldenBugs = 0x5ba, Skills = 0x6a4,
+    Brightness = 0x556, DisplayInstructions = 0x55b, DeviceSettings = 0x55c,
+    Complete = 0x564,
 };
 
 inline std::string single_line_label(std::string_view text) {

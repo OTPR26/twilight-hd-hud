@@ -1387,7 +1387,7 @@ ResTIMG const* styled_r_button_texture() {
     if (uses_xbox_prompts(button_layout())) {
         return xbox_shoulder_button_texture(ShoulderPrompt::R);
     }
-    if (button_layout() == ButtonLayout::PlayStation) {
+    if (is_playstation_layout(button_layout())) {
         return playstation_shoulder_button_texture(1); // R1
     }
     if (button_style() == ButtonStyle::BlackPro) {
@@ -1402,7 +1402,7 @@ ResTIMG const* styled_l_button_texture() {
     if (uses_xbox_prompts(button_layout())) {
         return xbox_shoulder_button_texture(ShoulderPrompt::L);
     }
-    if (button_layout() == ButtonLayout::PlayStation) {
+    if (is_playstation_layout(button_layout())) {
         const int style = button_style() == ButtonStyle::BlackPro ? 1 : 0;
         return resource_texture(s_playStationL1ButtonResources[style]);
     }
@@ -1418,7 +1418,7 @@ ResTIMG const* styled_zl_button_texture() {
     if (uses_xbox_prompts(button_layout())) {
         return xbox_shoulder_button_texture(ShoulderPrompt::Zl);
     }
-    if (button_layout() == ButtonLayout::PlayStation) {
+    if (is_playstation_layout(button_layout())) {
         return playstation_shoulder_button_texture(0); // L2
     }
     if (button_style() == ButtonStyle::BlackPro) {
@@ -1433,7 +1433,7 @@ ResTIMG const* styled_zr_button_texture() {
     if (uses_xbox_prompts(button_layout())) {
         return xbox_shoulder_button_texture(ShoulderPrompt::Zr);
     }
-    if (button_layout() == ButtonLayout::PlayStation) {
+    if (is_playstation_layout(button_layout())) {
         return playstation_shoulder_button_texture(2); // R2
     }
     if (button_style() == ButtonStyle::BlackPro) {
@@ -1478,6 +1478,8 @@ ResTIMG const* menu_face_button_texture(const bool nativeAAction) {
         return styled_blank_face_button_texture();
     case ButtonLayout::PlayStation:
         return playstation_face_button_texture(nativeAAction ? 'A' : 'B');
+    case ButtonLayout::PlayStationSwapped:
+        return playstation_face_button_texture(nativeAAction ? 'B' : 'A');
     default: break; // BOTW presets handled above.
     }
     return nativeAAction ? buttonA : buttonB;
@@ -1497,6 +1499,7 @@ ResTIMG const* item_assignment_button_texture(const bool nativeXButton) {
     case ButtonLayout::Universal:
         return styled_blank_face_button_texture();
     case ButtonLayout::PlayStation:
+    case ButtonLayout::PlayStationSwapped:
         return playstation_face_button_texture(nativeXButton ? 'X' : 'Y');
     default: break;
     }
@@ -3020,7 +3023,13 @@ J2DPane* make_hd_prompt_label(u64 tag,
     // Keep the established English artwork; other languages need real text,
     // not an English word baked into a texture.
     if (translated != value && !translated.empty()) {
-        auto* label = JKR_NEW J2DTextBox(tag, bounds, nullptr, translated.c_str(),
+        auto textBounds = bounds;
+        // English art has transparent side bearings; real text cannot overlap buttons.
+        if (tag == MULTI_CHAR('hd_ocfm') || tag == MULTI_CHAR('hd_fcon'))
+            textBounds.f.x -= 24.0f;
+        if (tag == MULTI_CHAR('hd_obck') || tag == MULTI_CHAR('hd_fbck'))
+            textBounds.f.x -= 13.0f;
+        auto* label = JKR_NEW J2DTextBox(tag, textBounds, nullptr, translated.c_str(),
             512, alignment, VBIND_CENTER);
         label->setFont(mDoExt_getMesgFont());
         label->setFontSize(12.0f, 12.0f);
@@ -3689,15 +3698,42 @@ void replace_collect_buttons_in_tree(J2DPane* pane, ResTIMG const* baseTexture,
     }
 }
 
-void apply_out_font_button_layout(COutFont_c* outFont) {
+ResTIMG const* dialogue_midna_texture(COutFont_c* outFont) {
+    if (use_tphd_midna_binding()) return styled_l_button_texture();
+    const int button = midna_native_button();
+    if (button == kSdlLeftShoulderButton) return styled_l_button_texture();
+    if (button == kSdlRightShoulderButton) return styled_r_button_texture();
+    if (button >= 0 && button <= 3) {
+        // SDL face positions: South, East, West, North. Custom Midna binds
+        // are physical positions, not the game's A/B/X/Y action identifiers.
+        constexpr char positions[] = {'B', 'A', 'Y', 'X'};
+        const char position = positions[button];
+        if (is_universal_layout(button_layout())) return styled_blank_face_button_texture();
+        if (is_playstation_layout(button_layout()))
+            return playstation_face_button_texture(position);
+        constexpr char xbox[] = {'A', 'B', 'X', 'Y'};
+        return styled_face_button_texture(uses_xbox_prompts(button_layout()) ? xbox[button] : position);
+    }
+    if (button >= kSdlDpadUpButton && button <= kSdlDpadRightButton &&
+        outFont != nullptr && outFont->mpPane[2] != nullptr &&
+        outFont->mpPane[2]->getTexture(0) != nullptr)
+        return outFont->mpPane[2]->getTexture(0)->getTexInfo();
+    // Native Z or a non-controller custom bind: match the neutral shoulder
+    // backing used by the HUD instead of claiming that L/R is the binding.
+    int style = button_style() == ButtonStyle::BlackPro ? 1 :
+        button_style() == ButtonStyle::Transparent ? 2 : 0;
+    if (style != 2 && (uses_xbox_prompts(button_layout()) || is_playstation_layout(button_layout())))
+        style += 3;
+    return resource_texture(s_blankShoulderResources[style]);
+}
+
+void apply_out_font_button_layout(COutFont_c* outFont, bool dialogue = false) {
     if (outFont == nullptr) {
         return;
     }
 
-    // Out-font types 0 and 1 are the inline A/B controls, while type 3 is the
-    // native GameCube L targeting control. Keep all three on the configured
-    // Nintendo/Xbox/PlayStation/Universal prompt path. This out-font is shared
-    // by collection descriptions and live dialogue such as Hero's Shade lessons.
+    // Native action icons share the same presentation mapping as the HUD.
+    // Z means Midna in dialogue, but item assignment screens own its meaning.
     const struct {
         int type;
         ResTIMG const* replacement;
@@ -3705,6 +3741,10 @@ void apply_out_font_button_layout(COutFont_c* outFont) {
         {0, menu_face_button_texture(true)},
         {1, menu_face_button_texture(false)},
         {3, styled_zl_button_texture()},
+        {4, dialogue ? styled_zr_button_texture() : nullptr},
+        {5, item_assignment_button_texture(true)},
+        {6, item_assignment_button_texture(false)},
+        {7, dialogue ? dialogue_midna_texture(outFont) : nullptr},
     };
     for (const auto& button : buttons) {
         J2DPicture* picture = outFont->mpPane[button.type];
@@ -3864,7 +3904,8 @@ JGeometry::TBox2<f32> collection_submenu_global_bounds(J2DPane* pane) {
 
 void apply_flipped_diamond_positions(dMeter2Draw_c* meter) {
     const bool botw = is_botw_layout(button_layout());
-    if ((!botw && button_layout() != ButtonLayout::BayxFlipped) || meter == nullptr ||
+    if ((!botw && button_layout() != ButtonLayout::BayxFlipped &&
+            button_layout() != ButtonLayout::PlayStationSwapped) || meter == nullptr ||
         meter->mpScreen == nullptr || meter->mpButtonA == nullptr ||
         meter->mpButtonB == nullptr) return;
     J2DPane* aPicture = meter->mpScreen->search(MULTI_CHAR('a_btn'));
@@ -3885,20 +3926,23 @@ void apply_flipped_diamond_positions(dMeter2Draw_c* meter) {
             attack.x - action.x, attack.y - action.y);
         offset_diamond_group<J2DPane, 3>({pane_ptr(meter->mpButtonB), pane_ptr(meter->mpTextB),
             pane_ptr(meter->mpItemB)}, item.x - attack.x, item.y - attack.y);
-        offset_diamond_group<J2DPane, 4>({pane_ptr(meter->mpButtonXY[1]), pane_ptr(meter->mpTextXY[1]),
-            pane_ptr(meter->mpItemXY[1]), pane_ptr(meter->mpLightXY[1])},
+        offset_diamond_group<J2DPane, 5>({pane_ptr(meter->mpButtonXY[1]), pane_ptr(meter->mpTextXY[1]),
+            pane_ptr(meter->mpItemXY[1]), pane_ptr(meter->mpLightXY[1]), pane_ptr(meter->mpBTextXY[1])},
             action.x - item.x, action.y - item.y);
         // Counts, oil gauges and combo attachments follow mpItemXY's final bounds.
-        // The North item, R item and all shoulder prompts remain untouched.
-        return;
+        // The flipped variant additionally exchanges the North/East items.
+        // R and all shoulder prompts remain untouched.
+        if (button_layout() != ButtonLayout::BayxFlippedBotw) return;
     }
-    offset_diamond_group<J2DPane, 3>({pane_ptr(meter->mpButtonA), pane_ptr(meter->mpTextA), nullptr},
-        attack.x - action.x, attack.y - action.y);
-    offset_diamond_group<J2DPane, 3>({pane_ptr(meter->mpButtonB), pane_ptr(meter->mpTextB),
+    if (!botw) {
+        offset_diamond_group<J2DPane, 3>({pane_ptr(meter->mpButtonA), pane_ptr(meter->mpTextA), nullptr},
+            attack.x - action.x, attack.y - action.y);
+        offset_diamond_group<J2DPane, 3>({pane_ptr(meter->mpButtonB), pane_ptr(meter->mpTextB),
             pane_ptr(meter->mpItemB)}, action.x - attack.x, action.y - attack.y);
-    // Letter-matched Xbox bindings put native X on West and native Y on
-    // North. Move complete groups, not just the glyphs: Wolf actions and
-    // native ammo/lantern draws use these same button/item anchors.
+    }
+    if (button_layout() == ButtonLayout::PlayStationSwapped) return;
+    // Swap complete item groups: West/North for Flipped, East/North for
+    // Flipped BOTW. Wolf actions, ammo and lantern draws share these anchors.
     auto* xPicture = meter->mpScreen->search(MULTI_CHAR('x_btn'));
     auto* yPicture = meter->mpScreen->search(MULTI_CHAR('y_btn'));
     if (xPicture == nullptr || yPicture == nullptr ||
@@ -3958,11 +4002,11 @@ void apply_button_layout_preference(dMeter2Draw_c* meter) {
         set_face_button_texture(meter, MULTI_CHAR('b_btn'), buttonA);
         set_face_button_texture(meter, MULTI_CHAR('x_btn'), styled_face_button_texture('Y'));
         set_face_button_texture(meter, MULTI_CHAR('y_btn'), styled_face_button_texture('X'));
-    } else if (layout == ButtonLayout::PlayStation) {
+    } else if (is_playstation_layout(layout)) {
         set_face_button_texture(meter, MULTI_CHAR('a_btn'),
-            playstation_face_button_texture('A'));
+            menu_face_button_texture(true));
         set_face_button_texture(meter, MULTI_CHAR('b_btn'),
-            playstation_face_button_texture('B'));
+            menu_face_button_texture(false));
         set_face_button_texture(meter, MULTI_CHAR('x_btn'),
             playstation_face_button_texture('X'));
         set_face_button_texture(meter, MULTI_CHAR('y_btn'),
@@ -5803,7 +5847,7 @@ void style_native_midna_backing(dMeter2Draw_c* meter) {
     auto* cap = as_picture(meter->mpScreen->search(MULTI_CHAR('hd_mcap')));
     int style = button_style() == ButtonStyle::BlackPro ? 1 :
         button_style() == ButtonStyle::Transparent ? 2 : 0;
-    if (style != 2 && (uses_xbox_prompts(button_layout()) || button_layout() == ButtonLayout::PlayStation))
+    if (style != 2 && (uses_xbox_prompts(button_layout()) || is_playstation_layout(button_layout())))
         style += 3;
     const auto* texture = resource_texture(s_blankShoulderResources[style]);
     if (button == nullptr || texture == nullptr) return;
@@ -10008,6 +10052,11 @@ HookAction before_message_object_draw(ModContext*, void* args, void*, void*) {
 
 HookAction before_message_screen_draw(ModContext*, void* args, void*, void*) {
     auto* messageScreen = mods::arg<dMsgScrnBase_c*>(args, 0);
+    // Cover every message-screen subclass, not just conversations and item
+    // cards. Item-assignment-specific replacements below take precedence.
+    if (messageScreen != nullptr)
+        apply_out_font_button_layout(messageScreen->mpOutFont,
+            dynamic_cast<dMsgScrnItem_c*>(messageScreen) == nullptr);
     if (auto* talk = dynamic_cast<dMsgScrnTalk_c*>(messageScreen)) {
         // Hero's Shade skill lessons and other live dialogue use this separate
         // out-font instance for inline A/B controls. Keep those glyphs on the
