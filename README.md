@@ -52,7 +52,7 @@ Release history is recorded in [CHANGELOG.md](CHANGELOG.md).
 
 Download from [Releases](../../releases/latest):
 
-- **Twilight-HD-HUD.dusk:** Windows x64/ARM64, Linux x64/ARM64, macOS Intel/Apple Silicon, Android ARM64, and iOS ARM64. Use this eight-platform package for the mod site.
+- **Twilight-HD-HUD.dusk:** Windows x64/ARM64, Linux x64/ARM64, macOS Intel/Apple Silicon, Android ARM64, and iOS ARM64. 
 - **Twilight-HD-HUD-tvOS.dusk:** Apple TV only.
 
 The older Desktop-Android filename is a copy of the eight-platform package. The iOS-tvOS filename is a combined Apple-mobile compatibility package. Both are retained for existing update checks, not mod-site uploads. Install only one package. Apple mobile devices still require the bundling and signing steps below.
