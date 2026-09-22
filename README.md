@@ -165,45 +165,6 @@ put Attack on East and Action on South. Custom bindings remain unchanged.
 
 Physical controller bindings still depend on the active Dusklight controller profile.
 
-**ABXY (BOTW Style)**, **BAYX (BOTW Style)**, and **Universal (BOTW Style)**
-place Attack on West, Action on South, and the two face-button items on North
-and East. These are visual presets, not input remaps. Configure the matching
-bindings in Dusklight: native B/Attack to West, native A/Action to South,
-native X/item to North, and native Y/item to East. L, R, triggers, and D-Pad
-bindings are unchanged. Menu, dialogue, and item-assignment prompts show the
-same selected face-button labels; actual menu behavior follows Dusklight's
-bindings. The mod does not detect or rewrite arbitrary custom bindings.
-
-**BAYX Flipped (BOTW Style)** keeps Attack on West and Action on South, but
-exchanges the two item slots: bind native X/item to East and native Y/item to
-North. Item artwork, Wolf actions, counters, and instruction icons follow the
-swapped slots. Existing layout selections and controller bindings are unchanged.
-
-The **Button Layout** setting includes a PlayStation option that displays Circle for the east
-action, Cross for the south attack, Triangle and Square for the two face-button items, R1 for the
-third item, L2 for enemy lock-on, and R2 for Gale Boomerang multi-target lock.
-
-**PlayStation (Cross Action)** places Action on South/Cross and Attack on
-East/Circle. Triangle, Square, and shoulder prompts are unchanged. The complete
-Action/Attack groups move together; configure matching bindings in Dusklight.
-
-The **Button Style** setting switches between the standard silver TPHD prompts and dark graphite
-**Black Pro** prompts. Button Style is independent of the ABXY, BAYX, Universal, and PlayStation
-layouts, including BAYX Flipped and the BOTW Style presets. Both Universal
-layouts additionally offer **Transparent**, preserving their former blank
-background appearance. Universal **Silver** now uses a letterless version of
-the standard silver button artwork. Transparent is unavailable for lettered
-layouts; switching to one returns that style to Silver.
-
-The **Shoulder & D-Pad Behavior** setting controls Midna, shoulder/trigger handling,
-and related D-Pad shortcuts. Face-button bindings are always configured in Dusklight.
-The default **Follow Dusklight Bindings** mode leaves that profile unchanged and honors
-the configured **Call Midna** action without also triggering the control's normal game action. Its
-HUD prompt follows that assignment, including the default R shoulder and either vertical D-Pad
-direction. The optional **TPHD Fixed Bindings** mode ignores the separate Call Midna binding and
-keeps Midna exclusively on physical L. The third item follows logical GameCube Z (normally the controller's right
-shoulder), while ZR follows logical GameCube R for Gale Boomerang targeting and Dusklight's R+X/R+Y
-Sun's Song and Quick Transform combinations.
 
 ## Building
 
@@ -213,8 +174,6 @@ The project builds against the Dusklight mod SDK. Supported build targets are:
 | --- | --- |
 | Desktop and Android | Windows x64, Linux x64 / Steam Deck, macOS Apple Silicon, Android ARM64 |
 | iOS and tvOS | iPhone and iPad ARM64, Apple TV ARM64 |
-
-The included workflow builds and verifies Windows x64 and ARM64, Linux x64 and ARM64, macOS Intel and Apple Silicon, Android ARM64, iOS ARM64, and tvOS ARM64 against the compatible Dusklight revision recorded in the workflow file. Eight native modules are combined into `Twilight-HD-HUD.dusk` for the mod site. Apple TV is packaged separately as `Twilight-HD-HUD-tvOS.dusk` because the site does not accept tvOS.
 
 ### Host-platform build
 
