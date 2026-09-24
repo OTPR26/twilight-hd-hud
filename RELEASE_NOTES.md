@@ -1,2 +1,3 @@
-- Added PlayStation (Flipped) layout.
-- Added PlayStation Colors button style.
+- Fixed presenting notes and pictures from the third item slot.
+- Fixed applying bait with the fishing rod in the third item slot.
+- Fixed lure-fishing button prompts for alternate layouts.

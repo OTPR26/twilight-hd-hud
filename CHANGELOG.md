@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.4.1 - 2026-09-23
+
+- Fixed presenting notes and pictures from the third item slot.
+- Fixed applying bait with the fishing rod in the third item slot.
+- Fixed lure-fishing button prompts for alternate layouts.
+
 ## v2.4.0 - 2026-09-23
 
 - Added PlayStation (Flipped) layout.

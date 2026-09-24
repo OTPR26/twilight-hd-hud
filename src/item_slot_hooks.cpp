@@ -281,6 +281,11 @@ DEFINE_HOOK(&daAlink_c::checkItemButtonChange, CheckItemButtonChangeHook);
 DEFINE_HOOK(&daAlink_c::checkItemChangeFromButton, CheckItemChangeFromButtonHook);
 DEFINE_HOOK(&daAlink_c::checkSetItemTrigger, CheckSetItemTriggerHook);
 DEFINE_HOOK(&daAlink_c::checkItemSetButton, CheckItemSetButtonHook);
+DEFINE_HOOK(&daAlink_c::checkNewItemChange, CheckNewItemChangeHook);
+DEFINE_HOOK(&daAlink_c::procFishingFoodInit, FishingFoodInitHook);
+DEFINE_HOOK(&daAlink_c::orderTalk, OrderTalkHook);
+DEFINE_HOOK(&dEvt_control_c::talkXyCheck, TalkItemCheckHook);
+DEFINE_HOOK(&dEvt_control_c::entry, TalkQueueEntryHook);
 DEFINE_HOOK(&daAlink_c::setHeavyBoots, SetHeavyBootsHook);
 DEFINE_HOOK(&daAlink_c::execute, PlayerExecuteHook);
 
@@ -6631,8 +6636,29 @@ void rotate_pending_duplicate(dMenu_Ring_c* ring) {
     s_pendingAssign = {};
 }
 
+// Native item lookup uses 2 as its "not assigned" sentinel. During the
+// bait eligibility check only, 3 is a virtual read-only alias for our Z slot.
+bool s_baitLookupScope = false;
+constexpr int kBaitRodAlias = 3;
+struct ThirdSlotTalk {
+    dEvt_order_c* order = nullptr;
+    daAlink_c* player = nullptr;
+    fopAc_ac_c* target = nullptr;
+    u8 item = dItemNo_NONE_e;
+};
+ThirdSlotTalk s_thirdSlotTalk;
+bool s_thirdSlotTalkRead = false;
+
 HookAction before_get_select_item(ModContext*, void* args, void* retval, void*) {
     const int index = mods::arg<int>(args, 0);
+    if (s_thirdSlotTalkRead && index == SELECT_ITEM_X) {
+        *static_cast<u8*>(retval) = s_thirdSlotTalk.item;
+        return HOOK_SKIP_ORIGINAL;
+    }
+    if (s_baitLookupScope && index == kBaitRodAlias) {
+        *static_cast<u8*>(retval) = resolved_select_item(kZItemSlot);
+        return HOOK_SKIP_ORIGINAL;
+    }
     if (index != kZItemSlot) {
         return HOOK_CONTINUE;
     }
@@ -9499,6 +9525,11 @@ void apply_context_button_layout(dMeterButton_c* buttons) {
 
     apply_context_y_button_layout(buttons);
 
+    // Fishing uses the emphasis overlay's B pane, not the normal HUD pane.
+    set_menu_face_button_texture(buttons->mpButtonScreen, MULTI_CHAR('b_btn'),
+        menu_face_button_texture(false));
+    set_neutral_picture_colors(as_picture(buttons->mpButtonScreen->search(MULTI_CHAR('b_btn'))));
+
     // Context actions (Open, Let go, Pick up, Speak, and so on) are drawn by
     // a separate emphasis-button layout instead of the regular meter HUD.
     // Keep its A picture on the same layout/style path as every other confirm
@@ -10542,6 +10573,11 @@ HookAction before_check_set_item_trigger(ModContext*, void* args, void* retval, 
 HookAction before_check_item_set_button(ModContext*, void* args, void* retval, void*) {
     auto* link = mods::arg<daAlink_c*>(args, 0);
     const int itemNo = mods::arg<int>(args, 1);
+    if (s_baitLookupScope && link != nullptr && itemNo == 0x108 &&
+        find_select_button(link, itemNo) == kZItemSlot) {
+        *static_cast<int*>(retval) = kBaitRodAlias;
+        return HOOK_SKIP_ORIGINAL;
+    }
     if (link == nullptr || !item_needs_z_valid_button(itemNo)) {
         return HOOK_CONTINUE;
     }
@@ -10580,6 +10616,88 @@ HookAction before_set_heavy_boots(ModContext*, void* args, void* retval, void*) 
 
     *static_cast<int*>(retval) = 0;
     return HOOK_SKIP_ORIGINAL;
+}
+
+HookAction before_bait_lookup(ModContext*, void*, void*, void*) {
+    s_baitLookupScope = true;
+    return HOOK_CONTINUE;
+}
+
+void after_bait_lookup(ModContext*, void*, void*, void*) {
+    s_baitLookupScope = false;
+}
+
+HookAction before_fishing_food_init(ModContext*, void* args, void* retval, void*) {
+    auto* link = mods::arg<daAlink_c*>(args, 0);
+    if (link == nullptr || find_select_button(link, 0x108) != kZItemSlot)
+        return HOOK_CONTINUE;
+    // Follow native initialization with the real rod index, never the
+    // virtual eligibility alias. The bait index stays in mProcVar3.
+    if (!dComIfGp_event_compulsory(link, nullptr, 0xFFFF)) {
+        *static_cast<int*>(retval) = 0;
+        return HOOK_SKIP_ORIGINAL;
+    }
+    link->mDemo.setSpecialDemoType();
+    link->commonProcInit(daAlink_c::PROC_FISHING_FOOD);
+    link->setSingleAnime(daAlink_c::ANM_BOTTLE_OPEN, 1.0f, 0.0f, 21, 3.0f);
+    link->mProcVar3.field_0x300e = link->mSelectItemId;
+    if (link->checkFishingRodItem(link->mEquipItem)) {
+        link->mProcVar4.field_0x3010 = 0;
+        link->mSelectItemId = kZItemSlot;
+    } else {
+        link->mProcVar4.field_0x3010 = 1;
+        link->keepItemData();
+        link->deleteEquipItem(FALSE, FALSE);
+        link->mSelectItemId = kZItemSlot;
+        link->mEquipItem = resolved_select_item(kZItemSlot);
+        link->setItemActor();
+    }
+    link->mNormalSpeed = 0.0f;
+    link->current.angle.y = link->shape_angle.y;
+    link->mProcVar2.field_0x300c = 0;
+    *static_cast<int*>(retval) = 1;
+    return HOOK_SKIP_ORIGINAL;
+}
+
+HookAction before_order_talk(ModContext*, void* args, void* retval, void*) {
+    auto* link = mods::arg<daAlink_c*>(args, 0);
+    if (link == nullptr || link->checkWolf() || link->notTalk() ||
+        !link->itemTriggerCheck(1 << kZItemSlot) ||
+        link->itemTriggerCheck((1 << SELECT_ITEM_X) | (1 << SELECT_ITEM_Y)) ||
+        link->talkTrigger() || !link->checkTradeItem(resolved_select_item(kZItemSlot)) ||
+        !link->checkRequestTalkActor(link->mAttList2, link->field_0x27f8))
+        return HOOK_CONTINUE;
+    auto* events = dComIfGp_getEvent();
+    const int orderIndex = events->mNum;
+    if (orderIndex < 0 || orderIndex >= 8 ||
+        !fopAcM_orderTalkItemBtnEvent(dEvt_type_SHOWITEM_X_e, link, link->field_0x27f8, 0, 0))
+        return HOOK_CONTINUE;
+    s_thirdSlotTalk = {&events->mOrder[orderIndex], link, link->field_0x27f8,
+        resolved_select_item(kZItemSlot)};
+    *static_cast<int*>(retval) = 1;
+    return HOOK_SKIP_ORIGINAL;
+}
+
+HookAction before_talk_item_check(ModContext*, void* args, void*, void*) {
+    auto* order = mods::arg<dEvt_order_c*>(args, 1);
+    s_thirdSlotTalkRead = order != nullptr && s_thirdSlotTalk.player != nullptr &&
+        order == s_thirdSlotTalk.order &&
+        order->mEventType == dEvt_type_SHOWITEM_X_e &&
+        order->mpRequestActor == s_thirdSlotTalk.player &&
+        order->mpTargetActor == s_thirdSlotTalk.target;
+    return HOOK_CONTINUE;
+}
+
+void after_talk_item_check(ModContext*, void*, void*, void*) {
+    if (s_thirdSlotTalkRead) s_thirdSlotTalk = {};
+    s_thirdSlotTalkRead = false;
+}
+
+void after_talk_queue_entry(ModContext*, void*, void*, void*) {
+    // The native queue is drained even when a higher-priority event wins.
+    // Never let a discarded Z presentation affect a later X interaction.
+    s_thirdSlotTalk = {};
+    s_thirdSlotTalkRead = false;
 }
 
 void after_player_execute(ModContext*, void* args, void*, void*) {
@@ -11058,6 +11176,9 @@ void shutdown_face_button_textures() {
 }
 
 void shutdown_item_slot_resources() {
+    s_baitLookupScope = false;
+    s_thirdSlotTalk = {};
+    s_thirdSlotTalkRead = false;
     destroy_item_bank();
     s_activeItemExplanation = nullptr;
     s_itemHelpText.clear();
@@ -11404,6 +11525,13 @@ ModResult install_item_slot_hooks(ModError* error) {
             "item change from button");
         ADD_PRE(CheckSetItemTriggerHook, before_check_set_item_trigger, "item trigger");
         ADD_PRE(CheckItemSetButtonHook, before_check_item_set_button, "item button lookup");
+        ADD_PRE(CheckNewItemChangeHook, before_bait_lookup, "third-slot rod eligibility");
+        ADD_POST(CheckNewItemChangeHook, after_bait_lookup, "restore rod lookup scope");
+        ADD_PRE(FishingFoodInitHook, before_fishing_food_init, "third-slot bait initialization");
+        ADD_PRE(OrderTalkHook, before_order_talk, "third-slot item presentation");
+        ADD_PRE(TalkItemCheckHook, before_talk_item_check, "third-slot talk item read");
+        ADD_POST(TalkItemCheckHook, after_talk_item_check, "restore talk item read");
+        ADD_POST(TalkQueueEntryHook, after_talk_queue_entry, "clear third-slot presentation request");
         ADD_PRE(SetHeavyBootsHook, before_set_heavy_boots, "heavy boots toggle");
         ADD_POST(PlayerExecuteHook, after_player_execute, "player update");
     }
