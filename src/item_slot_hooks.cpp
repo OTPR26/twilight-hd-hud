@@ -328,7 +328,9 @@ ResourceBuffer s_blackProFaceButtonResources[4] = {
     RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
     RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
 };
-ResourceBuffer s_playStationFaceButtonResources[2][4] = {
+ResourceBuffer s_playStationFaceButtonResources[3][4] = {
+    {RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
+        RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT},
     {RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
         RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT},
     {RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
@@ -1337,7 +1339,7 @@ ResTIMG const* resource_texture(const ResourceBuffer& resource) {
 }
 
 ResTIMG const* styled_face_button_texture(const char letter) {
-    if (button_style() == ButtonStyle::BlackPro) {
+    if (uses_dark_buttons(button_style())) {
         const int index = letter == 'A' ? 0 : letter == 'B' ? 1 :
             letter == 'X' ? 2 : letter == 'Y' ? 3 : -1;
         if (index >= 0) {
@@ -1368,18 +1370,19 @@ ResTIMG const* playstation_face_button_texture(const char nativeLetter) {
     if (index < 0) {
         return nullptr;
     }
-    const int style = button_style() == ButtonStyle::BlackPro ? 1 : 0;
+    const int style = button_style() == ButtonStyle::PlayStationColors ? 2 :
+        uses_dark_buttons(button_style()) ? 1 : 0;
     return resource_texture(s_playStationFaceButtonResources[style][index]);
 }
 
 ResTIMG const* playstation_shoulder_button_texture(const int index) {
-    const int style = button_style() == ButtonStyle::BlackPro ? 1 : 0;
+    const int style = uses_dark_buttons(button_style()) ? 1 : 0;
     return index >= 0 && index < 3 ?
         resource_texture(s_playStationShoulderButtonResources[style][index]) : nullptr;
 }
 
 ResTIMG const* xbox_shoulder_button_texture(ShoulderPrompt button) {
-    const int style = button_style() == ButtonStyle::BlackPro ? 1 : 0;
+    const int style = uses_dark_buttons(button_style()) ? 1 : 0;
     return resource_texture(s_xboxShoulderButtonResources[style][static_cast<int>(button)]);
 }
 
@@ -1390,7 +1393,7 @@ ResTIMG const* styled_r_button_texture() {
     if (is_playstation_layout(button_layout())) {
         return playstation_shoulder_button_texture(1); // R1
     }
-    if (button_style() == ButtonStyle::BlackPro) {
+    if (uses_dark_buttons(button_style())) {
         if (ResTIMG const* texture = resource_texture(s_blackProShoulderButtonResource)) {
             return texture;
         }
@@ -1403,10 +1406,10 @@ ResTIMG const* styled_l_button_texture() {
         return xbox_shoulder_button_texture(ShoulderPrompt::L);
     }
     if (is_playstation_layout(button_layout())) {
-        const int style = button_style() == ButtonStyle::BlackPro ? 1 : 0;
+        const int style = uses_dark_buttons(button_style()) ? 1 : 0;
         return resource_texture(s_playStationL1ButtonResources[style]);
     }
-    if (button_style() == ButtonStyle::BlackPro) {
+    if (uses_dark_buttons(button_style())) {
         if (ResTIMG const* texture = resource_texture(s_blackProLShoulderButtonResource)) {
             return texture;
         }
@@ -1421,7 +1424,7 @@ ResTIMG const* styled_zl_button_texture() {
     if (is_playstation_layout(button_layout())) {
         return playstation_shoulder_button_texture(0); // L2
     }
-    if (button_style() == ButtonStyle::BlackPro) {
+    if (uses_dark_buttons(button_style())) {
         if (ResTIMG const* texture = resource_texture(s_blackProZlShoulderButtonResource)) {
             return texture;
         }
@@ -1436,7 +1439,7 @@ ResTIMG const* styled_zr_button_texture() {
     if (is_playstation_layout(button_layout())) {
         return playstation_shoulder_button_texture(2); // R2
     }
-    if (button_style() == ButtonStyle::BlackPro) {
+    if (uses_dark_buttons(button_style())) {
         if (ResTIMG const* texture = resource_texture(s_blackProZrShoulderButtonResource)) {
             return texture;
         }
@@ -1450,7 +1453,7 @@ ResTIMG const* styled_blank_face_button_texture() {
             return texture;
         }
     }
-    if (button_style() == ButtonStyle::BlackPro) {
+    if (uses_dark_buttons(button_style())) {
         if (ResTIMG const* texture = resource_texture(s_blackProBlankFaceButtonResource)) {
             return texture;
         }
@@ -1479,6 +1482,7 @@ ResTIMG const* menu_face_button_texture(const bool nativeAAction) {
     case ButtonLayout::PlayStation:
         return playstation_face_button_texture(nativeAAction ? 'A' : 'B');
     case ButtonLayout::PlayStationSwapped:
+    case ButtonLayout::PlayStationFlipped:
         return playstation_face_button_texture(nativeAAction ? 'B' : 'A');
     default: break; // BOTW presets handled above.
     }
@@ -1500,6 +1504,7 @@ ResTIMG const* item_assignment_button_texture(const bool nativeXButton) {
         return styled_blank_face_button_texture();
     case ButtonLayout::PlayStation:
     case ButtonLayout::PlayStationSwapped:
+    case ButtonLayout::PlayStationFlipped:
         return playstation_face_button_texture(nativeXButton ? 'X' : 'Y');
     default: break;
     }
@@ -3720,7 +3725,7 @@ ResTIMG const* dialogue_midna_texture(COutFont_c* outFont) {
         return outFont->mpPane[2]->getTexture(0)->getTexInfo();
     // Native Z or a non-controller custom bind: match the neutral shoulder
     // backing used by the HUD instead of claiming that L/R is the binding.
-    int style = button_style() == ButtonStyle::BlackPro ? 1 :
+    int style = uses_dark_buttons(button_style()) ? 1 :
         button_style() == ButtonStyle::Transparent ? 2 : 0;
     if (style != 2 && (uses_xbox_prompts(button_layout()) || is_playstation_layout(button_layout())))
         style += 3;
@@ -3905,7 +3910,8 @@ JGeometry::TBox2<f32> collection_submenu_global_bounds(J2DPane* pane) {
 void apply_flipped_diamond_positions(dMeter2Draw_c* meter) {
     const bool botw = is_botw_layout(button_layout());
     if ((!botw && button_layout() != ButtonLayout::BayxFlipped &&
-            button_layout() != ButtonLayout::PlayStationSwapped) || meter == nullptr ||
+            button_layout() != ButtonLayout::PlayStationSwapped &&
+            button_layout() != ButtonLayout::PlayStationFlipped) || meter == nullptr ||
         meter->mpScreen == nullptr || meter->mpButtonA == nullptr ||
         meter->mpButtonB == nullptr) return;
     J2DPane* aPicture = meter->mpScreen->search(MULTI_CHAR('a_btn'));
@@ -4776,7 +4782,7 @@ void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
         MULTI_CHAR('juji_001'), MULTI_CHAR('juji_002'),
         MULTI_CHAR('juji_003'), MULTI_CHAR('juji_004'),
     };
-    const bool blackPro = button_style() == ButtonStyle::BlackPro;
+    const bool blackPro = uses_dark_buttons(button_style());
     for (const u64 tag : dpadTags) {
         if (J2DPane* piece = meter->mpScreen->search(tag)) {
             if (hudAlpha == 0) {
@@ -5845,7 +5851,7 @@ void style_native_midna_backing(dMeter2Draw_c* meter) {
     auto* button = as_picture(meter->mpScreen->search(MULTI_CHAR('zbtn')));
     auto* parent = meter->mpButtonMidona->getPanePtr();
     auto* cap = as_picture(meter->mpScreen->search(MULTI_CHAR('hd_mcap')));
-    int style = button_style() == ButtonStyle::BlackPro ? 1 :
+    int style = uses_dark_buttons(button_style()) ? 1 :
         button_style() == ButtonStyle::Transparent ? 2 : 0;
     if (style != 2 && (uses_xbox_prompts(button_layout()) || is_playstation_layout(button_layout())))
         style += 3;
@@ -10695,7 +10701,7 @@ void initialize_face_button_textures() {
             svc_log->warn(mod_ctx, "Unable to load a Black Pro button texture");
         }
     }
-    constexpr const char* playStationFacePaths[2][4] = {
+    constexpr const char* playStationFacePaths[3][4] = {
         {
             "hud/face-button-ps-circle.bti",
             "hud/face-button-ps-cross.bti",
@@ -10708,8 +10714,14 @@ void initialize_face_button_textures() {
             "hud/face-button-ps-triangle-black-pro.bti",
             "hud/face-button-ps-square-black-pro.bti",
         },
+        {
+            "hud/face-button-ps-circle-colors.bti",
+            "hud/face-button-ps-cross-colors.bti",
+            "hud/face-button-ps-triangle-colors.bti",
+            "hud/face-button-ps-square-colors.bti",
+        },
     };
-    for (std::size_t style = 0; style < 2; ++style) {
+    for (std::size_t style = 0; style < 3; ++style) {
         for (std::size_t index = 0; index < 4; ++index) {
             if (svc_resource->load(mod_ctx, playStationFacePaths[style][index],
                     &s_playStationFaceButtonResources[style][index]) != MOD_OK) {

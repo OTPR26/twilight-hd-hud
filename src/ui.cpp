@@ -15,9 +15,25 @@ UiWindowHandle s_settingsWindow = 0;
 UiMenuTabHandle s_menuTab = 0;
 UiElementHandle s_standardStyle = 0;
 UiElementHandle s_universalStyle = 0;
+UiElementHandle s_playStationStyle = 0;
 
 bool standard_style_disabled(ModContext*, void*) {
-    return is_universal_layout(button_layout());
+    return is_universal_layout(button_layout()) || is_playstation_layout(button_layout());
+}
+
+bool playstation_style_disabled(ModContext*, void*) {
+    return !is_playstation_layout(button_layout());
+}
+
+void get_playstation_style(ModContext*, void*, UiControlValue* value) {
+    const auto style = button_style();
+    value->int_value = style == ButtonStyle::PlayStationColors ? 2 : static_cast<int64_t>(style);
+}
+
+void set_playstation_style(ModContext* ctx, void*, const UiControlValue* value) {
+    if (value->int_value < 0 || value->int_value > 2) return;
+    svc_config->set_int(ctx, button_style_config_var(), value->int_value == 2 ?
+        static_cast<int64_t>(ButtonStyle::PlayStationColors) : value->int_value);
 }
 
 bool universal_style_disabled(ModContext*, void*) {
@@ -27,9 +43,11 @@ bool universal_style_disabled(ModContext*, void*) {
 ModResult update_hud_tab(ModContext* ctx, void*, ModError*) {
     const bool universal = is_universal_layout(button_layout());
     if (s_standardStyle != 0)
-        svc_ui->elem_set_visible(ctx, s_standardStyle, !universal);
+        svc_ui->elem_set_visible(ctx, s_standardStyle, !universal && !is_playstation_layout(button_layout()));
     if (s_universalStyle != 0)
         svc_ui->elem_set_visible(ctx, s_universalStyle, universal);
+    if (s_playStationStyle != 0)
+        svc_ui->elem_set_visible(ctx, s_playStationStyle, is_playstation_layout(button_layout()));
     return MOD_OK;
 }
 
@@ -82,7 +100,7 @@ constexpr ButtonLayout kLayoutOrder[] = {ButtonLayout::Nintendo, ButtonLayout::N
     ButtonLayout::Xbox, ButtonLayout::BayxFlipped, ButtonLayout::XboxBotw,
     ButtonLayout::BayxFlippedBotw,
     ButtonLayout::Universal, ButtonLayout::UniversalBotw, ButtonLayout::PlayStation,
-    ButtonLayout::PlayStationSwapped};
+    ButtonLayout::PlayStationSwapped, ButtonLayout::PlayStationFlipped};
 
 void get_layout(ModContext*, void*, UiControlValue* value) {
     value->int_value = 0;
@@ -107,6 +125,13 @@ void set_layout(ModContext* ctx, void*, const UiControlValue* value) {
                 svc_config->set_int(ctx, button_style_config_var(),
                     static_cast<int64_t>(ButtonStyle::Silver));
         }
+        if (!is_playstation_layout(button_layout())) {
+            int64_t style = 0;
+            svc_config->get_int(ctx, button_style_config_var(), &style);
+            if (style == static_cast<int64_t>(ButtonStyle::PlayStationColors))
+                svc_config->set_int(ctx, button_style_config_var(),
+                    static_cast<int64_t>(ButtonStyle::BlackPro));
+        }
         update_hud_tab(ctx, nullptr, nullptr);
     }
 }
@@ -129,6 +154,7 @@ ModResult build_hud_tab(
         "Universal (BOTW Style)",
         "PlayStation",
         "PlayStation (Cross Action)",
+        "PlayStation (Flipped)",
     };
     UiControlDesc layout = UI_CONTROL_DESC_INIT;
     layout.kind = UI_CONTROL_SELECT;
@@ -163,6 +189,18 @@ ModResult build_hud_tab(
             "Universal backgrounds. Black Pro uses blank dark buttons.", &s_universalStyle,
             universal_style_disabled)
         != MOD_OK) return MOD_ERROR;
+    static constexpr const char* kPlayStationStyles[] = {"Silver", "Black Pro", "PlayStation Colors"};
+    UiControlDesc psStyle = UI_CONTROL_DESC_INIT;
+    psStyle.kind = UI_CONTROL_SELECT;
+    psStyle.label = "Button Style";
+    psStyle.help_rml = "PlayStation Colors uses black buttons with colored face-button symbols.";
+    psStyle.options = kPlayStationStyles;
+    psStyle.option_count = std::size(kPlayStationStyles);
+    psStyle.get = get_playstation_style;
+    psStyle.set = set_playstation_style;
+    psStyle.is_disabled = playstation_style_disabled;
+    if (svc_ui->pane_add_control(ctx, left, &psStyle, &s_playStationStyle) != MOD_OK)
+        return MOD_ERROR;
     update_hud_tab(ctx, nullptr, nullptr);
     static constexpr const char* kControllerCompatibility[] = {
         "Follow Dusklight Bindings",

@@ -68,7 +68,7 @@ static ModResult window(ModContext*, const UiWindowDesc* desc, UiWindowHandle* h
     assert(desc->tab_count == 2);
     assert(std::string(desc->tabs[1].title) == "HUD Sizing");
     assert(desc->tabs[0].build(nullptr, 1, 2, 3, nullptr, nullptr) == MOD_OK);
-    assert(controls[0].kind == UI_CONTROL_SELECT && controls[0].option_count == 10);
+    assert(controls[0].kind == UI_CONTROL_SELECT && controls[0].option_count == 11);
     assert(std::string(controls[0].options[0]) == "ABXY");
     assert(std::string(controls[0].options[1]) == "ABXY (BOTW Style)");
     assert(std::string(controls[0].options[2]) == "BAYX");
@@ -79,12 +79,13 @@ static ModResult window(ModContext*, const UiWindowDesc* desc, UiWindowHandle* h
     assert(std::string(controls[0].options[7]) == "Universal (BOTW Style)");
     assert(std::string(controls[0].options[8]) == "PlayStation");
     assert(std::string(controls[0].options[9]) == "PlayStation (Cross Action)");
+    assert(std::string(controls[0].options[10]) == "PlayStation (Flipped)");
     assert(std::string(controls[0].help_rml).find("BAYX") == std::string::npos);
     // Reordering the menu must not reinterpret existing saved choices.
-    constexpr int64_t persisted[] = {0, 5, 1, 4, 6, 8, 2, 7, 3, 9};
+    constexpr int64_t persisted[] = {0, 5, 1, 4, 6, 8, 2, 7, 3, 9, 10};
     const auto& layout = controls[0];
     assert(layout.binding == UI_BINDING_CALLBACKS);
-    for (int64_t index = 0; index < 10; ++index) {
+    for (int64_t index = 0; index < 11; ++index) {
         saved["button-layout"] = persisted[index];
         UiControlValue value = UI_CONTROL_VALUE_INIT;
         layout.get(nullptr, nullptr, &value);
@@ -93,45 +94,57 @@ static ModResult window(ModContext*, const UiWindowDesc* desc, UiWindowHandle* h
         layout.set(nullptr, nullptr, &value);
         assert(saved.at("button-layout") == persisted[index]);
         const bool universal = index == 6 || index == 7;
-        assert(visible.at(2) == !universal && visible.at(3) == universal);
-        assert(controls[1].is_disabled(nullptr, nullptr) == universal);
+        const bool playstation = index >= 8;
+        assert(visible.at(2) == (!universal && !playstation) && visible.at(3) == universal);
+        assert(visible.at(4) == playstation);
+        assert(controls[1].is_disabled(nullptr, nullptr) == (universal || playstation));
         assert(controls[2].is_disabled(nullptr, nullptr) == !universal);
+        assert(controls[3].is_disabled(nullptr, nullptr) == !playstation);
     }
-    for (int64_t invalid : {-1, 10}) {
+    for (int64_t invalid : {-1, 11}) {
         UiControlValue value = UI_CONTROL_VALUE_INIT;
         value.int_value = invalid;
         layout.set(nullptr, nullptr, &value);
-        assert(saved.at("button-layout") == 9);
+        assert(saved.at("button-layout") == 10);
     }
     saved["button-layout"] = 0;
     assert(controls[1].option_count == 2 && controls[2].option_count == 3);
-    assert(std::string(controls[3].label) == "Shoulder & D-Pad Behavior");
-    assert(controls[3].config_var == controller_compatibility_config_var());
-    assert(std::string(controls[3].help_rml).find(
+    assert(std::string(controls[4].label) == "Shoulder & D-Pad Behavior");
+    assert(controls[4].config_var == controller_compatibility_config_var());
+    assert(std::string(controls[4].help_rml).find(
         "Face-button bindings are always configured in Dusklight.") != std::string::npos);
     assert(std::string(controls[2].options[2]) == "Transparent");
-    for (int64_t raw = 0; raw < 10; ++raw) {
+    for (int64_t raw = 0; raw < 11; ++raw) {
         saved["button-layout"] = raw;
         saved["button-style"] = 2;
         assert(button_style() == (is_universal_layout(button_layout()) ?
             ButtonStyle::Transparent : ButtonStyle::Silver));
+        saved["button-style"] = 3;
+        assert(button_style() == (is_playstation_layout(button_layout()) ?
+            ButtonStyle::PlayStationColors : ButtonStyle::Silver));
     }
+    UiControlValue colored = UI_CONTROL_VALUE_INIT;
+    colored.int_value = 2;
+    controls[3].set(nullptr, nullptr, &colored);
+    assert(saved["button-style"] == 3);
+    controls[3].get(nullptr, nullptr, &colored);
+    assert(colored.int_value == 2);
     UiControlValue normal = UI_CONTROL_VALUE_INIT;
     normal.int_value = 0;
     layout.set(nullptr, nullptr, &normal);
-    assert(saved["button-style"] == 0);
-    assert(std::string(controls[4].help_rml) ==
+    assert(saved["button-style"] == 1);
+    assert(std::string(controls[5].help_rml) ==
         "Choose the in-game text font. Restart Dusklight to apply changes.");
-    assert(std::string(controls[5].label) == "Items Screen");
-    assert(controls[5].option_count == 2);
-    assert(std::string(controls[5].options[0]) == "TPHD Bank");
-    assert(std::string(controls[5].options[1]) == "Original Wheel");
-    assert(controls.size() == 10);
+    assert(std::string(controls[6].label) == "Items Screen");
+    assert(controls[6].option_count == 2);
+    assert(std::string(controls[6].options[0]) == "TPHD Bank");
+    assert(std::string(controls[6].options[1]) == "Original Wheel");
+    assert(controls.size() == 11);
     for (int i = 0; i < 3; ++i) {
-        assert(controls[7 + i].kind == UI_CONTROL_TOGGLE);
-        assert(controls[7 + i].config_var == feature_config_var(static_cast<Feature>(i)));
+        assert(controls[8 + i].kind == UI_CONTROL_TOGGLE);
+        assert(controls[8 + i].config_var == feature_config_var(static_cast<Feature>(i)));
     }
-    const auto& swap = controls[6];
+    const auto& swap = controls[7];
     assert(swap.kind == UI_CONTROL_TOGGLE);
     assert(std::string(swap.label) == "TPHD Items / Collection Buttons");
     assert(swap.binding == UI_BINDING_CONFIG_VAR);
@@ -193,6 +206,8 @@ int main() {
     saved["button-layout"] = 5;
     assert(button_layout() == ButtonLayout::NintendoBotw);
     saved["button-layout"] = 10;
+    assert(button_layout() == ButtonLayout::PlayStationFlipped);
+    saved["button-layout"] = 11;
     assert(button_layout() == ButtonLayout::Nintendo);
     saved["button-layout"] = 0;
     assert(hud_size_percent(HudSizeSetting::Overall) == 125);

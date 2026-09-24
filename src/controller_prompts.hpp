@@ -13,7 +13,7 @@ constexpr bool uses_xbox_prompts(ButtonLayout layout) {
 // Native action identifiers: A=Action, B=Attack, X/Y=item slots. This is
 // presentation only: the player configures the corresponding binds in Dusklight.
 constexpr char face_position_for_action(ButtonLayout layout, char action) {
-    if (layout == ButtonLayout::PlayStationSwapped)
+    if (layout == ButtonLayout::PlayStationSwapped || layout == ButtonLayout::PlayStationFlipped)
         return action == 'A' ? 'B' : action == 'B' ? 'A' : action;
     if (!is_botw_layout(layout)) return action;
     if (layout == ButtonLayout::BayxFlippedBotw) {

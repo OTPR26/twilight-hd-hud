@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.4.0 - 2026-09-23
+
+- Added PlayStation (Flipped) layout.
+- Added PlayStation Colors button style.
+
 ## v2.2.0 - 2026-09-20
 
 - Added toggles for the third item slot, Collection screen, and D-pad shortcuts.

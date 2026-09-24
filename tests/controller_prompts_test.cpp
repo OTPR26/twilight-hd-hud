@@ -20,6 +20,15 @@ struct LiteralTextBox {
 };
 
 int main() {
+    const auto psFlipped = ButtonLayout::PlayStationFlipped;
+    assert(is_playstation_layout(psFlipped));
+    assert(!uses_xbox_prompts(psFlipped) && !is_botw_layout(psFlipped));
+    assert(face_letter_for_action(psFlipped, 'A') == 'B');
+    assert(face_letter_for_action(psFlipped, 'B') == 'A');
+    assert(face_letter_for_action(psFlipped, 'X') == 'X');
+    assert(face_letter_for_action(psFlipped, 'Y') == 'Y');
+    assert(uses_dark_buttons(ButtonStyle::PlayStationColors));
+    assert(!uses_dark_buttons(ButtonStyle::Silver));
     const auto crossAction = ButtonLayout::PlayStationSwapped;
     assert(is_playstation_layout(crossAction));
     assert(!uses_xbox_prompts(crossAction) && !is_botw_layout(crossAction));

@@ -18,16 +18,23 @@ enum class ButtonLayout : int {
     UniversalBotw = 7,
     BayxFlippedBotw = 8,
     PlayStationSwapped = 9,
+    PlayStationFlipped = 10,
 };
 
 enum class ButtonStyle : int {
     Silver = 0,
     BlackPro = 1,
     Transparent = 2,
+    PlayStationColors = 3,
 };
 
+constexpr bool uses_dark_buttons(ButtonStyle style) {
+    return style == ButtonStyle::BlackPro || style == ButtonStyle::PlayStationColors;
+}
+
 constexpr bool is_playstation_layout(ButtonLayout layout) {
-    return layout == ButtonLayout::PlayStation || layout == ButtonLayout::PlayStationSwapped;
+    return layout == ButtonLayout::PlayStation || layout == ButtonLayout::PlayStationSwapped ||
+        layout == ButtonLayout::PlayStationFlipped;
 }
 
 constexpr bool is_botw_layout(ButtonLayout layout) {

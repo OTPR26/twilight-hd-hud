@@ -156,7 +156,7 @@ ConfigVarHandle feature_config_var(Feature feature) {
 ButtonLayout button_layout() {
     const int64_t value = get_int(s_buttonLayout, static_cast<int64_t>(ButtonLayout::Nintendo));
     if (value < static_cast<int64_t>(ButtonLayout::Nintendo) ||
-        value > static_cast<int64_t>(ButtonLayout::PlayStationSwapped))
+        value > static_cast<int64_t>(ButtonLayout::PlayStationFlipped))
     {
         return ButtonLayout::Nintendo;
     }
@@ -166,7 +166,9 @@ ButtonLayout button_layout() {
 ButtonStyle button_style() {
     const int64_t value = get_int(s_buttonStyle, static_cast<int64_t>(ButtonStyle::Silver));
     if (value < static_cast<int64_t>(ButtonStyle::Silver) ||
-        value > static_cast<int64_t>(ButtonStyle::Transparent) ||
+        value > static_cast<int64_t>(ButtonStyle::PlayStationColors) ||
+        (value == static_cast<int64_t>(ButtonStyle::PlayStationColors) &&
+            !is_playstation_layout(button_layout())) ||
         (value == static_cast<int64_t>(ButtonStyle::Transparent) &&
             !is_universal_layout(button_layout())))
     {

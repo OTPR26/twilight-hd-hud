@@ -175,7 +175,7 @@ def draw_symbol(draw: ImageDraw.ImageDraw, symbol: str, color, shadow) -> None:
         line(path, color)
 
 
-def make_face_button(symbol: str, black: bool) -> Image.Image:
+def make_face_button(symbol: str, black: bool, colored: bool = False) -> Image.Image:
     canvas = Image.new("RGBA", (SIZE * SCALE, SIZE * SCALE), (0, 0, 0, 0))
     draw = ImageDraw.Draw(canvas)
     cx = cy = SIZE * SCALE // 2
@@ -211,6 +211,13 @@ def make_face_button(symbol: str, black: bool) -> Image.Image:
         fill=(145, 149, 154, 150) if black else (255, 255, 255, 180),
         width=SCALE,
     )
+    if colored:
+        symbol_color = {
+            "triangle": (80, 210, 160, 255),
+            "circle": (240, 90, 110, 255),
+            "cross": (125, 145, 245, 255),
+            "square": (225, 140, 195, 255),
+        }[symbol]
     draw_symbol(draw, symbol, symbol_color, shadow)
     return canvas.resize((SIZE, SIZE), Image.Resampling.LANCZOS)
 
@@ -301,6 +308,8 @@ def save_asset(name: str, image: Image.Image) -> None:
 
 
 if __name__ == "__main__":
+    for symbol in ("cross", "circle", "square", "triangle"):
+        save_asset(f"face-button-ps-{symbol}-colors", make_face_button(symbol, True, True))
     for black, suffix in ((False, ""), (True, "-black-pro")):
         for symbol in ("cross", "circle", "square", "triangle"):
             save_asset(
