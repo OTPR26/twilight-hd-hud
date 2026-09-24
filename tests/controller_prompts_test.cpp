@@ -25,8 +25,8 @@ int main() {
     assert(!uses_xbox_prompts(psFlipped) && !is_botw_layout(psFlipped));
     assert(face_letter_for_action(psFlipped, 'A') == 'B');
     assert(face_letter_for_action(psFlipped, 'B') == 'A');
-    assert(face_letter_for_action(psFlipped, 'X') == 'X');
-    assert(face_letter_for_action(psFlipped, 'Y') == 'Y');
+    assert(face_letter_for_action(psFlipped, 'X') == 'Y'); // West: Square
+    assert(face_letter_for_action(psFlipped, 'Y') == 'X'); // North: Triangle
     assert(uses_dark_buttons(ButtonStyle::PlayStationColors));
     assert(!uses_dark_buttons(ButtonStyle::Silver));
     const auto crossAction = ButtonLayout::PlayStationSwapped;

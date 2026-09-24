@@ -192,9 +192,24 @@ void create_collection_screen(dMenu_Collect2D_c* menu) {
     // expected resources. Nothing is detached until all required panes exist.
     if (background == nullptr || paperTexture == nullptr ||
         menu->mpHeartParent == nullptr || s_collectTitleFrame == nullptr ||
-        s_collectTitleLabel == nullptr) return;
+        s_collectTitleLabel == nullptr) {
+        char message[192];
+        std::snprintf(message, sizeof(message),
+            "Collection layout unavailable: background=%d paper=%d hearts=%d title_frame=%d title_label=%d",
+            background != nullptr, paperTexture != nullptr, menu->mpHeartParent != nullptr,
+            s_collectTitleFrame != nullptr, s_collectTitleLabel != nullptr);
+        svc_log->warn(mod_ctx, message);
+        return;
+    }
     for (const auto& cell : kCollectionCells) {
-        if (menu->mpSelPm[cell.column][cell.row] == nullptr) return;
+        if (menu->mpSelPm[cell.column][cell.row] == nullptr) {
+            char message[96];
+            std::snprintf(message, sizeof(message),
+                "Collection layout unavailable: missing cell column=%d row=%d",
+                static_cast<int>(cell.column), static_cast<int>(cell.row));
+            svc_log->warn(mod_ctx, message);
+            return;
+        }
     }
 
     auto* root = JKR_NEW J2DPane(MULTI_CHAR('hd_colly'),

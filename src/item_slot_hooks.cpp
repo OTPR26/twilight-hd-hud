@@ -171,6 +171,8 @@ DEFINE_HOOK(&JMessage::TControl::setMessageCode_inSequence_, ItemHelpMessageHook
 DEFINE_HOOK(&dMsgObject_c::setMessageIndex, ItemGetMessageIndexHook);
 DEFINE_HOOK(&dMsgObject_c::setMessageIndexDemo, ItemGetMessageIndexDemoHook);
 DEFINE_HOOK(&dMeterButton_c::_execute, MeterButtonExecuteHook);
+DEFINE_HOOK(&dMeterButton_c::_create, MeterButtonCreateHook);
+DEFINE_HOOK(&dMeterButton_c::_delete, MeterButtonDeleteHook);
 DEFINE_HOOK(&dMeterButton_c::draw, MeterButtonDrawHook);
 DEFINE_HOOK(&dMeter2Draw_c::draw, MeterDrawHook);
 DEFINE_HOOK(&dMeter2Draw_c::drawButtonCross, MeterDrawButtonCrossHook);
@@ -1510,7 +1512,8 @@ ResTIMG const* item_assignment_button_texture(const bool nativeXButton) {
     case ButtonLayout::PlayStation:
     case ButtonLayout::PlayStationSwapped:
     case ButtonLayout::PlayStationFlipped:
-        return playstation_face_button_texture(nativeXButton ? 'X' : 'Y');
+        return playstation_face_button_texture(face_position_for_action(
+            button_layout(), nativeXButton ? 'X' : 'Y'));
     default: break;
     }
     return styled_face_button_texture(nativeXButton ? 'X' : 'Y');
@@ -4019,9 +4022,9 @@ void apply_button_layout_preference(dMeter2Draw_c* meter) {
         set_face_button_texture(meter, MULTI_CHAR('b_btn'),
             menu_face_button_texture(false));
         set_face_button_texture(meter, MULTI_CHAR('x_btn'),
-            playstation_face_button_texture('X'));
+            item_assignment_button_texture(true));
         set_face_button_texture(meter, MULTI_CHAR('y_btn'),
-            playstation_face_button_texture('Y'));
+            item_assignment_button_texture(false));
     }
 }
 
@@ -9518,6 +9521,86 @@ void apply_context_y_button_layout(dMeterButton_c* buttons) {
     suppress_context_button_layers(buttons->mpButtonY->getPanePtr(), picture);
 }
 
+struct ContextBTextures {
+    J2DPicture* base = nullptr;
+    const ResTIMG* original = nullptr;
+    std::array<const ResTIMG*, 16> layers{};
+    std::size_t count = 0;
+    std::array<J2DPicture*, 8> compositeBases{};
+    std::size_t compositeCount = 0;
+};
+ContextBTextures s_contextBTextures;
+
+void after_context_button_create(ModContext*, void*, void*, void*) {
+    s_contextBTextures = {};
+}
+
+HookAction before_context_button_delete(ModContext*, void*, void*, void*) {
+    s_contextBTextures = {};
+    return HOOK_CONTINUE;
+}
+
+void capture_context_b_layers(J2DPane* pane) {
+    if (pane == nullptr) return;
+    auto& state = s_contextBTextures;
+    if (auto* picture = as_picture(pane); picture != nullptr && picture != state.base &&
+        picture->getTexture(0) != nullptr && state.count < state.layers.size()) {
+        state.layers[state.count++] = picture->getTexture(0)->getTexInfo();
+    }
+    for (auto* child = pane->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane()) capture_context_b_layers(child);
+}
+
+void style_context_b_composite(J2DPane* pane, const ResTIMG* replacement) {
+    if (pane == nullptr) return;
+    auto& state = s_contextBTextures;
+    if (auto* picture = as_picture(pane); picture != nullptr && picture->getTexture(0) != nullptr) {
+        const auto* texture = picture->getTexture(0)->getTexInfo();
+        bool isBase = false;
+        for (std::size_t i = 0; i < state.compositeCount; ++i)
+            isBase |= state.compositeBases[i] == picture;
+        if (!isBase && texture == state.original && state.compositeCount < state.compositeBases.size()) {
+            state.compositeBases[state.compositeCount++] = picture;
+            isBase = true;
+        }
+        if (isBase) {
+            picture->changeTexture(replacement, 0);
+            picture->setTexCoord(picture->getTexture(0), BIND15, MIRROR0, false);
+            set_neutral_picture_colors(picture);
+        } else {
+            for (std::size_t i = 0; i < state.count; ++i) {
+                if (texture == state.layers[i]) {
+                    picture->setCornerColor(JUtility::TColor(255, 255, 255, 0));
+                    break;
+                }
+            }
+        }
+    }
+    for (auto* child = pane->getFirstChildPane(); child != nullptr;
+         child = child->getNextChildPane()) style_context_b_composite(child, replacement);
+}
+
+void apply_context_b_button_layout(dMeterButton_c* buttons) {
+    auto* picture = as_picture(buttons->mpButtonScreen->search(MULTI_CHAR('b_btn')));
+    const auto* replacement = menu_face_button_texture(false);
+    if (picture == nullptr || picture->getTexture(0) == nullptr || replacement == nullptr ||
+        buttons->mpButtonB == nullptr) return;
+    auto& state = s_contextBTextures;
+    if (state.base != picture) {
+        state = {};
+        state.base = picture;
+        state.original = picture->getTexture(0)->getTexInfo();
+        capture_context_b_layers(buttons->mpButtonB->getPanePtr());
+    }
+    // Pull uses a separate stick + B group. Match only the B textures, leaving
+    // the stick, direction arrow, plus sign, and group animation untouched.
+    if (buttons->mpButton3DB != nullptr)
+        style_context_b_composite(buttons->mpButton3DB->getPanePtr(), replacement);
+    set_menu_face_button_texture(buttons->mpButtonScreen, MULTI_CHAR('b_btn'), replacement);
+    set_neutral_picture_colors(picture);
+    suppress_context_button_layers(buttons->mpButtonB->getPanePtr(), picture);
+}
+
 void apply_context_button_layout(dMeterButton_c* buttons) {
     if (buttons == nullptr || buttons->mpButtonScreen == nullptr) {
         return;
@@ -9525,10 +9608,7 @@ void apply_context_button_layout(dMeterButton_c* buttons) {
 
     apply_context_y_button_layout(buttons);
 
-    // Fishing uses the emphasis overlay's B pane, not the normal HUD pane.
-    set_menu_face_button_texture(buttons->mpButtonScreen, MULTI_CHAR('b_btn'),
-        menu_face_button_texture(false));
-    set_neutral_picture_colors(as_picture(buttons->mpButtonScreen->search(MULTI_CHAR('b_btn'))));
+    apply_context_b_button_layout(buttons);
 
     // Context actions (Open, Let go, Pick up, Speak, and so on) are drawn by
     // a separate emphasis-button layout instead of the regular meter HUD.
@@ -11347,6 +11427,8 @@ ModResult install_item_slot_hooks(ModError* error) {
     }
     ADD_POST(MeterButtonExecuteHook, after_meter_button_execute,
         "collapse legacy item-ring Z overlay");
+    ADD_POST(MeterButtonCreateHook, after_context_button_create, "context button texture lifetime");
+    ADD_PRE(MeterButtonDeleteHook, before_context_button_delete, "context button texture cleanup");
     ADD_PRE(MeterButtonDrawHook, before_meter_button_draw,
         "hide legacy item-ring Z overlay");
     ADD_POST(MeterButtonDrawHook, after_meter_button_draw, "restore native action text size");

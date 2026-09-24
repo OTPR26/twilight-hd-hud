@@ -21,9 +21,19 @@ assert "find_select_button(link, 0x108) != kZItemSlot" in bait
 assert "link->mProcVar3.field_0x300e = link->mSelectItemId" in bait
 assert bait.count("link->mSelectItemId = kZItemSlot") == 2
 assert "kBaitRodAlias" not in bait
-overlay = section("void apply_context_button_layout(", "void hide_ring_stock_z_prompt(")
+overlay = section("void apply_context_b_button_layout(", "void hide_ring_stock_z_prompt(")
 assert "MULTI_CHAR('b_btn')" in overlay
 assert "menu_face_button_texture(false)" in overlay
+assert "suppress_context_button_layers(buttons->mpButtonB->getPanePtr(), picture)" in overlay
+assert "style_context_b_composite(buttons->mpButton3DB->getPanePtr(), replacement)" in overlay
+assert "apply_context_b_button_layout(buttons)" in overlay
+composite = section("void style_context_b_composite(", "void apply_context_b_button_layout(")
+assert "texture == state.original" in composite
+assert "texture == state.layers[i]" in composite
+assert "state.compositeBases[i] == picture" in composite
+assert "suppress_context_button_layers" not in composite # Keep stick/plus/direction artwork.
+assert "ADD_POST(MeterButtonCreateHook, after_context_button_create" in source
+assert "ADD_PRE(MeterButtonDeleteHook, before_context_button_delete" in source
 registration = source.split('if (feature_enabled(Feature::ThirdItemSlot)) {')[-1]
 for hook in ("CheckNewItemChangeHook", "FishingFoodInitHook", "OrderTalkHook",
              "TalkItemCheckHook", "TalkQueueEntryHook"):

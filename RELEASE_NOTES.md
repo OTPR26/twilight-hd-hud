@@ -1,3 +1,2 @@
-- Fixed presenting notes and pictures from the third item slot.
-- Fixed applying bait with the fishing rod in the third item slot.
-- Fixed lure-fishing button prompts for alternate layouts.
+- Corrected Triangle and Square icons in PlayStation (Flipped).
+- Fixed remaining lure-fishing prompts in alternate button layouts.

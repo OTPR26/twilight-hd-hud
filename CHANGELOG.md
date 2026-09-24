@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.4.2 - 2026-09-24
+
+- Corrected Triangle and Square icons in PlayStation (Flipped).
+- Fixed remaining lure-fishing prompts in alternate button layouts.
+
 ## v2.4.1 - 2026-09-23
 
 - Fixed presenting notes and pictures from the third item slot.
