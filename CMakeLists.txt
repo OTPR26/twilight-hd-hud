@@ -49,7 +49,7 @@ if (TWILIGHT_HUD_BUILD_TESTS)
     foreach(test_name IN ITEMS
         host_compatibility controller_prompts diamond_layout font_atlas
         hud_scaling hud_settings hud_visibility input_gate menu_input_state
-        touch_input_state file_select_layout ui_refinements collection_layout
+        touch_input_state map_touch_portals file_select_layout ui_refinements collection_layout
         item_bank_layout wallet_description dungeon_map_layout
         action_prompt_layout dialogue_text_layout overworld_map_layout
         localized_labels

@@ -15,6 +15,7 @@
 #include "hud_visibility.hpp"
 #include "input_gate.hpp"
 #include "menu_shortcuts.hpp"
+#include "map_touch_portals.hpp"
 #include "menu_input_state.hpp"
 #include "dungeon_map_input.hpp"
 #include "item_help_text.hpp"
@@ -28,8 +29,14 @@
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
 #endif
-#if defined(__APPLE__) && TARGET_OS_IPHONE
+#if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
 #include "dusk/ui/controls.hpp"
+// The host's touch_controls.hpp pulls in RmlUi, which the minimal mod SDK
+// does not ship. Keep these matching API declarations local to mobile builds.
+namespace dusk::ui {
+enum class ControlOverride { Default, Action };
+class TouchControls;
+}
 #endif
 #include "Z2AudioLib/Z2AudioMgr.h"
 #include "Z2AudioLib/Z2SeMgr.h"
@@ -274,6 +281,12 @@ DEFINE_HOOK(&mDoCPd_c::read, PadReadHook);
 #if !defined(_WIN32)
 DEFINE_HOOK(&PADSetVirtualStatus, PadSetVirtualStatusHook);
 DEFINE_HOOK(&PADClearVirtualStatus, PadClearVirtualStatusHook);
+#endif
+#if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
+DEFINE_HOOK_SYMBOL("_ZN4dusk2ui20set_control_overrideENS0_7ControlENS0_15ControlOverrideE",
+    void(dusk::ui::Control, dusk::ui::ControlOverride), TouchSetControlOverrideHook);
+DEFINE_HOOK_SYMBOL("_ZN4dusk2ui13TouchControls17sync_visual_stateEv",
+    void(dusk::ui::TouchControls*), TouchSyncVisualStateHook);
 #endif
 #if !defined(__APPLE__) || !TARGET_OS_IPHONE
 DEFINE_HOOK_SYMBOL("dusk::ui::midna_icon_source",
@@ -565,9 +578,50 @@ bool raw_physical_button_held(s32 button) {
 
 bool s_mapLeftHeld = false;
 bool s_mapLeftPressed = false;
+MapTouchPortals s_mapTouchPortals;
 u32 s_mapPortalHeldOriginal = 0;
 u32 s_mapPortalPressedOriginal = 0;
 bool s_mapPortalInputActive = false;
+#if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
+dusk::ui::ControlOverride s_hostTouchLOverride = dusk::ui::ControlOverride::Default;
+bool s_mapTouchLOverrideActive = false;
+
+bool map_touch_l_needed() {
+    const u8 status = dMeter2Info_getWindowStatus();
+    return status == 4 || status == 5;
+}
+
+void sync_map_touch_l_override() {
+    if (TouchSetControlOverrideHook::g_orig == nullptr) return;
+    const bool active = map_touch_l_needed();
+    if (active || s_mapTouchLOverrideActive) {
+        TouchSetControlOverrideHook::g_orig(dusk::ui::Control::L,
+            active ? dusk::ui::ControlOverride::Action : s_hostTouchLOverride);
+    }
+    s_mapTouchLOverrideActive = active;
+}
+
+HookAction before_touch_set_control_override(ModContext*, void* args, void*, void*) {
+    if (mods::arg<dusk::ui::Control>(args, 0) != dusk::ui::Control::L)
+        return HOOK_CONTINUE;
+    auto& requested = mods::arg_ref<dusk::ui::ControlOverride>(args, 1);
+    const bool mapActive = map_touch_l_needed();
+    // Another touch mod may already have changed a map-time request to Action.
+    // Do not mistake that temporary value for the host state to restore.
+    if (!mapActive || requested != dusk::ui::ControlOverride::Action)
+        s_hostTouchLOverride = requested;
+    if (mapActive) {
+        requested = dusk::ui::ControlOverride::Action;
+        s_mapTouchLOverrideActive = true;
+    }
+    return HOOK_CONTINUE;
+}
+
+HookAction before_touch_sync_visual_state(ModContext*, void*, void*, void*) {
+    sync_map_touch_l_override();
+    return HOOK_CONTINUE;
+}
+#endif
 
 void update_input_gate() {
     // This is the same visibility check used by Dusklight's PADBlockInput.
@@ -6676,6 +6730,12 @@ void after_set_select_item(ModContext*, void* args, void*, void*) {
 
 void after_pad_read(ModContext*, void*, void*, void*) {
     update_input_gate();
+    auto& pad = mDoCPd_c::getCpadInfo(PAD_1);
+    // Observe accepted virtual L before Fixed bindings rebuild logical L
+    // from physical ZL. A physical shoulder alone cannot create a touch edge.
+    s_mapTouchPortals.observe(s_touchInput.l_held(),
+        (pad.mButtonFlags & PAD_TRIGGER_L) != 0,
+        !s_inputGate.blocked() && dMeter2Info_getWindowStatus() == 4);
     if (s_inputGate.blocked()) {
         s_fixedMidnaHeld = s_fixedMidnaTrig = false;
         s_rightShoulderHeld = s_rightShoulderTrig = false;
@@ -6686,8 +6746,6 @@ void after_pad_read(ModContext*, void*, void*, void*) {
         s_touchMidnaTrig = false;
         return;
     }
-    interface_of_controller_pad& pad = mDoCPd_c::getCpadInfo(PAD_1);
-
     const bool fixedTphdBindings =
         controller_compatibility() == ControllerCompatibility::FixedTphd;
 
@@ -8804,9 +8862,11 @@ HookAction before_fmap_move(ModContext*, void*, void*, void*) {
     s_mapPortalHeldOriginal = pad.mButtonFlags;
     s_mapPortalPressedOriginal = pad.mPressedButtonFlags;
     s_mapPortalInputActive = true;
-    pad.mButtonFlags = map_portal_buttons(pad.mButtonFlags, PAD_TRIGGER_Z, s_mapLeftHeld);
+    const bool touchPressed = s_mapTouchPortals.take_pressed();
+    pad.mButtonFlags = map_portal_buttons(pad.mButtonFlags, PAD_TRIGGER_Z,
+        s_mapLeftHeld || s_mapTouchPortals.held());
     pad.mPressedButtonFlags = map_portal_buttons(pad.mPressedButtonFlags,
-        PAD_TRIGGER_Z, s_mapLeftPressed);
+        PAD_TRIGGER_Z, s_mapLeftPressed || touchPressed);
     return HOOK_CONTINUE;
 }
 
@@ -11299,6 +11359,14 @@ void shutdown_item_slot_resources() {
     s_rightShoulderHeld = false;
     s_rightShoulderTrig = false;
     s_touchInput.clear();
+    s_mapTouchPortals.clear();
+#if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
+    if (s_mapTouchLOverrideActive && TouchSetControlOverrideHook::g_orig != nullptr) {
+        TouchSetControlOverrideHook::g_orig(dusk::ui::Control::L, s_hostTouchLOverride);
+    }
+    s_mapTouchLOverrideActive = false;
+    s_hostTouchLOverride = dusk::ui::ControlOverride::Default;
+#endif
     s_touchMidnaTrig = false;
     s_touchControlsActiveFrames = 0;
     s_touchHudMeter = nullptr;
@@ -11368,6 +11436,12 @@ ModResult install_item_slot_hooks(ModError* error) {
         "touch virtual input source");
     ADD_PRE(PadClearVirtualStatusHook, before_pad_clear_virtual_status,
         "touch virtual input clear");
+#endif
+#if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
+    ADD_PRE(TouchSetControlOverrideHook, before_touch_set_control_override,
+        "map touch L override requests");
+    ADD_PRE(TouchSyncVisualStateHook, before_touch_sync_visual_state,
+        "map touch L visibility");
 #endif
 #if defined(__APPLE__) && TARGET_OS_IPHONE
     void* touchTargetAddress = nullptr;
