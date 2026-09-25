@@ -42,7 +42,7 @@ int main() {
     assert(zoomAY - zoomIconSize * .5f >= topRule);
     assert(zoomBFraction < zoomAFraction);
     assert(zoomLabelInset > zoomIconSize * .5f);
-    // Approved 1920px reference centers: A=1816, B=1770.
+    // Button centers at 1920px: A=1816, B=1770.
     assert(std::abs(1920 * zoomAFraction - 1816) < 1);
     assert(std::abs(1920 * zoomBFraction - 1770) < 1);
     assert(zoomIconSize == 28);

@@ -69,7 +69,7 @@ inline std::string three_button_item_help(std::string_view data) {
     }
     if (!changed) return {};
 
-    // Retain the already-tested shorter Clawshot wording.
+    // Keep the shorter Clawshot wording.
     constexpr std::string_view longAim = ", aim at places where";
     if (const auto aim = result.find(longAim); aim != std::string::npos) {
         result.replace(aim, longAim.size(), ", aim where");

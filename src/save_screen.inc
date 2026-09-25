@@ -385,6 +385,11 @@ void add_save_menu_title_rules(dMenu_save_c* menu) {
     screen->appendChild(overlay);
 }
 
+void position_save_menu_prompts(dMenu_save_c* menu) {
+    position_menu_prompt_group(menu != nullptr ? menu->mSaveSel.Scr : nullptr,
+        MULTI_CHAR('hd_sprm'));
+}
+
 void add_save_menu_fixed_prompts(dMenu_save_c* menu) {
     J2DScreen* screen = menu != nullptr ? menu->mSaveSel.Scr : nullptr;
     if (screen == nullptr) {
@@ -412,8 +417,7 @@ void add_save_menu_fixed_prompts(dMenu_save_c* menu) {
             group->appendChild(picture);
         };
 
-        // Use the opening Quest Log prompt geometry verbatim: the flourish
-        // keeps its intended aspect ratio and sits behind both button discs.
+        // Keep the flourish behind the two button discs.
         addPicture(MULTI_CHAR('hd_sflr'),
             JGeometry::TBox2<f32>(right - 74.0f, 18.0f,
                 right - 2.0f, 84.0f),
@@ -421,15 +425,15 @@ void add_save_menu_fixed_prompts(dMenu_save_c* menu) {
 
         auto* confirm = make_hd_prompt_label(MULTI_CHAR('hd_sconf'),
             JGeometry::TBox2<f32>(right - 114.0f, 30.0f,
-                right - 30.0f, 51.0f), "Confirm", HBIND_RIGHT);
+                right - 54.0f, 53.0f), "Confirm", HBIND_RIGHT);
         group->appendChild(confirm);
 
         addPicture(MULTI_CHAR('hd_sapi'),
             JGeometry::TBox2<f32>(right - 50.0f, 28.0f,
                 right - 23.0f, 55.0f), menu_face_button_texture(true));
         group->appendChild(make_hd_prompt_label(MULTI_CHAR('hd_sbck'),
-            JGeometry::TBox2<f32>(right - 109.0f, 49.0f,
-                right - 53.0f, 70.0f), "Back"));
+            JGeometry::TBox2<f32>(right - 109.0f, 51.0f,
+                right - 66.0f, 74.0f), "Back"));
         addPicture(MULTI_CHAR('hd_sbpi'),
             JGeometry::TBox2<f32>(right - 62.0f, 49.0f,
                 right - 35.0f, 76.0f), menu_face_button_texture(false));
@@ -438,9 +442,9 @@ void add_save_menu_fixed_prompts(dMenu_save_c* menu) {
     update_menu_face_button(screen, MULTI_CHAR('hd_sapi'), true);
     update_menu_face_button(screen, MULTI_CHAR('hd_sbpi'), false);
     group->show();
+    position_save_menu_prompts(menu);
 
-    // Match opening Quest Log: only the fixed prompt group draws, so native
-    // animation cannot offset a second A/B cluster from the shared geometry.
+    // Hide the native prompt cluster behind the fixed group.
     for (CPaneMgrAlpha* pane : {
              menu->mpConfirmTxt, menu->mpABtnIcon,
              menu->mpBackTxt, menu->mpBBtnIcon,
@@ -448,72 +452,6 @@ void add_save_menu_fixed_prompts(dMenu_save_c* menu) {
         if (pane != nullptr && pane->getPanePtr() != nullptr) {
             pane->getPanePtr()->hide();
         }
-    }
-}
-
-void add_save_menu_prompt_overlays(dMenu_save_c* menu) {
-    J2DPane* button = menu != nullptr && menu->mpBBtnIcon != nullptr ?
-        menu->mpBBtnIcon->getPanePtr() : nullptr;
-    if (button == nullptr) {
-        return;
-    }
-    if (button->search(MULTI_CHAR('hd_sback')) == nullptr) {
-        button->appendChild(make_hd_prompt_label(MULTI_CHAR('hd_sback'),
-            JGeometry::TBox2<f32>(0.0f, 0.0f, 1.0f, 1.0f), "Back"));
-    }
-    if (button->search(MULTI_CHAR('hd_sswrl')) == nullptr) {
-        if (ResTIMG const* texture =
-                resource_texture(s_fileSelectPromptFlourishResource)) {
-            auto* flourish = JKR_NEW J2DPicture(MULTI_CHAR('hd_sswrl'),
-                JGeometry::TBox2<f32>(0.0f, 0.0f, 1.0f, 1.0f), texture, nullptr);
-            flourish->setTexCoord(flourish->getTexture(0), BIND15, MIRROR0, false);
-            flourish->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
-                JUtility::TColor(255, 255, 255, 255));
-            flourish->setCornerColor(JUtility::TColor(255, 255, 255, 205));
-            button->appendChild(flourish);
-        }
-    }
-}
-
-void position_save_menu_prompts(dMenu_save_c* menu) {
-    J2DScreen* screen = menu != nullptr ? menu->mSaveSel.Scr : nullptr;
-    if (screen == nullptr) {
-        return;
-    }
-    const auto rootBounds = screen->getBounds();
-#if TARGET_PC
-    const f32 right = mDoGph_gInf_c::getSafeMaxXF();
-#else
-    const f32 right = mDoGph_gInf_c::getMaxXF();
-#endif
-    const f32 top = rootBounds.i.y;
-    move_file_select_pane_center(menu->mpConfirmTxt != nullptr ?
-        menu->mpConfirmTxt->getPanePtr() : nullptr, right - 66.0f, top + 28.0f);
-    move_file_select_pane_center(menu->mpABtnIcon != nullptr ?
-        menu->mpABtnIcon->getPanePtr() : nullptr, right - 30.0f, top + 28.0f);
-    move_file_select_pane_center(menu->mpBackTxt != nullptr ?
-        menu->mpBackTxt->getPanePtr() : nullptr, right - 67.0f, top + 46.0f);
-    move_file_select_pane_center(menu->mpBBtnIcon != nullptr ?
-        menu->mpBBtnIcon->getPanePtr() : nullptr, right - 47.0f, top + 46.0f);
-
-    J2DPane* button = menu->mpBBtnIcon != nullptr ?
-        menu->mpBBtnIcon->getPanePtr() : nullptr;
-    if (button == nullptr) {
-        return;
-    }
-    if (J2DPane* label = button->search(MULTI_CHAR('hd_sback'))) {
-        label->resize(43.0f, 16.0f);
-        label->move(-29.0f, (button->getHeight() - 16.0f) * 0.5f);
-        if (auto* text = dynamic_cast<J2DTextBox*>(label)) {
-            text->resize(65.0f, 16.0f);
-            text->move(-65.0f, (button->getHeight() - 16.0f) * 0.5f);
-            fit_localized_label(text, 12.0f);
-        }
-    }
-    if (J2DPane* flourish = button->search(MULTI_CHAR('hd_sswrl'))) {
-        flourish->resize(30.0f, 32.0f);
-        flourish->move(button->getWidth() - 12.0f,
-            (button->getHeight() - 32.0f) * 0.5f - 2.0f);
     }
 }
 
@@ -542,7 +480,6 @@ void style_save_menu_prompts(dMenu_save_c* menu) {
         confirm->setFontColor(JUtility::TColor(235, 235, 230, 255),
             JUtility::TColor(255, 255, 255, 255));
     }
-    add_save_menu_prompt_overlays(menu);
     position_save_menu_prompts(menu);
 }
 

@@ -30,7 +30,7 @@ inline std::uint32_t be32(const std::uint8_t* p) {
     return (std::uint32_t(be16(p)) << 16) | be16(p + 2);
 }
 
-// Accept only the deliberately small, single-page format emitted by our generator.
+// Accept only the single-page format emitted by the font generator.
 // This prevents malformed/partial resources reaching the native unchecked BFN reader.
 inline bool valid(const void* data, std::size_t size) {
     if (!data || size != fileBytes) return false;

@@ -12,4 +12,9 @@ apply = source.split('void apply_collection_screen(', 1)[1].split(
     'void apply_collection_prompts(', 1)[0]
 assert 'collection_fill_physical_viewport(menu, s_collectionScreen.background);' in apply
 assert 'getSafeMaxYF() - mDoGph_gInf_c::getSafeMinYF()' not in apply
+assert 'cell.column == 0 ? s_collectSaveFrame : s_collectOptionsFrame' in apply
+assert 'set_text_binding(label, HBIND_CENTER, VBIND_CENTER)' in apply
+assert 'collection_place(menu, label, cell.x, cell.y, cell.width - 8.0f, 28.0f)' in apply
+assert apply.index('collection_place(menu, s_collectionScreen.cells[i]') < apply.index(
+    'collection_place(menu, label, cell.x, cell.y')
 print('PASS: Collection backdrop fills the physical viewport outside HUD-safe bounds')

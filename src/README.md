@@ -1,8 +1,7 @@
 # Hook and screen code
 
 `item_slot_hooks.cpp` owns shared resources, hook callbacks, and registration.
-Screen implementations are included at their original definition points so that
-this organizational refactor preserves initialization and declaration order.
+Screen implementations are included in declaration and initialization order.
 
 The screen files are implementation fragments, not separate translation units:
 

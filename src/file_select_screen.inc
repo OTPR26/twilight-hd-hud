@@ -98,8 +98,7 @@ void style_file_select_dynamic_text(dFile_select_c* menu) {
             continue;
         }
         if (menu->fileSel.font[0] != nullptr) {
-            // font[0] is the heavier sans face also used by the file names;
-            // font[1] is the thin handwritten face visible in the last build.
+            // font[0] matches the file-name font; font[1] is handwritten.
             title->setFont(menu->fileSel.font[0]);
         }
         title->setFontSize(24.0f, 24.0f);
@@ -191,17 +190,10 @@ void position_file_select_prompt_overlays(dFile_select_c* menu) {
 
     // These are local B-pane coordinates. They remain fixed relative to the
     // button at every window size and through submenu prompt animations.
-    if (label != nullptr) {
-        label->resize(43.0f, 16.0f);
-        // The label texture has transparent side bearings. Let its picture
-        // overlap the button pane slightly so the visible word sits close to
-        // the B disc, as it does in TPHD.
-        label->move(-29.0f, (buttonHeight - 16.0f) * 0.5f);
-        if (auto* text = dynamic_cast<J2DTextBox*>(label)) {
-            text->resize(65.0f, 16.0f);
-            text->move(-65.0f, (buttonHeight - 16.0f) * 0.5f);
-            fit_localized_label(text, 12.0f);
-        }
+    if (auto* text = dynamic_cast<J2DTextBox*>(label)) {
+        text->resize(65.0f, 16.0f);
+        text->move(-69.0f, (buttonHeight - 16.0f) * 0.5f);
+        fit_localized_label(text, 12.0f);
     }
 
     if (flourish != nullptr) {
@@ -248,15 +240,15 @@ void add_file_select_fixed_prompts(dFile_select_c* menu) {
 
         auto* confirm = make_hd_prompt_label(MULTI_CHAR('hd_fcon'),
             JGeometry::TBox2<f32>(right - 114.0f, 30.0f,
-                right - 30.0f, 51.0f), "Confirm", HBIND_RIGHT);
+                right - 54.0f, 53.0f), "Confirm", HBIND_RIGHT);
         group->appendChild(confirm);
 
         addPicture(MULTI_CHAR('hd_fapi'),
             JGeometry::TBox2<f32>(right - 50.0f, 28.0f,
                 right - 23.0f, 55.0f), menu_face_button_texture(true));
         group->appendChild(make_hd_prompt_label(MULTI_CHAR('hd_fbck'),
-            JGeometry::TBox2<f32>(right - 109.0f, 49.0f,
-                right - 53.0f, 70.0f), "Back"));
+            JGeometry::TBox2<f32>(right - 109.0f, 51.0f,
+                right - 66.0f, 74.0f), "Back"));
         addPicture(MULTI_CHAR('hd_fbpi'),
             JGeometry::TBox2<f32>(right - 62.0f, 49.0f,
                 right - 35.0f, 76.0f), menu_face_button_texture(false));
@@ -265,6 +257,7 @@ void add_file_select_fixed_prompts(dFile_select_c* menu) {
     update_menu_face_button(screen, MULTI_CHAR('hd_fapi'), true);
     update_menu_face_button(screen, MULTI_CHAR('hd_fbpi'), false);
     group->show();
+    position_menu_prompt_group(screen, MULTI_CHAR('hd_fprm'));
 
     // The stock prompt groups are animated and can be hidden or translated by
     // the file-select state machine.  Suppress them completely; the fixed
@@ -295,9 +288,7 @@ void add_file_select_detail_frame(dFile_select_c* menu) {
         return;
     }
 
-    // Retire the first-pass stretched panel if this function is reached on a
-    // live reconstructed screen. A button texture cannot be scaled to the
-    // presentation's aspect without turning its fill into heavy black rails.
+    // Hide the obsolete stretched panel on screens retained across a reload.
     if (J2DPane* oldFrame = detail->search(MULTI_CHAR('hd_dtfr'))) {
         oldFrame->hide();
     }
@@ -346,9 +337,7 @@ void style_file_select_action_buttons(dFile_select_c* menu) {
     constexpr f32 targetWidth = 142.0f;
     constexpr f32 targetHeight = 26.0f;
 
-    // The native procedure is authoritative. The reset artifacts previously
-    // attributed to this screen were the separate w_abase/w_bbase prompt
-    // windows and are now suppressed by exact tag in the main-screen cleanup.
+    // Follow the native procedure; main-screen cleanup handles w_abase/w_bbase.
     const bool actionMenuVisible =
         (menu->mDataSelProc == dFile_select_c::DATASELPROC_MENU_SELECT ||
             menu->mDataSelProc ==
@@ -881,10 +870,8 @@ void size_file_select_row_for_hearts(J2DPicture* row, const bool hasSecondLine,
         };
     }
 
-    // Set a stable local width and let the native parent animation scale the
-    // card along with its contents. J2D's cached global bounds only add
-    // translations, so their width/local-width ratio was not an inherited
-    // scale; it fed stale resize values back into the next frame instead.
+    // Set local width and inherit the parent's animated scale. Cached global
+    // bounds do not include that scale and cannot be used to recover it.
     constexpr f32 kFourThreeWidthInHeights = 0.93f;
     constexpr f32 kWideWidthInHeights = 1.03f;
 #if TARGET_PC || defined(__ANDROID__)
@@ -960,10 +947,7 @@ J2DPicture* copy_destination_row_picture(dFile_select_c* menu,
         JGeometry::TBox2<f32>(0.0f, 0.0f, 435.0f, 62.0f), texture, nullptr);
     row->setTexCoord(row->getTexture(0), BIND15, MIRROR0, false);
     row->setCornerColor(JUtility::TColor(255, 255, 255, 255));
-    // Keep replacement cards directly on the copy screen.  The stock
-    // destination groups are continuously transformed by two BCK animations;
-    // parenting the HD cards there made them visibly jump between the native
-    // and corrected positions on alternating frames.
+    // Parent cards to the copy screen, outside the destination groups' BCK animations.
     screen->appendChild(row);
     return row;
 }
@@ -1200,7 +1184,7 @@ void hide_copy_destination_architecture(J2DPane* pane,
         picture != row0 && picture != row1) {
         // The stock copy window is assembled from dozens of small stone
         // tiles, so size-based filtering leaves a complete second frame
-        // around our rows.  This screen needs only the custom background and
+        // around the replacement rows.  This screen needs only the custom background and
         // cards; the native number pictures are explicitly restored below.
         picture->hide();
     }
@@ -1251,10 +1235,8 @@ void style_copy_destination_metadata(dFile_select_c* menu) {
         if (group == nullptr) {
             continue;
         }
-        // File-info is drawn by a separate screen using the destination
-        // anchor's matrix.  Its authored local positions already line up;
-        // deriving offsets from global bounds here made those offsets capture
-        // the copy transition's temporary off-screen position permanently.
+        // File-info uses the destination anchor's matrix. Keep local positions;
+        // global bounds include the copy transition's off-screen translation.
         if (auto* name = static_cast<J2DTextBox*>(
                 group->search(MULTI_CHAR('f_name01')))) {
             name->setFontSize(13.5f, 13.5f);
@@ -1756,7 +1738,7 @@ void position_file_select_cursor(dFile_select_c* menu) {
         menu->mIsSelectEnd && menu->mSelectMenuNum == 1;
     if (launchingFromStart) {
         // Once Start has been accepted, the native file-select contents fade
-        // immediately.  Do not preserve our pane-attached cursor throughout
+        // immediately.  Do not preserve the pane-attached cursor throughout
         // NEXT_MODE_WAIT; otherwise its four corners outlive the rest of the
         // screen while the game is loading.
         menu->mSelIcon->setAlphaRate(0.0f);
@@ -1899,11 +1881,8 @@ void style_file_select_metadata(dFile_select_c* menu) {
             find_largest_picture(rowGroup, row, area);
         }
 
-        // Resolve every position from live pane geometry. The archive applies
-        // one last transform after reset/create; additive one-time offsets
-        // consequently left individual labels stranded around the screen.
-        // These relationship-based corrections are idempotent and safe to
-        // repeat immediately before every draw.
+        // Resolve positions from live geometry after the archive's reset/create
+        // transform. Recompute before each draw rather than accumulating offsets.
         if (saveLabel != nullptr && std::isfinite(scaleY) &&
             std::fabs(scaleY) > 0.001f) {
             const f32 saveTop = live_metadata_bounds(saveLabel).i.y;

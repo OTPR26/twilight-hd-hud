@@ -145,7 +145,7 @@ void initialize_font_override() {
 void shutdown_font_override() {
     s_activeFont = TextFont::Original;
     s_messageFont = nullptr;
-    // Game panes still point at their original fonts. Only our draw-only object is freed.
+    // Game panes still point at their original fonts. Only the mod's draw-only object is freed.
     JKR_DELETE(s_replacement);
     s_replacement = nullptr;
     JKR_DELETE(s_itemPromptFont);
@@ -197,13 +197,8 @@ bool draw_font_override(void* args, void* retval, FontDrawOriginal drawOriginal)
         if (s_mapFont && !s_mapFont->isValid()) { JKR_DELETE(s_mapFont); s_mapFont = nullptr; }
     }
     const bool mapPrompt = (mapLabel && s_mapFont) || (mapHeading && s_mapHeadingFont);
-    // Western message archives encode the male/female message tags as B2/B3.
-    // The bundled Latin replacement fonts correctly interpret those code
-    // points as superscript 2/3, but Twilight Princess' native message font
-    // deliberately maps them to the Golden Bug sex symbols.  Preserve the
-    // game glyphs in every context, including item-get cards and the insect
-    // journal, instead of allowing the replacement atlas to turn them into
-    // exponent numerals.
+    // B2/B3 are Golden Bug sex symbols in the native font, not superscript
+    // numerals. Keep the native glyphs when using a Latin replacement font.
     constexpr int kMaleSymbolCode = 0xB2;
     constexpr int kFemaleSymbolCode = 0xB3;
     if (code == kMaleSymbolCode || code == kFemaleSymbolCode) return false;
@@ -257,7 +252,7 @@ bool draw_font_override(void* args, void* retval, FontDrawOriginal drawOriginal)
     replacement->mFixed = false;
     auto* context = mods::arg<FontDrawContext*>(args, 7);
     // The context belongs to the original font. Never leave its cache claiming that its
-    // texture is loaded when ours is bound (especially at a fallback glyph boundary).
+    // texture is loaded when the replacement is bound (especially at a fallback glyph boundary).
     if (context) context->isTextureLoaded = false;
     if (mapPrompt) {
         replacement->mColor1 = JUtility::TColor(0, 0, 0, source->mColor1.a);

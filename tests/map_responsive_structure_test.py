@@ -5,7 +5,7 @@ root = Path(__file__).resolve().parents[1]
 source = read_hook_source()
 compact = (root / 'src/map_responsive_screen.inc').read_text()
 world = (root / 'src/overworld_map_screen.inc').read_text()
-assert 'size >= 1' in compact  # Approved widescreen path stays untouched.
+assert 'size >= 1' in compact  # Widescreen layout stays unchanged.
 assert 'JKR_NEW' not in compact and 'appendChild' not in compact
 assert 'map->mMapScreen[0], map->mMapScreen[1], map->mFloorScreen' in compact
 assert 'state.backgroundBounds = state.background->getBounds()' in compact

@@ -5,7 +5,7 @@ struct Rect { float x, y, width, height; };
 constexpr Rect transition_bounds(Rect bounds, float x, float y) {
     return {bounds.x + x, bounds.y + y, bounds.width, bounds.height};
 }
-// TPHD screenshot proportions on the game's 608x448 layout canvas.
+// TPHD proportions expressed on the game's 608x448 layout canvas.
 constexpr Rect frame{85, 70, 438, 334};
 constexpr Rect content{91, 76, 426, 322};
 constexpr Rect reference_content(float left, float width) {
@@ -60,8 +60,7 @@ constexpr float poeY = 104;
 // The overworld count's native baseline sits slightly above the icon center.
 // Lower only the text so it matches the dungeon-map counter presentation.
 constexpr float poeTextYOffset = 5;
-// The Poe icon is 30 px wide. Leave the same one-pixel icon-to-count gap as
-// the dungeon map instead of the former detached eight-pixel extra spacing.
+// The Poe icon is 30 px wide; leave one pixel before the count.
 constexpr float poeIconToText = 31;
 constexpr float safe_x(float left, float width, float fraction) {
     return left + width * fraction;

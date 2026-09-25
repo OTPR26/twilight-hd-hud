@@ -66,10 +66,8 @@ def make_wii_u_l_from_archive_r() -> Image.Image:
 
     assert image.size == (83, 83), "Recheck the repair mask if the source cap changes"
     original = image.copy()
-    # Repair only the inset face. The old rectangular mask sampled the baked
-    # markings on the left and copied them back into the cap. Sample the clean
-    # right face instead, preserving the original dark-to-light cap gradient.
-    # These scanline bounds stay inside the curved rim, never its silhouette.
+    # Sample the unmarked right face to preserve the cap's gradient.
+    # Keep scanline bounds inside the curved rim.
     face_left = [27, 23, 20, 17, 16, 14, 14, 13, 12, 12, 11, 11,
                  10, 10, 9, 9, 8, 8, 8, 8, 8, 8, 8, 9, 10]
     for y, left in enumerate(face_left, start=30):

@@ -1,7 +1,7 @@
 #pragma once
 
 namespace twilight_hd_hud::map_responsive_layout {
-// Fit the approved 16:9 composition inside the current safe width. Wider
+// Fit the 16:9 composition inside the current safe width. Wider
 // displays retain their existing layout; narrow displays scale uniformly.
 inline constexpr float referenceWidth = 448.0f * 16.0f / 9.0f;
 constexpr float scale(float width) { return width < referenceWidth ? width / referenceWidth : 1.0f; }

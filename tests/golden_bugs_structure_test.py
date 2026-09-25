@@ -40,8 +40,8 @@ assert "position_cursor_outside_frame(menu->mpDrawCursor, frame, -3.0f, -3.0f)" 
 assert "question->setFont(mDoExt_getMesgFont())" in overlay
 assert "make_hd_prompt_label(MULTI_CHAR('hd_gbat')" in overlay
 assert "make_hd_prompt_label(MULTI_CHAR('hd_gbbt')" in overlay
-assert "resource_texture(s_promptConfirmLabelResource)" in source
-assert "resource_texture(s_promptBackLabelResource)" in source
+assert "s_promptConfirmLabelResource" not in source
+assert "s_promptBackLabelResource" not in source
 assert "description->setFontSize(11.5f, 11.5f)" in overlay
 assert "menu->cursorMove()" in wait
 assert "if (menu->field_0xf6 == 1) return HOOK_CONTINUE;" in wait

@@ -5,7 +5,12 @@ source = read_hook_source()
 prompt = source.split('J2DPane* make_hd_prompt_label(', 1)[1].split('// Shared three-choice prompt', 1)[0]
 assert 'MenuLabel::Confirm : MenuLabel::Back' in prompt
 assert 'JKR_NEW J2DTextBox' in prompt and 'fit_localized_label(label' in prompt
-assert 's_promptConfirmLabelResource' in prompt  # English artwork stays available.
+assert 'JKR_NEW J2DPicture' not in prompt
+assert 'translated != value' not in prompt
+assert 'translated.empty() ? value : translated.c_str()' in prompt
+assert 'HBIND_RIGHT' in prompt
+assert 's_promptConfirmLabelResource' not in source
+assert 's_promptBackLabelResource' not in source
 assert 'single_line_label(item_bank_source_text' in source
 assert 'fit_localized_label(s_itemBank.assignment' in source
 assert 'hide_other_text(footer, label)' in source
@@ -14,8 +19,7 @@ assert 'collection_shortcut_label(localized_label(MenuLabel::Collection)' in sou
 assert 'localized_label(MenuLabel::Minimap)' in source
 for label in ('Options', 'Brightness', 'DeviceSettings', 'Complete', 'DisplayInstructions'):
     assert f'localized_label(MenuLabel::{label})' in source
-assert 'textBounds.f.x -= 24.0f' in prompt
-assert 'textBounds.f.x -= 13.0f' in prompt
+assert 'textBounds' not in prompt  # Callers reserve text space, without texture padding.
 assert '"Make the adjustments on the device."' not in source
 
 flipped = source.split('if (layout == ButtonLayout::BayxFlipped)', 1)[1].split('} else if', 1)[0]

@@ -48,8 +48,7 @@ int main() {
                 assert(std::fabs((textLeft + textRight) * 0.5f + offset.x -
                     (crossLeft + crossRight) * 0.5f) < 0.001f);
                 assert(std::fabs(textTop + offset.y - crossBottom + 4.8f * scale) < 0.001f);
-                // Compared with preview 6, tighten the Collection gap and
-                // lower Minimap without changing either horizontal position.
+                // Vertical adjustments must preserve horizontal positions.
                 const float previousTop = crossBottom + 6.72f * scale;
                 assert(std::fabs(previousTop - (textTop + offset.y) - 11.52f * scale) < 0.001f);
                 assert(std::fabs(minimap_dpad_optical_offset(crossRight - crossLeft) -

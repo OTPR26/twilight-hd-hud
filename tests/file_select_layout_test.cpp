@@ -6,6 +6,15 @@
 using namespace twilight_hd_hud::file_select_layout;
 
 int main() {
+    for (float parentX : {0.75f, 1.0f, 4.0f / 3.0f, 2.0f})
+    for (float parentY : {0.75f, 1.0f, 1.25f})
+    for (float right : {608.0f, 702.0f, 1000.0f}) {
+        const auto group = prompt_group_layout(parentX, parentY,
+            608.0f, 448.0f, right, 12.0f);
+        assert(std::abs(parentX * group.scaleX - parentY) < 0.0001f);
+        assert(std::abs(group.centerX + 304.0f * parentY - right) < 0.0001f);
+        assert(std::abs(group.centerY - 224.0f * parentY - 12.0f) < 0.0001f);
+    }
     assert(kActionCursorPaddingX == 2.0f);
     assert(kActionCursorPaddingY == 1.5f);
     assert(kActionCursorPaddingX < 7.0f);

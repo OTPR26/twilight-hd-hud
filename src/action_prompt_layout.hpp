@@ -2,7 +2,7 @@
 
 namespace twilight_hd_hud::action_prompt_layout {
 
-// At 1920x1080: our visible A face is 56px; TPHD is about 46-47px.
+// Scale the 56px visible A face to approximately 47px at 1080p.
 constexpr float kButtonScale = 5.0f / 6.0f;
 // The complete 88px button texture has a 60px face, with transparent margins.
 constexpr float kFaceCoverage = 60.0f / 88.0f;

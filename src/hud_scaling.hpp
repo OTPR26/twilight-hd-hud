@@ -73,14 +73,11 @@ constexpr float rupee_icon_right(float originalRight, int digits, float scale) {
     return originalRight + rupee_strip_width(digits, 1.0f) - rupee_strip_width(digits, scale);
 }
 
-// Screenshot comparison: the contextual labels are about 25% larger than TPHD.
-// 100% is the new TPHD-sized baseline; 125% recovers the previous text size.
+// Normalize contextual labels to the TPHD baseline.
 constexpr float action_text_multiplier(float settingScale) { return 0.8f * settingScale; }
 
-// The same dialogue line measures 1036px here versus 710px in TPHD at 1080p.
-// Some messages carry a top-level scale above 100% (notably Yeto). Remove that
-// source variation before applying the common TPHD baseline; sub-100% emphasis
-// remains intact.
+// Normalize enlarged top-level dialogue scales before applying the TPHD baseline.
+// Preserve scales below 100%.
 constexpr float dialogue_text_multiplier(float settingScale,
                                           float sourceMessageScale = 1.0f) {
     const float normalizedSource = sourceMessageScale > 1.0f ? sourceMessageScale : 1.0f;

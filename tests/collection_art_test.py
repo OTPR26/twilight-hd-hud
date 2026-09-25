@@ -34,7 +34,7 @@ assert cell(12, 12)[3] == 0
 assert cell(128, 128)[3] == 255
 assert cell(128, 32)[3] == 255
 assert sum(cell(128, 128)[:3]) > sum(cell(128, 12)[:3])
-assert 30 < cell(128, 128)[0] < 70 # Preview 4's darker charcoal center.
+assert 30 < cell(128, 128)[0] < 70 # Dark charcoal center.
 assert cell(128, 128)[0] >= cell(128, 128)[2] # Warm charcoal, not blue-gray.
 assert len({cell(x, y)[:3] for x in range(100, 120) for y in range(100, 120)}) > 10
 circle = load('item-bank-circle', (256, 256))

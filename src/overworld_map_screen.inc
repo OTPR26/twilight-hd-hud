@@ -1,4 +1,4 @@
-// Overworld styling is separate from the approved dungeon-map layout.
+// Overworld map styling.
 dMenu_Fmap2DTop_c* s_fmapTopDrawing = nullptr;
 J2DTextBox::TFontSize s_fmapPoeFont{};
 float s_fmapPoeSpacing = 0;

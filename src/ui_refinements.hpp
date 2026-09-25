@@ -118,10 +118,8 @@ constexpr OptionWarningSize option_warning_size(float titleWidth, float titleHei
         titleHeight > paddedHeight ? titleHeight : paddedHeight};
 }
 
-// These are optical offsets for the authored HUD panes, not visible ink gaps.
-// The cross texture and text cell both contain padding. Screenshot comparison
-// with TPHD requires pulling Collection upward by 24% of the cross pane width
-// from preview 6's +14% pane gap, while retaining its horizontal anchor.
+// Optical offsets account for transparent padding in the cross and text cell.
+// Keep the Collection label's horizontal anchor while adjusting its height.
 constexpr MeterOffset collection_dpad_offset(float crossLeft, float crossRight,
     float crossBottom, float textLeft, float textRight, float textTop) {
     return {(crossLeft + crossRight - textLeft - textRight) * 0.5f,

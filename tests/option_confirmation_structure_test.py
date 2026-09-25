@@ -49,4 +49,40 @@ assert prompts.index("addPicture(MULTI_CHAR('hd_oflr')") < prompts.index(
     "addPicture(MULTI_CHAR('hd_oapi')")
 assert 's_fileSelectPromptFlourishResource' in prompts
 assert 'update_menu_face_button' in prompts
+assert prompts.count("position_menu_prompt_group(menu->mpScreenIcon, MULTI_CHAR('hd_oprm'))") == 2
+
+def rectangle(tag):
+    return tuple(608.0 - float(v[6:].removesuffix('f')) if v.startswith('right-')
+                 else float(v.removesuffix('f')) for v in bounds(tag).split(','))
+
+for label, button in [('hd_ocfm', 'hd_oapi'), ('hd_obck', 'hd_obpi'),
+                      ('hd_fcon', 'hd_fapi'), ('hd_fbck', 'hd_fbpi'),
+                      ('hd_sconf', 'hd_sapi'), ('hd_sbck', 'hd_sbpi'),
+                      ('hd_gbat', 'hd_gbab'), ('hd_gbbt', 'hd_gbbb'),
+                      ('hd_fjbt', 'hd_fjbb'), ('hd_ltbt', 'hd_ltbb'),
+                      ('hd_hsbt', 'hd_hsbb')]:
+    text_rect, button_rect = rectangle(label), rectangle(button)
+    assert button_rect[0] - text_rect[2] == 4, label
+    assert text_rect[1] + text_rect[3] == button_rect[1] + button_rect[3], label
+
+save_position = source.split('void position_save_menu_prompts(', 1)[1].split(
+    'void add_save_menu_fixed_prompts(', 1)[0]
+assert "MULTI_CHAR('hd_sprm')" in save_position
+assert 'position_menu_prompt_group(' in save_position
+group_position = source.split('void position_menu_prompt_group(', 1)[1].split(
+    '// File Selection and copy menus', 1)[0]
+assert 'prompt_group_layout(' in group_position
+assert 'group->scale(layout.scaleX, 1.0f)' in group_position
+assert 'position_dmap_global_center(group, layout.centerX, layout.centerY)' in group_position
+file_prompts = source.split('void add_file_select_fixed_prompts(', 1)[1].split(
+    'void ', 1)[0]
+assert "position_menu_prompt_group(screen, MULTI_CHAR('hd_fprm'))" in file_prompts
+assert 'mpABtnIcon' not in save_position and 'mpBBtnIcon' not in save_position
+save_wide = source.split('void after_save_menu_wide(', 1)[1].split(
+    'HookAction ', 1)[0]
+assert 'position_save_menu_prompts(menu)' in save_wide
+journal_fit = source.split('void fit_collection_submenu_overlay(', 1)[1].split(
+    'JGeometry::TBox2<f32> collection_submenu_global_bounds', 1)[0]
+assert 'group->scale(viewport.scale / parentScaleX,' in journal_fit
+assert 'viewport.scale / parentScaleY)' in journal_fit
 print('PASS: Options confirmation layout, title lifecycle and shared A/B geometry')

@@ -183,30 +183,21 @@ def extend_selected_fill(source: Image.Image) -> Image.Image:
     width, height = source.size
     result = Image.new("RGBA", source.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(result)
-    # Match the clipped octagonal frame on every corner.  The previous mask
-    # clipped only the lower pair, leaving a square grey fill behind the two
-    # angled upper corners when the row was highlighted.
+    # Clip all four corners to the octagonal frame.
     draw.polygon(
         [(10, 2), (width - 11, 2), (width - 3, 10),
          (width - 3, height - 11), (width - 11, height - 3),
          (10, height - 3), (2, height - 11), (2, 10)],
-        # Opaque charcoal-grey prevents the full-screen ornamental rings from
-        # showing through the selected card.  Keeping the value darker than
-        # the prior translucent fill avoids the washed-out selected state.
+        # Opaque charcoal prevents background ornaments showing through the card.
         fill=(92, 90, 84, 255),
     )
-    # Rebuild the interior instead of layering over the archive's translucent
-    # fill. This blocks the large background spirals at the clipped corners
-    # while keeping the selected grey substantially darker than the previous
-    # washed-out opaque pass. Restore only the gold outline and fine rules.
+    # Replace the translucent interior, retaining the gold outline and fine rules.
     source_pixels = source.load()
     result_pixels = result.load()
     for y in range(height):
         for x in range(width):
             red, green, blue, alpha = source_pixels[x, y]
-            # Never restore source pixels beyond the new mask: some of the
-            # archive border texture's translucent corner field is rectangular
-            # and was the remaining source of corner bleed.
+            # The source has rectangular translucent corners; clip to the new mask.
             if result_pixels[x, y][3] > 0 and (
                     alpha >= 150 or
                     (alpha > 0 and red >= 225 and green >= 225)):

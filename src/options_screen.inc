@@ -212,6 +212,7 @@ void add_option_prompts(dMenu_Option_c* menu) {
         update_menu_face_button(menu->mpScreenIcon, MULTI_CHAR('hd_obpi'), false);
         set_menu_face_button_texture(menu->mpScreenIcon,
             MULTI_CHAR('hd_orbt'), styled_zr_button_texture());
+        position_menu_prompt_group(menu->mpScreenIcon, MULTI_CHAR('hd_oprm'));
         return;
     }
 
@@ -236,8 +237,7 @@ void add_option_prompts(dMenu_Option_c* menu) {
         group->appendChild(picture);
     };
 
-    // Reuse the working Quest Log / Save pairing as a complete cluster.
-    // Moving only the discs above the flourish exposes its middle loops.
+    // Keep both buttons and the flourish in one group.
     constexpr f32 right = 608.0f;
     addPicture(MULTI_CHAR('hd_oflr'),
         JGeometry::TBox2<f32>(right - 74.0f, 18.0f,
@@ -246,7 +246,7 @@ void add_option_prompts(dMenu_Option_c* menu) {
 
     auto* confirm = make_hd_prompt_label(MULTI_CHAR('hd_ocfm'),
         JGeometry::TBox2<f32>(right - 114.0f, 30.0f,
-            right - 30.0f, 51.0f), "Confirm", HBIND_RIGHT);
+            right - 54.0f, 53.0f), "Confirm", HBIND_RIGHT);
     group->appendChild(confirm);
 
     addPicture(MULTI_CHAR('hd_oapi'),
@@ -254,8 +254,8 @@ void add_option_prompts(dMenu_Option_c* menu) {
             right - 23.0f, 55.0f),
         menu_face_button_texture(true));
     group->appendChild(make_hd_prompt_label(MULTI_CHAR('hd_obck'),
-        JGeometry::TBox2<f32>(right - 109.0f, 49.0f,
-            right - 53.0f, 70.0f), "Back"));
+        JGeometry::TBox2<f32>(right - 109.0f, 51.0f,
+            right - 66.0f, 74.0f), "Back"));
     addPicture(MULTI_CHAR('hd_obpi'),
         JGeometry::TBox2<f32>(right - 62.0f, 49.0f,
             right - 35.0f, 76.0f),
@@ -273,6 +273,7 @@ void add_option_prompts(dMenu_Option_c* menu) {
     addPicture(MULTI_CHAR('hd_orbt'),
         JGeometry::TBox2<f32>(575.0f, 410.5f, 601.0f, 436.5f),
         styled_zr_button_texture());
+    position_menu_prompt_group(menu->mpScreenIcon, MULTI_CHAR('hd_oprm'));
 }
 
 bool option_confirmation_active(const dMenu_Option_c* menu) {

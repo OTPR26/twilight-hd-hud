@@ -23,6 +23,19 @@ constexpr float kPlayTimeCenter = (58.0f + 76.0f) * 0.5f / 80.0f;
 constexpr float kActionCursorPaddingX = 2.0f;
 constexpr float kActionCursorPaddingY = 1.5f;
 
+struct PromptGroupLayout {
+    float scaleX;
+    float centerX;
+    float centerY;
+};
+
+constexpr PromptGroupLayout prompt_group_layout(float parentScaleX, float parentScaleY,
+    float width, float height, float right, float top) {
+    return {parentScaleY / parentScaleX,
+        right - width * parentScaleY * 0.5f,
+        top + height * parentScaleY * 0.5f};
+}
+
 constexpr float play_time_center(float rowTop, float rowBottom) {
     return rowTop + (rowBottom - rowTop) * kPlayTimeCenter;
 }

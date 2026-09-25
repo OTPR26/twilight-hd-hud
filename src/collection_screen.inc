@@ -594,10 +594,7 @@ void apply_collection_screen(dMenu_Collect2D_c* menu) {
             column == 0 ? MULTI_CHAR('f_sav_0') : MULTI_CHAR('f_opt_0')));
         auto* footer = menu->mpSelPm[column][5]->getPanePtr();
         hide_other_text(footer, label);
-        if (label != nullptr) {
-            label->show();
-            fit_localized_label(label, 14.0f);
-        }
+        if (label != nullptr) label->show();
     }
     const auto viewport = current_collection_viewport();
     const float safeWidth = (mDoGph_gInf_c::getSafeMaxXF() - mDoGph_gInf_c::getSafeMinXF()) / viewport.scale;
@@ -615,10 +612,23 @@ void apply_collection_screen(dMenu_Collect2D_c* menu) {
             cell.width + 6.0f, cell.width + 6.0f);
         collection_place(menu, s_collectionScreen.cells[i], cell.x, cell.y,
             cell.width, cell.row == 5 ? 28.0f : cell.width);
+        if (cell.row == 5) {
+            // Footer art and text inherit separate native scales.
+            collection_place(menu, cell.column == 0 ? s_collectSaveFrame : s_collectOptionsFrame,
+                cell.x, cell.y, cell.width, 28.0f);
+            auto* label = static_cast<J2DTextBox*>(menu->mpScreen->search(
+                cell.column == 0 ? MULTI_CHAR('f_sav_0') : MULTI_CHAR('f_opt_0')));
+            if (label != nullptr) {
+                label->resize(cell.width - 8.0f, 28.0f);
+                set_text_binding(label, HBIND_CENTER, VBIND_CENTER);
+                fit_localized_label(label, 14.0f);
+                collection_place(menu, label, cell.x, cell.y, cell.width - 8.0f, 28.0f);
+            }
+        }
         if (i < s_collectionScreen.equipmentFlourishes.size()) {
             auto* frame = s_collectionScreen.frames[i];
             // Native equip changes overwrite this tint. Recognize both its
-            // original yellow and our ivory; unequipping restores native gray.
+            // original yellow and the replacement ivory; unequipping restores native gray.
             const bool equipped = frame != nullptr && frame->getWhite().r > 200;
             if (frame != nullptr) frame->setWhite(equipped ? JUtility::TColor(246, 244, 198, 255) :
                 JUtility::TColor(132, 134, 104, 255));
@@ -728,7 +738,7 @@ void after_collection_model_move(ModContext*, void* args, void*, void*) {
     s_collectionMirrorProjectionCorrected = false;
     if (correctMirror) {
         // Android inlines the native toItem3Dpos calls inside _move, bypassing
-        // our coordinate hook. Convert the missing 100-screen-unit correction
+        // the coordinate hook. Convert the missing 100-screen-unit correction
         // through the real camera after the move. On non-inlined hosts the
         // hook already corrected the mirror, so its existing placement stays.
         // Clear the scope first: these two explicit conversions must be raw.

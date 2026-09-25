@@ -24,7 +24,7 @@ constexpr bool third_slot_item_usable(std::uint8_t selectedItem,
 // The native rupee group already includes the configured HUD opacity and its
 // transition fade. Copy that result, rather than multiplying the same parent
 // opacity twice or restarting the game's animation. Visibility still belongs
-// to the whole ancestor chain, even for our separately drawn number strip.
+// to the whole ancestor chain, even for the separately drawn number strip.
 template <class Pane>
 std::uint8_t rupee_counter_alpha(Pane* nativeGroup, bool overlayHidden) {
     if (nativeGroup == nullptr || overlayHidden) return 0;

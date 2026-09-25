@@ -440,9 +440,6 @@ ResourceBuffer s_midnaChoiceSelectedRowResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectRowShadowResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectClearRowResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectTitleRulesResource = RESOURCE_BUFFER_INIT;
-ResourceBuffer s_fileSelectBackLabelResource = RESOURCE_BUFFER_INIT;
-ResourceBuffer s_promptBackLabelResource = RESOURCE_BUFFER_INIT;
-ResourceBuffer s_promptConfirmLabelResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectPromptFlourishResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_fileSelectNumberResources[3] = {
     RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT,
@@ -1241,11 +1238,8 @@ void apply_hud_pane_transform(HudPaneTransformState& state, J2DPane* pane, const
     }
 
     if (state.active && state.pane == pane) {
-        // Native room/HUD transitions can animate translation without
-        // rebuilding scale (and vice versa). Restore each component that is
-        // still ours independently; requiring the complete pose to match
-        // causes an existing 0.45 R scale to be treated as the next frame's
-        // base and multiplied down to 0.2025.
+        // Restore mod-controlled translation and scale independently: native
+        // transitions can change either component without changing the other.
         if (nearly_equal(pane->getTranslateX(), state.appliedX) &&
             nearly_equal(pane->getTranslateY(), state.appliedY))
         {
@@ -1741,8 +1735,7 @@ void style_item_explain_card(dMenu_ItemExplain_c* menu) {
     J2DPane* itemGlow = menu->mpInfoScreen->search(MULTI_CHAR('i_i_back'));
     J2DPane* itemNumber = menu->mpInfoScreen->search(MULTI_CHAR('info_n1'));
 
-    // Earlier previews added a separate parchment child. Hide it if this
-    // screen survived a live mod reload; fresh screens never create one.
+    // Hide obsolete parchment children retained across a live reload.
     auto* oldOverlay = as_picture(menu->mpInfoScreen->search(kItemExplainParchmentTag));
     if (oldOverlay != nullptr) oldOverlay->hide();
 
@@ -2022,9 +2015,8 @@ bool rewrite_item_get_message(JMessage::TControl* control) {
         return false;
     }
 
-    // Once this control is consuming our private copy, leave it alone. Item-get
-    // rendering calls this path every frame; resetting the sequence repeatedly
-    // is what previously made its inline icons alternate between two layouts.
+    // Reuse the private message copy across frames. Resetting the sequence
+    // on every draw makes inline icons alternate between layouts.
     if (control->pMessageText_begin_ == s_itemGetHelpText.c_str()) return false;
 
     const auto* resource = control->pResourceCache_;
@@ -2603,11 +2595,7 @@ void hide_collect_stone_rails(J2DPane* pane) {
     }
 }
 
-// The remaining GameCube rails are nested below the Collection screen's
-// transformed panes, so their local bounds do not identify them reliably.
-// Log only wide, shallow panes near the screen edges once, using global bounds
-// and tags, so we can remove the exact legacy art without affecting the HD
-// background.
+// Identify nested rail panes by global bounds; local bounds omit parent transforms.
 void log_collect_rail_candidates(J2DPane* pane) {
     if (pane == nullptr || s_collectRailDiagnosticsLogged) {
         return;
@@ -3084,38 +3072,18 @@ void configure_hd_picture(J2DPicture* picture) {
 
 J2DPane* make_hd_prompt_label(u64 tag,
     const JGeometry::TBox2<f32>& bounds, const char* value,
-    J2DTextBoxHBinding alignment = HBIND_CENTER) {
+    J2DTextBoxHBinding alignment = HBIND_RIGHT) {
     const auto translated = localized_label(std::strcmp(value, "Confirm") == 0 ?
         MenuLabel::Confirm : MenuLabel::Back);
-    // Keep the established English artwork; other languages need real text,
-    // not an English word baked into a texture.
-    if (translated != value && !translated.empty()) {
-        auto textBounds = bounds;
-        // English art has transparent side bearings; real text cannot overlap buttons.
-        if (tag == MULTI_CHAR('hd_ocfm') || tag == MULTI_CHAR('hd_fcon'))
-            textBounds.f.x -= 24.0f;
-        if (tag == MULTI_CHAR('hd_obck') || tag == MULTI_CHAR('hd_fbck'))
-            textBounds.f.x -= 13.0f;
-        auto* label = JKR_NEW J2DTextBox(tag, textBounds, nullptr, translated.c_str(),
-            512, alignment, VBIND_CENTER);
-        label->setFont(mDoExt_getMesgFont());
-        label->setFontSize(12.0f, 12.0f);
-        label->setCharSpace(0.0f);
-        label->setLineSpace(14.0f);
-        label->setFontColor(JUtility::TColor(238, 238, 232, 255),
-            JUtility::TColor(255, 255, 255, 255));
-        if (bounds.getWidth() > 1) fit_localized_label(label, 12.0f);
-        return label;
-    }
-    ResTIMG const* texture = std::strcmp(value, "Confirm") == 0 ?
-        resource_texture(s_promptConfirmLabelResource) :
-        resource_texture(s_promptBackLabelResource);
-    if (texture == nullptr) return nullptr;
-    auto* label = JKR_NEW J2DPicture(tag, bounds, texture, nullptr);
-    label->setTexCoord(label->getTexture(0), BIND15, MIRROR0, false);
-    label->setCornerColor(JUtility::TColor(255, 255, 255, 255));
-    label->setAlpha(255);
-    label->show();
+    auto* label = JKR_NEW J2DTextBox(tag, bounds, nullptr,
+        translated.empty() ? value : translated.c_str(), 512, alignment, VBIND_CENTER);
+    label->setFont(mDoExt_getMesgFont());
+    label->setFontSize(12.0f, 12.0f);
+    label->setCharSpace(0.0f);
+    label->setLineSpace(15.0f);
+    label->setFontColor(JUtility::TColor(238, 238, 232, 255),
+        JUtility::TColor(255, 255, 255, 255));
+    if (bounds.getWidth() > 1) fit_localized_label(label, 12.0f);
     return label;
 }
 
@@ -3289,7 +3257,7 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
         }
 
         // The native selected-row animation rewrites the original label's
-        // transform after our layout pass. Draw an independent label in the
+        // transform after the layout pass. Draw an independent label in the
         // same bounds as the HD frame so every state remains truly centered.
         J2DTextBox* label = static_cast<J2DTextBox*>(
             menu->mpScreen->search(labelTags[index]));
@@ -3310,7 +3278,7 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
         // Two-choice prompts use rows B/C and apply a width-dependent native
         // translation to their original text panes. Keep the replacement
         // label inside the HD frame so it cannot drift independently from the
-        // panel. Three-choice prompts retain their already-tested sibling
+        // panel. Three-choice prompts retain their sibling
         // geometry.
         J2DPane* desiredLabelParent = isTwoChoicePrompt ?
             static_cast<J2DPane*>(frame) : textParent;
@@ -3324,18 +3292,15 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
         constexpr f32 labelSpacing = 0.0f;
         // The original GameCube Midna strings include horizontal whitespace
         // used by their right-aligned native panes. Retain the localized words
-        // but remove that layout padding before placing them in our centered
+        // but remove that layout padding before placing them in the centered
         // HD textbox. Ordinary dialogue strings pass through unchanged.
         const std::array<char, 128> nativeLabel =
             clean_three_select_label(text_box_string(text));
         const char* displayLabel = isMidnaPrompt ?
             midnaPromptLabels[index] : nativeLabel.data();
 
-        // Keep the replacement textbox at the full panel width. The earlier
-        // measured-width pane landed exactly on J2D's fractional wrap edge;
-        // on the following frame its final glyph wrapped back into the middle
-        // of the sentence. Establish the roomy geometry and binding first,
-        // then assign the clean label string.
+        // Use the full panel width to avoid fractional-width wrapping in J2D.
+        // Set bounds and alignment before assigning the label.
         if (isTwoChoicePrompt) {
             label->move(0.0f, 0.0f);
             label->resize(frameBounds.getWidth(), frameBounds.getHeight());
@@ -3352,7 +3317,7 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
         // This renderer is shared by Midna and ordinary dialogue choices.
         // Preserve the live game-owned string instead of applying Midna's
         // three labels globally; the native pane continues to receive each
-        // screen's localized message while our independent pane supplies only
+        // screen's localized message while the independent pane supplies only
         // the HD presentation.
         label->setString(128, displayLabel);
         label->setFontColor(
@@ -3366,9 +3331,7 @@ void style_three_select_prompt(dMsgScrn3Select_c* menu) {
         // rendered without mutating its game-owned string buffer.
         text->setFontSize(0.0f, 0.0f);
         text->setAlpha(0);
-        // Some three-choice layouts contain a second full-resolution text
-        // layer (the *_tf_f panes). This is the layer that remained visible
-        // and offset on the inactive Midna choices, so suppress it as well.
+        // Hide the duplicate *_tf_f text layer on inactive choices too.
         if (menu->mpTmrSel_c[index] != nullptr) {
             auto* alternateText = static_cast<J2DTextBox*>(
                 menu->mpTmrSel_c[index]->getPanePtr());
@@ -3665,6 +3628,33 @@ void apply_fmap_top(dMenu_Fmap2DTop_c* map) {
 }
 
 #include "overworld_map_screen.inc"
+
+void position_menu_prompt_group(J2DScreen* screen, u64 tag) {
+    J2DPane* group = screen != nullptr ? screen->search(tag) : nullptr;
+    if (group == nullptr) return;
+
+    f32 parentScaleX = 1.0f;
+    f32 parentScaleY = 1.0f;
+    for (J2DPane* parent = group->getParentPane(); parent != nullptr;
+         parent = parent->getParentPane()) {
+        parentScaleX *= parent->getScaleX();
+        parentScaleY *= parent->getScaleY();
+    }
+    if (!std::isfinite(parentScaleX) || !std::isfinite(parentScaleY) ||
+        parentScaleX < 0.001f || parentScaleY < 0.001f) return;
+
+#if TARGET_PC
+    const f32 right = mDoGph_gInf_c::getSafeMaxXF();
+#else
+    const f32 right = mDoGph_gInf_c::getMaxXF();
+#endif
+    const auto layout = file_select_layout::prompt_group_layout(parentScaleX,
+        parentScaleY, group->getWidth(), group->getHeight(), right,
+        screen->getBounds().i.y);
+    // Cancel horizontal stretching while retaining the menu's uniform scale.
+    group->scale(layout.scaleX, 1.0f);
+    position_dmap_global_center(group, layout.centerX, layout.centerY);
+}
 
 #include "options_screen.inc"
 
@@ -4390,7 +4380,7 @@ void apply_wii_u_r_button_art(dMeter2Draw_c* meter) {
 
     // z_text_n is only the common parent.  The stock renderer retains five
     // independently drawn text/shadow children and can leave those children
-    // visible even after the parent has been reused for our R slot.  Clear and
+    // visible even after the parent has been reused for the R slot.  Clear and
     // collapse every layer directly so the detached dot + "Z" cannot survive
     // a status update or an item-ring transition.
     if (meter->mpBTextXY[2] != nullptr) {
@@ -4436,7 +4426,7 @@ void apply_wii_u_dpad_transform(dMeter2Draw_c* meter) {
     // Keep both layouts in the transform tracker so changing compatibility at
     // runtime first restores the archive-authored pose instead of accumulating
     // one preset on top of the other. Follow mode with an explicit custom
-    // action uses the exact v1.1.1 D-Pad transform; otherwise the TPHD stack
+    // action uses the legacy D-Pad transform; otherwise the TPHD stack
     // remains the default.
     if (use_legacy_follow_dpad_layout()) {
         apply_hud_pane_transform(HudPaneSlot::DPad,
@@ -4479,7 +4469,7 @@ void apply_wii_u_archive_layout_corrections(dMeter2Draw_c* meter) {
         -19.0f, scales.hearts);
     // Keep the icon, frame, and digit layers on their common animated parent.
     // Moving the three child layers independently makes their stock animation
-    // fight our transform and leaves the rupee icon behind.
+    // conflict with the layout transform and leaves the rupee icon behind.
     apply_hud_pane_transform(HudPaneSlot::Rupee0, meter->mpRupeeParent[0], false,
         0.0f, 0.0f, 1.0f);
     apply_hud_pane_transform(HudPaneSlot::Rupee1, meter->mpRupeeParent[1], false,
@@ -5300,9 +5290,8 @@ void draw_ring_z_prompt(dMenu_Ring_c* ring) {
     }
     s_ringZPrompt.screen->draw(0.0f, 0.0f, dComIfGp_getCurrentGrafPort());
 
-    // J2D ring coordinates are rendered at roughly twice the final window
-    // size.  A 52-unit square made these prompts about 100 pixels wide;
-    // 24 units matches the authored face-button prompt scale.
+    // Ring coordinates render at roughly twice window size; 24 units matches
+    // the native face-button prompts.
     constexpr f32 kFaceButtonSize = 24.0f;
     for (const auto& button : {
              std::pair{s_ringZPrompt.buttonX, true},
@@ -5522,10 +5511,8 @@ void change_z_hud_item_texture(dMeter2Draw_c* meter, const u8 itemNo) {
     }
 
     const u8 textureItem = hud_texture_item(itemNo);
-    // Scene changes destroy and recreate the meter's J2D pictures. The meter
-    // object itself can be allocated at the same address, so pointer identity
-    // plus an unchanged item number is not sufficient to prove that the new
-    // R picture is still attached to our persistent texture buffer.
+    // Scene changes can reuse the meter address but replace its pictures.
+    // Check the texture attachment even when the item and meter pointer match.
     auto* primaryPicture =
         static_cast<J2DPicture*>(meter->mpItemR->getPanePtr());
     JUTTexture* primaryTexture =
@@ -6035,9 +6022,7 @@ void position_midna_hud(dMeter2Draw_c* meter) {
     } else if (nativeButton == kSdlRightShoulderButton &&
         meter->mpButtonXY[2] != nullptr)
     {
-        // Mount directly in the transformed native R pane. This preserves the
-        // exact v1.1.1 upper-right position at every aspect ratio and avoids
-        // translating coordinates between unrelated HUD parents.
+        // Parent to the native R pane to inherit its aspect-ratio transform.
         anchorPane = meter->mpButtonXY[2]->getPanePtr();
         positionX = 0.0f;
         positionY = -30.0f;
@@ -6694,7 +6679,7 @@ void rotate_pending_duplicate(dMenu_Ring_c* ring) {
 }
 
 // Native item lookup uses 2 as its "not assigned" sentinel. During the
-// bait eligibility check only, 3 is a virtual read-only alias for our Z slot.
+// bait eligibility check only, 3 is a virtual read-only alias for the Z slot.
 bool s_baitLookupScope = false;
 constexpr int kBaitRodAlias = 3;
 struct ThirdSlotTalk {
@@ -6888,12 +6873,8 @@ void after_pad_read(ModContext*, void*, void*, void*) {
         pad.mTrigLockR = false;
     }
 
-    // Follow mode normally trusts the active profile's logical R state. Some
-    // SDL profiles (including the AYN's current Xbox profile) map R1 directly
-    // to logical R while ZR arrives only through the analog trigger axis. Add
-    // the physical ZR edge back after R1 isolation so bow arrow cycling and
-    // other aiming actions cannot be lost. The Fixed-mode reconstruction above
-    // is intentionally unchanged.
+    // Restore logical R from the physical trigger after shoulder suppression.
+    // Preserve both held and pressed state for aiming and combo actions.
     if (!fixedTphdBindings && physicalZrHeld) {
         pad.mButtonFlags |= PAD_TRIGGER_R;
         pad.mTriggerRight = 1.0f;
@@ -6968,11 +6949,8 @@ HookAction before_meter_map_ctrl_show(ModContext*, void* args, void*, void*) {
         }
     }
 
-    // Dusklight also evaluates its configured custom actions in the original
-    // ctrlShowMap call. If (for example) Open Map is configured on D-Pad Right,
-    // continuing here would immediately override our TPHD Right=minimap
-    // behavior with a full-map open. We have fully consumed this directional
-    // trigger, so suppress only this one original input-processing frame.
+    // Skip native dispatch for consumed inputs; otherwise a custom Open Map
+    // binding can also fire when this hook handles the minimap shortcut.
     return (openMap || toggleMinimap || combinedMapMinimap ||
         followMidnaDpadTrigger) ?
         HOOK_SKIP_ORIGINAL : HOOK_CONTINUE;
@@ -7191,9 +7169,7 @@ void ensure_fish_journal_overlay(dMenu_Fishing_c* menu) {
             group->appendChild(title);
         }
         if (ResTIMG const* flourish = resource_texture(s_fileSelectPromptFlourishResource)) {
-            // Reuse the opening Quest Log flourish geometry and opacity
-            // verbatim. Keep its center aligned with A as in that screen so
-            // the button discs mask the same parts of the curls.
+            // Align the flourish with the prompt buttons.
             auto* backFlourish = JKR_NEW J2DPicture(MULTI_CHAR('hd_fjbf'),
                 JGeometry::TBox2<f32>(612.5f, 12.0f, 684.5f, 78.0f),
                 flourish, nullptr);
@@ -7225,7 +7201,7 @@ void ensure_fish_journal_overlay(dMenu_Fishing_c* menu) {
             configure_hd_picture(backButton);
             group->appendChild(backButton);
             group->appendChild(make_hd_prompt_label(MULTI_CHAR('hd_fjbt'),
-                JGeometry::TBox2<f32>(569.0f, 44.0f, 633.0f, 68.0f),
+                JGeometry::TBox2<f32>(549.0f, 44.0f, 618.0f, 68.0f),
                 "Back"));
         }
         if (ResTIMG const* selection = resource_texture(s_fishJournalSelectionResource)) {
@@ -7354,8 +7330,7 @@ void ensure_fish_journal_overlay(dMenu_Fishing_c* menu) {
     fit_collection_submenu_overlay(group, MULTI_CHAR('hd_fjbg'),
         MULTI_CHAR('hd_fjru'), MULTI_CHAR('hd_fjrl'));
 
-    // The replacement supplies its own single Back prompt. Hiding the native
-    // icon screen removes its unused A disc and keeps Back attached to B.
+    // Hide the native icon screen behind the replacement prompts.
     if (menu->mpIconScreen != nullptr) menu->mpIconScreen->hide();
 
     // Replace the oversized native title hierarchy. The custom banner is
@@ -7685,7 +7660,7 @@ void ensure_letters_overlay(dMenu_Letter_c* menu) {
             JGeometry::TBox2<f32>(622.0f, 40.0f, 654.0f, 72.0f),
             menu_face_button_texture(false));
         group->appendChild(make_hd_prompt_label(MULTI_CHAR('hd_ltbt'),
-            JGeometry::TBox2<f32>(569.0f, 44.0f, 633.0f, 68.0f),
+            JGeometry::TBox2<f32>(549.0f, 44.0f, 618.0f, 68.0f),
             "Back"));
     }
 
@@ -8123,7 +8098,7 @@ void ensure_hidden_skills_overlay(dMenu_Skill_c* menu) {
             JGeometry::TBox2<f32>(622.0f, 40.0f, 654.0f, 72.0f),
             menu_face_button_texture(false));
         group->appendChild(make_hd_prompt_label(MULTI_CHAR('hd_hsbt'),
-            JGeometry::TBox2<f32>(569.0f, 44.0f, 633.0f, 68.0f),
+            JGeometry::TBox2<f32>(549.0f, 44.0f, 618.0f, 68.0f),
             "Back"));
     }
 
@@ -8469,7 +8444,7 @@ void ensure_golden_bugs_overlay(dMenu_Insect_c* menu) {
             JGeometry::TBox2<f32>(622.0f, 40.0f, 654.0f, 72.0f),
             menu_face_button_texture(false));
         group->appendChild(make_hd_prompt_label(MULTI_CHAR('hd_gbbt'),
-            JGeometry::TBox2<f32>(569.0f, 44.0f, 633.0f, 68.0f),
+            JGeometry::TBox2<f32>(549.0f, 44.0f, 618.0f, 68.0f),
             "Back"));
 
         // Agitha's gift flow keeps the journal visible and places its question
@@ -8489,7 +8464,7 @@ void ensure_golden_bugs_overlay(dMenu_Insect_c* menu) {
         group->appendChild(question);
 
         auto* confirm = make_hd_prompt_label(MULTI_CHAR('hd_gbat'),
-            JGeometry::TBox2<f32>(560.0f, 16.0f, 656.0f, 40.0f),
+            JGeometry::TBox2<f32>(540.0f, 21.0f, 630.0f, 45.0f),
             "Confirm", HBIND_RIGHT);
         group->appendChild(confirm);
     }
@@ -9121,7 +9096,7 @@ HookAction before_option_vibration_move(ModContext*, void* args, void*, void*) {
     if (menu == nullptr || menu->field_0x3f3 != 5 || menu->mpStick == nullptr)
         return HOOK_CONTINUE;
     // Trigger checks mutate repeat timers. Probe Up on a copy so the native
-    // handler still receives it when we are not handling Down.
+    // handler still receives it when Down is not handled here.
     STControl probe = *menu->mpStick;
     if (!probe.checkUpTrigger() && menu->mpStick->checkDownTrigger()) {
         // Sound follows Rumble in both regional selection tables. Let _move
@@ -9221,9 +9196,8 @@ void after_file_select_create(ModContext*, void* args, void*, void*) {
 }
 
 void after_file_select_draw(ModContext*, void* args, void*, void*) {
-    // Nightly 402 presents native animations and widescreen transforms inside
-    // _draw before queueing the screens. Apply our geometry afterwards so
-    // native presentation cannot overwrite it before those screens render.
+    // Apply layout after _draw updates animations and widescreen transforms,
+    // but before the queued screens render.
     auto* menu = mods::arg<dFile_select_c*>(args, 0);
     if (s_fileSelectStylePending && menu != nullptr && menu->fileSel.Scr != nullptr) {
         apply_file_select_hd_style(menu);
@@ -9570,7 +9544,7 @@ void apply_context_y_button_layout(dMeterButton_c* buttons) {
     const JGeometry::TBox2<f32> bounds = picture->getBounds();
     set_menu_face_button_texture(
         buttons->mpButtonScreen, MULTI_CHAR('y_btn'), texture);
-    // The GameCube button is oval; our complete icon needs a square canvas.
+    // The GameCube button is oval; the replacement icon needs a square canvas.
     // Retain its width (used by the game's prompt spacing) and its center.
     // This is idempotent across execute/draw hooks and layout/style changes.
     const f32 diameter = bounds.getWidth();
@@ -9692,11 +9666,8 @@ void apply_context_button_layout(dMeterButton_c* buttons) {
         }
     }
 
-    // The emphasis layout builds its stock green A from three stacked panes.
-    // Our replacement is already a complete button, so the old glow and
-    // separate letter would otherwise cover it and make the swap appear to
-    // have failed.  Keep the animation on the parent group and remove only
-    // those redundant visual layers at the final draw boundary.
+    // Hide the native glow and letter beneath the complete replacement button.
+    // Keep the parent animation; suppress these layers just before drawing.
     constexpr u64 stockActionLayers[] = {
         MULTI_CHAR('a_btn_l1'),
         MULTI_CHAR('a_btn_t'),
@@ -9913,10 +9884,8 @@ void arrange_action_prompt_for_draw(dMeterButton_c* buttons) {
         float coverage = isA ? action_prompt_layout::kFaceCoverage :
             action_prompt_layout::kTriggerCoverage;
         if (isBottle) {
-            // Match the bottle silhouette to the visible face of the known-good
-            // A/Open prompt. Unlike the A texture, the bottle has no broad
-            // transparent canvas margin, so comparing full pane heights would
-            // leave it visibly oversized.
+            // Match visible silhouettes: the A texture has wider transparent
+            // margins than the bottle, so pane heights are not comparable.
             auto* aPicture = as_picture(
                 buttons->mpButtonScreen->search(MULTI_CHAR('a_btn1')));
             if (aPicture == nullptr) continue;
@@ -9997,12 +9966,8 @@ HookAction before_meter_button_draw(ModContext*, void* args, void*, void*) {
     apply_context_button_layout(buttons);
     hide_legacy_overlay_z(buttons);
     if (s_ringZPrompt.ring != nullptr) {
-        // The item ring already draws its complete X/Y/R assignment row.  The
-        // separate emphasis-button screen is a second, self-contained draw
-        // pass; on GameCube it contributes the detached glow + "Z" seen at
-        // the upper right.  Its panes are made visible inside draw(), after
-        // our pane styling runs, so suppress that redundant pass while the
-        // ring is open instead of trying to chase its animation every frame.
+        // The ring supplies X/Y/R prompts. Skip the duplicate emphasis pass,
+        // whose draw() would re-show the native Z glow after pane styling.
         return HOOK_SKIP_ORIGINAL;
     }
     scale_action_text_for_draw(buttons);
@@ -10036,9 +10001,8 @@ HookAction before_meter_screen_draw(ModContext*, void* args, void*, void*) {
     if (meter == nullptr || screen != meter->mpScreen) {
         return HOOK_CONTINUE;
     }
-    // Nightly 402 applies HUD presentation inside dMeter2Draw_c::draw.
-    // Prepare once at the actual screen draw, after those animations and
-    // before either the panes or the item counts are rendered.
+    // Prepare after dMeter2Draw_c::draw updates animations, before panes and
+    // item counts render.
     s_pendingMeterDraw = nullptr;
     refresh_native_face_button_items_for_touch_transition(meter);
     update_z_hud_item(meter);
@@ -11205,18 +11169,6 @@ void initialize_face_button_textures() {
             &s_fileSelectTitleRulesResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the File Selection title rules");
     }
-    if (svc_resource->load(mod_ctx, "menu/file-select-back-label.bti",
-            &s_fileSelectBackLabelResource) != MOD_OK) {
-        svc_log->warn(mod_ctx, "Unable to load the File Selection Back label");
-    }
-    if (svc_resource->load(mod_ctx, "menu/prompt-label-back.bti",
-            &s_promptBackLabelResource) != MOD_OK) {
-        svc_log->warn(mod_ctx, "Unable to load the outlined Back prompt label");
-    }
-    if (svc_resource->load(mod_ctx, "menu/prompt-label-confirm.bti",
-            &s_promptConfirmLabelResource) != MOD_OK) {
-        svc_log->warn(mod_ctx, "Unable to load the outlined Confirm prompt label");
-    }
     if (svc_resource->load(mod_ctx, "menu/file-select-prompt-flourish.bti",
             &s_fileSelectPromptFlourishResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the File Selection prompt flourish");
@@ -11306,9 +11258,6 @@ void shutdown_face_button_textures() {
     free_resource(s_fileSelectRowShadowResource);
     free_resource(s_fileSelectClearRowResource);
     free_resource(s_fileSelectTitleRulesResource);
-    free_resource(s_fileSelectBackLabelResource);
-    free_resource(s_promptBackLabelResource);
-    free_resource(s_promptConfirmLabelResource);
     free_resource(s_fileSelectPromptFlourishResource);
     for (ResourceBuffer& resource : s_fileSelectNumberResources) {
         free_resource(resource);

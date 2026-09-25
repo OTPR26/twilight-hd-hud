@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.4.4 - 2026-09-24
+
+- Improved menu prompt sizing and alignment.
+- Refined Collection screen buttons.
+- Improved localized Confirm and Back labels.
+
 ## v2.4.2 - 2026-09-24
 
 - Corrected Triangle and Square icons in PlayStation (Flipped).
