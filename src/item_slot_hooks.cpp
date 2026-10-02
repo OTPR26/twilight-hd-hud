@@ -5804,7 +5804,11 @@ void draw_z_ammo(dMeter2Draw_c* meter, const u8 itemNo, const f32 itemAlphaRate)
 }
 
 void draw_z_oil_meter(dMeter2Draw_c* meter, const u8 itemNo, const f32 itemAlphaRate) {
-    if (!is_z_lantern_item(itemNo) || dComIfGs_getMaxOil() == 0) {
+    const bool lanternComboActive =
+        dComIfGs_getMixItemIndex(kZItemSlot) == SLOT_4 &&
+        dComIfGs_getItem(dComIfGs_getSelectItemIndex(kZItemSlot), false) == dItemNo_KANTERA_e;
+
+    if ((!is_z_lantern_item(itemNo) && !lanternComboActive) || dComIfGs_getMaxOil() == 0) {
         return;
     }
 
