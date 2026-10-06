@@ -59,6 +59,7 @@ jobs:
           python3 tests/third_slot_talk_behavior_test.py
           python3 tests/controller_texture_behavior_test.py
           python3 tests/epona_prompt_behavior_test.py
+          python3 tests/save_title_behavior_test.py
           python3 tests/item_bank_structure_test.py
           python3 tests/dungeon_map_structure_test.py
           python3 tests/overworld_map_structure_test.py

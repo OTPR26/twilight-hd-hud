@@ -41,6 +41,26 @@ void replace_save_menu_background(dMenu_save_c* menu) {
     }
 }
 
+void position_save_question_title(J2DScreen* screen, J2DPane* group) {
+    if (screen == nullptr || group == nullptr) return;
+    f32 parentScaleX = 1.0f;
+    f32 parentScaleY = 1.0f;
+    for (J2DPane* parent = group->getParentPane(); parent != nullptr;
+         parent = parent->getParentPane()) {
+        parentScaleX *= parent->getScaleX();
+        parentScaleY *= parent->getScaleY();
+    }
+    if (!std::isfinite(parentScaleX) || !std::isfinite(parentScaleY) ||
+        parentScaleX < 0.001f || parentScaleY < 0.001f) return;
+
+    // Match the native heading's aspect correction without changing banner geometry.
+    group->scale(parentScaleY / parentScaleX, 1.0f);
+    CPaneMgr manager;
+    const Vec screenCenter = manager.getGlobalVtxCenter(screen, false, 0);
+    const Vec groupCenter = manager.getGlobalVtxCenter(group, false, 0);
+    position_dmap_global_center(group, screenCenter.x, groupCenter.y);
+}
+
 void style_save_select_title(dMenu_save_c* menu) {
     J2DScreen* screen = menu != nullptr ? menu->mSaveSel.Scr : nullptr;
     if (screen == nullptr) {
@@ -100,6 +120,7 @@ void style_save_select_title(dMenu_save_c* menu) {
         }
         return;
     }
+    position_save_question_title(screen, group);
     group->show();
     for (CPaneMgrAlpha* title : menu->mpHeaderTxtPane) {
         if (title != nullptr) title->setAlpha(0);

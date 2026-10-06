@@ -9390,6 +9390,7 @@ HookAction before_save_dlst_draw(ModContext*, void* args, void*, void*) {
         hide_save_menu_stonework(s_activeSaveMenu);
         update_save_menu_row_selection(s_activeSaveMenu);
         style_save_menu_metadata(s_activeSaveMenu);
+        style_save_select_title(s_activeSaveMenu);
         style_save_menu_prompts(s_activeSaveMenu);
         add_save_menu_fixed_prompts(s_activeSaveMenu);
         position_save_menu_prompts(s_activeSaveMenu);
