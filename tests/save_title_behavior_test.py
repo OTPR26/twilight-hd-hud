@@ -1,64 +1,61 @@
-"""Run the save-heading aspect correction across repeated layout transitions."""
+"""Check native title geometry through save-header transitions."""
 from pathlib import Path
 import subprocess
 import tempfile
 
 root=Path(__file__).resolve().parents[1]
 source=(root/'src/save_screen.inc').read_text()
-start=source.index('void position_save_question_title(')
+start=source.index('void style_save_select_title(')
 end=source.index('\n}\n',start)+3
 fixture=r'''
 #include <cassert>
-#include <cmath>
-#include <initializer_list>
-using f32=float;
-struct Vec {float x,y;};
+#include <cstddef>
+#define MULTI_CHAR(x) 0
 struct J2DPane {
-    J2DPane* parent=nullptr;
-    float sx=1,sy=1,tx=0,ty=0,width=608,height=78;
-    J2DPane* getParentPane() {return parent;}
-    float getScaleX() {return sx;} float getScaleY() {return sy;}
-    void scale(float x,float y) {sx=x;sy=y;}
+    float x=304,y=52,sx=1,sy=1;
+    bool visible=true;
+    void hide(){visible=false;}
 };
-using J2DScreen=J2DPane;
-Vec center(J2DPane* pane) {
-    Vec point{pane->width*0.5f,pane->height*0.5f};
-    for(auto* p=pane;p;p=p->parent) {point.x=point.x*p->sx+p->tx;point.y=point.y*p->sy+p->ty;}
-    return point;
-}
-struct CPaneMgr {Vec getGlobalVtxCenter(J2DPane* p,bool,int) {return center(p);}};
-void position_dmap_global_center(J2DPane* p,float x,float y) {
-    auto old=center(p);float sx=1,sy=1;
-    for(auto* parent=p->parent;parent;parent=parent->parent) {sx*=parent->sx;sy*=parent->sy;}
-    p->tx+=(x-old.x)/sx;p->ty+=(y-old.y)/sy;
-}
+struct J2DScreen {J2DPane* old=nullptr;J2DPane* search(int){return old;}};
+struct CPaneMgrAlpha {int alpha=255;J2DPane pane;void setAlpha(int a){alpha=a;}};
+struct SaveSel {J2DScreen* Scr;};
+struct dMenu_save_c {SaveSel mSaveSel;unsigned mHeaderTxtType=0;bool mHeaderAnmComplete=true;CPaneMgrAlpha* mpHeaderTxtPane[2];};
+int frames=0;
+void add_save_title_rules(J2DScreen*){++frames;}
 '''
 checks=r'''
-int main() {
-    for(float resolution:{0.5f,1.0f,2.4f,3.0f}) {
-        J2DPane outer;outer.sx=outer.sy=resolution;
-        J2DScreen screen;screen.parent=&outer;screen.height=448;
-        J2DPane title;title.parent=&screen;
-        for(float aspect:{1.0f,1.31f,1.75f,1.0f,0.85f,1.31f}) {
-            screen.sx=aspect;screen.tx=-608*(aspect-1)*0.5f;
-            const float expectedY=center(&title).y;
-            for(int frame=0;frame<100;++frame) {
-                position_save_question_title(&screen,&title);
-                assert(std::abs(center(&title).x-center(&screen).x)<0.001f);
-                assert(std::abs(center(&title).y-expectedY)<0.001f);
-                assert(std::abs(resolution*aspect*title.sx-resolution*title.sy)<0.001f);
+int main(){
+    J2DPane old;J2DScreen screen{&old};CPaneMgrAlpha first,second;
+    dMenu_save_c menu{{&screen},0,true,{&first,&second}};
+    for(unsigned current=0;current<2;++current){
+        menu.mHeaderTxtType=current;
+        for(int complete=0;complete<2;++complete){
+            menu.mHeaderAnmComplete=complete;
+            for(int frame=0;frame<100;++frame){
+                style_save_select_title(&menu);
+                unsigned visible=complete?current:current^1;
+                assert(first.alpha==(visible==0?255:0));
+                assert(second.alpha==(visible==1?255:0));
+                assert(first.pane.x==304 && first.pane.y==52);
+                assert(second.pane.x==304 && second.pane.y==52);
+                assert(first.pane.sx==1 && first.pane.sy==1);
+                assert(second.pane.sx==1 && second.pane.sy==1);
+                assert(!old.visible);
             }
         }
-        const float oldX=title.sx;
-        screen.sx=0;
-        position_save_question_title(&screen,&title);
-        assert(title.sx==oldX);
     }
-    position_save_question_title(nullptr,nullptr);
+    menu.mHeaderTxtType=2;
+    style_save_select_title(&menu);
+    menu.mpHeaderTxtPane[0]=nullptr;menu.mHeaderTxtType=0;
+    style_save_select_title(&menu);
+    int before=frames;
+    menu.mSaveSel.Scr=nullptr;style_save_select_title(&menu);
+    style_save_select_title(nullptr);
+    assert(frames==before);
 }
 '''
 with tempfile.TemporaryDirectory(prefix='hud-save-title-test-') as directory:
     path=Path(directory);(path/'test.cpp').write_text(fixture+source[start:end]+checks)
     subprocess.run(['c++','-std=c++20',str(path/'test.cpp'),'-o',str(path/'test')],check=True)
     subprocess.run([str(path/'test')],check=True)
-print('PASS: save heading proportions, centering, transition stability and zero-scale guard')
+print('PASS: native save-title position/scale, repeated cross-fades and missing panes')

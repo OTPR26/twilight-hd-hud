@@ -41,114 +41,43 @@ void replace_save_menu_background(dMenu_save_c* menu) {
     }
 }
 
-void position_save_question_title(J2DScreen* screen, J2DPane* group) {
-    if (screen == nullptr || group == nullptr) return;
-    f32 parentScaleX = 1.0f;
-    f32 parentScaleY = 1.0f;
-    for (J2DPane* parent = group->getParentPane(); parent != nullptr;
-         parent = parent->getParentPane()) {
-        parentScaleX *= parent->getScaleX();
-        parentScaleY *= parent->getScaleY();
+void add_save_title_rules(J2DScreen* screen) {
+    ResTIMG const* rules = resource_texture(s_fileSelectTitleRulesResource);
+    if (screen == nullptr || rules == nullptr) return;
+    const f32 width = screen->getBounds().getWidth();
+    constexpr f32 top = file_select_layout::kHeaderBannerTop;
+    constexpr f32 bottom = file_select_layout::kHeaderBannerBottom;
+    auto* overlay = as_picture(screen->search(MULTI_CHAR('hd_stlin')));
+    if (overlay == nullptr) {
+        overlay = JKR_NEW J2DPicture(MULTI_CHAR('hd_stlin'),
+            JGeometry::TBox2<f32>(24.0f, top, width - 24.0f, bottom), rules, nullptr);
+        overlay->setTexCoord(overlay->getTexture(0), BIND15, MIRROR0, false);
+        overlay->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+            JUtility::TColor(255, 255, 255, 255));
+        overlay->setCornerColor(JUtility::TColor(255, 255, 255, 190));
+        screen->appendChild(overlay);
     }
-    if (!std::isfinite(parentScaleX) || !std::isfinite(parentScaleY) ||
-        parentScaleX < 0.001f || parentScaleY < 0.001f) return;
-
-    // Match the native heading's aspect correction without changing banner geometry.
-    group->scale(parentScaleY / parentScaleX, 1.0f);
-    CPaneMgr manager;
-    const Vec screenCenter = manager.getGlobalVtxCenter(screen, false, 0);
-    const Vec groupCenter = manager.getGlobalVtxCenter(group, false, 0);
-    position_dmap_global_center(group, screenCenter.x, groupCenter.y);
+    overlay->resize(width - 48.0f, bottom - top);
+    overlay->move(24.0f, top);
+    overlay->show();
 }
 
 void style_save_select_title(dMenu_save_c* menu) {
     J2DScreen* screen = menu != nullptr ? menu->mSaveSel.Scr : nullptr;
-    if (screen == nullptr) {
-        return;
+    if (screen == nullptr) return;
+    add_save_title_rules(screen);
+    if (J2DPane* replacement = screen->search(MULTI_CHAR('hd_stit'))) {
+        replacement->hide();
     }
-    auto* nativeTitle = menu->mHeaderTxtType < 2 &&
-            menu->mpHeaderTxtPane[menu->mHeaderTxtType] != nullptr ?
-        static_cast<J2DTextBox*>(
-            menu->mpHeaderTxtPane[menu->mHeaderTxtType]->getPanePtr()) :
-        nullptr;
-    const char* nativeString = text_box_string(nativeTitle);
-    const bool saveQuestion = nativeString != nullptr &&
-        std::strstr(nativeString, "Save to which log?") != nullptr;
-    const bool overwriteQuestion = nativeString != nullptr &&
-        std::strstr(nativeString, "Overwrite this log?") != nullptr;
-    const bool active = saveQuestion || overwriteQuestion;
-    add_menu_title_rules(screen, MULTI_CHAR('hd_stlin'));
-    J2DPane* group = screen->search(MULTI_CHAR('hd_stit'));
-    if (group == nullptr) {
-        group = JKR_NEW J2DPane(MULTI_CHAR('hd_stit'),
-            JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f, 78.0f));
-        screen->appendChild(group);
-    }
-    if (!active) {
-        group->hide();
-        if (menu->mHeaderTxtType < 2) {
-            const std::size_t current = menu->mHeaderTxtType;
-            const std::size_t incoming = current ^ 1;
+    if (menu->mHeaderTxtType >= 2) return;
 
-            // The native save screen cross-fades between two title panes.
-            // At the larger TPHD title size, the outgoing and incoming text
-            // visibly collide (most noticeably between "Saved." and
-            // "Continue playing?"). Keep the native transition timing, but
-            // render only the title that is taking over during the handoff.
-            if (!menu->mHeaderAnmComplete) {
-                if (menu->mpHeaderTxtPane[current] != nullptr) {
-                    menu->mpHeaderTxtPane[current]->setAlpha(0);
-                }
-                if (menu->mpHeaderTxtPane[incoming] != nullptr) {
-                    menu->mpHeaderTxtPane[incoming]->setAlpha(255);
-                }
-            } else {
-                if (menu->mpHeaderTxtPane[current] != nullptr) {
-                    menu->mpHeaderTxtPane[current]->setAlpha(255);
-                }
-                if (menu->mpHeaderTxtPane[incoming] != nullptr) {
-                    menu->mpHeaderTxtPane[incoming]->setAlpha(0);
-                }
-            }
+    // Keep the native title geometry and show only one pane during cross-fades.
+    const std::size_t current = menu->mHeaderTxtType;
+    const std::size_t visible = menu->mHeaderAnmComplete ? current : current ^ 1;
+    for (std::size_t index = 0; index < 2; ++index) {
+        if (menu->mpHeaderTxtPane[index] != nullptr) {
+            menu->mpHeaderTxtPane[index]->setAlpha(index == visible ? 255 : 0);
         }
-        return;
-    }
-    position_save_question_title(screen, group);
-    group->show();
-    for (CPaneMgrAlpha* title : menu->mpHeaderTxtPane) {
-        if (title != nullptr) title->setAlpha(0);
-    }
-
-    constexpr f32 size = file_select_layout::kSaveQuestionFontSize;
-    constexpr f32 spacing = -0.5f * (size / 24.0f);
-    constexpr f32 textTop = file_select_layout::kSaveQuestionTextCenter -
-        file_select_layout::kSaveQuestionTextHeight * 0.5f;
-    constexpr f32 textBottom = file_select_layout::kSaveQuestionTextCenter +
-        file_select_layout::kSaveQuestionTextHeight * 0.5f;
-    JUTFont* font = menu->mSaveSel.font[0];
-    const char* question = overwriteQuestion ? "Overwrite this log?" : "Save to which log?";
-    const char* pieces[] = {
-        overwriteQuestion ? "Overwrite this lo" : "Save to which lo", "g", "?",
-    };
-    constexpr u64 tags[] = {
-        MULTI_CHAR('hd_st0'), MULTI_CHAR('hd_st1'), MULTI_CHAR('hd_st2'),
-    };
-    const f32 totalWidth = copy_title_text_width(font, question, size, spacing);
-    f32 left = (608.0f - totalWidth) * 0.5f;
-    for (std::size_t index = 0; index < 3; ++index) {
-        const f32 pieceWidth = copy_title_text_width(font, pieces[index],
-            size, spacing);
-        const f32 opticalDrop = index == 1 ? 2.0f * (size / 24.0f) : 0.0f;
-        auto* text = copy_metadata_text(group, tags[index],
-            JGeometry::TBox2<f32>(left, textTop + opticalDrop,
-                left + pieceWidth + 4.0f, textBottom + opticalDrop),
-            font, HBIND_LEFT, size,
-            JUtility::TColor(234, 201, 55, 255));
-        if (text != nullptr) {
-            text->setCharSpace(spacing);
-            text->setString(pieces[index]);
-        }
-        left += pieceWidth + spacing;
     }
 }
 
@@ -382,8 +311,7 @@ void style_save_menu_metadata(dMenu_save_c* menu) {
 }
 
 void add_save_menu_title_rules(dMenu_save_c* menu) {
-    add_menu_title_rules(menu != nullptr ? menu->mSaveSel.Scr : nullptr,
-        MULTI_CHAR('hd_stlin'));
+    add_save_title_rules(menu != nullptr ? menu->mSaveSel.Scr : nullptr);
 }
 
 void position_save_menu_prompts(dMenu_save_c* menu) {
@@ -608,8 +536,8 @@ void apply_save_menu_hd_style(dMenu_save_c* menu) {
             static_cast<J2DTextBox*>(titleManager->getPanePtr()) : nullptr;
         if (title != nullptr) {
             title->setFont(menu->mSaveSel.font[0]);
-            title->setFontSize(file_select_layout::kSaveHeaderFontSize,
-                file_select_layout::kSaveHeaderFontSize);
+            title->setFontSize(file_select_layout::kHeaderFontSize,
+                file_select_layout::kHeaderFontSize);
             title->setCharSpace(-0.5f);
             title->setFontColor(JUtility::TColor(234, 201, 55, 255),
                 JUtility::TColor(255, 244, 120, 255));

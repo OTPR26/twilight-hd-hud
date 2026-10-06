@@ -98,24 +98,11 @@ print('PASS: metadata uses fresh transforms and screen-space deltas on every pas
 
 heading = source.split('void style_save_select_title(', 1)[1].split(
     'void simplify_save_menu_rows(', 1)[0]
-assert "add_menu_title_rules(screen, MULTI_CHAR('hd_stlin'));" in heading
-assert "file_select_layout::kHeaderBannerTop" in source
-assert "file_select_layout::kHeaderBannerBottom" in source
-assert 'constexpr f32 size = file_select_layout::kSaveQuestionFontSize' in heading
-assert '(608.0f - totalWidth) * 0.5f' in heading
-assert 'left, textTop + opticalDrop' in heading
-assert 'textBottom + opticalDrop' in heading
-assert 'if (!active)' in heading and 'mHeaderAnmComplete' in heading
-assert 'std::strstr(nativeString, "Save to which log?")' in heading
-assert 'std::strstr(nativeString, "Overwrite this log?")' in heading
-assert 'const bool active = saveQuestion || overwriteQuestion;' in heading
-assert 'copy_title_text_width(font, question, size, spacing)' in heading
-assert 'overwriteQuestion ? "Overwrite this lo" : "Save to which lo", "g", "?"' in heading
-# Reuse the same text panes, so switching/canceling cannot leave duplicate
-# headings, different descender offsets or differently sized banners.
-assert heading.count('copy_metadata_text(group, tags[index],') == 1
-assert source.index('add_save_menu_title_rules(menu);') < source.index(
-    'style_save_select_title(menu);', source.index('add_save_menu_title_rules(menu);'))
-print('PASS: shared compact Save/Overwrite heading, measured centering and other-message restoration')
-
-assert "title->setFontSize(file_select_layout::kSaveHeaderFontSize," in source
+assert 'add_save_title_rules(screen);' in heading
+assert 'mHeaderAnmComplete' in heading
+assert 'replacement->hide()' in heading
+assert 'copy_metadata_text' not in heading and 'JKR_NEW' not in heading
+assert 'setFontSize' not in heading and 'translate(' not in heading
+assert 'Save to which log?' not in heading  # Preserve the native localized string.
+assert "title->setFontSize(file_select_layout::kHeaderFontSize," in source
+print('PASS: shared header frame, native title geometry and localized text preserved')

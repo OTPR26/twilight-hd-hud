@@ -101,38 +101,41 @@ void style_file_select_dynamic_text(dFile_select_c* menu) {
             // font[0] matches the file-name font; font[1] is handwritten.
             title->setFont(menu->fileSel.font[0]);
         }
-        title->setFontSize(file_select_layout::kHeaderFontSize,
-            file_select_layout::kHeaderFontSize);
+        title->setFontSize(24.0f, 24.0f);
         title->setCharSpace(-0.5f);
         title->setFontColor(JUtility::TColor(234, 201, 55, 255),
             JUtility::TColor(255, 244, 120, 255));
     }
 }
 
-void add_menu_title_rules(J2DScreen* screen, u64 tag) {
+void add_file_select_title_rules(dFile_select_c* menu) {
     ResTIMG const* rules = resource_texture(s_fileSelectTitleRulesResource);
-    if (screen == nullptr || rules == nullptr) return;
-    const f32 width = screen->getBounds().getWidth();
-    constexpr f32 top = file_select_layout::kHeaderBannerTop;
-    constexpr f32 bottom = file_select_layout::kHeaderBannerBottom;
-    auto* overlay = as_picture(screen->search(tag));
+    if (menu == nullptr || menu->fileSel.Scr == nullptr || rules == nullptr) {
+        return;
+    }
+
+    J2DPane* root = menu->fileSel.Scr;
+    const JGeometry::TBox2<f32> rootBounds = root->getBounds();
+    const f32 width = rootBounds.getWidth();
+    constexpr f32 centerY = 52.0f;
+
+    // A single transparent picture supplies only the softly faded upper and
+    // lower rules. Keeping it independent of the archive's animated bands
+    // prevents transition-strip copies from appearing during menu movement.
+    auto* overlay = as_picture(root->search(MULTI_CHAR('hd_tline')));
     if (overlay == nullptr) {
-        overlay = JKR_NEW J2DPicture(tag,
-            JGeometry::TBox2<f32>(24.0f, top, width - 24.0f, bottom), rules, nullptr);
+        overlay = JKR_NEW J2DPicture(MULTI_CHAR('hd_tline'),
+            JGeometry::TBox2<f32>(24.0f, centerY - 28.0f,
+                width - 24.0f, centerY + 28.0f), rules, nullptr);
         overlay->setTexCoord(overlay->getTexture(0), BIND15, MIRROR0, false);
         overlay->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
             JUtility::TColor(255, 255, 255, 255));
         overlay->setCornerColor(JUtility::TColor(255, 255, 255, 190));
-        screen->appendChild(overlay);
+        root->appendChild(overlay);
     }
-    overlay->resize(width - 48.0f, bottom - top);
-    overlay->move(24.0f, top);
+    overlay->resize(width - 48.0f, 56.0f);
+    overlay->move(24.0f, centerY - 28.0f);
     overlay->show();
-}
-
-void add_file_select_title_rules(dFile_select_c* menu) {
-    add_menu_title_rules(menu != nullptr ? menu->fileSel.Scr : nullptr,
-        MULTI_CHAR('hd_tline'));
 }
 
 void add_file_select_back_label(dFile_select_c* menu) {
@@ -1375,7 +1378,7 @@ void style_copy_destination_title(dFile_select_c* menu, bool active) {
         if (nativeTitle != nullptr) nativeTitle->setAlpha(0);
     }
 
-    constexpr f32 size = file_select_layout::kHeaderFontSize;
+    constexpr f32 size = 24.0f;
     constexpr f32 spacing = -0.5f;
     JUTFont* font = menu->fileSel.font[0];
     const char* pieces[] = {"Co", "p", "y to where?"};
@@ -1389,9 +1392,9 @@ void style_copy_destination_title(dFile_select_c* menu, bool active) {
         const f32 pieceWidth = copy_title_text_width(font, pieces[index],
             size, spacing);
         auto* text = copy_metadata_text(group, tags[index],
-            JGeometry::TBox2<f32>(left, file_select_layout::kHeaderTextTop + (index == 1 ? 2.0f : 0.0f),
+            JGeometry::TBox2<f32>(left, 30.0f + (index == 1 ? 2.0f : 0.0f),
                 left + pieceWidth + 4.0f,
-                file_select_layout::kHeaderTextBottom + (index == 1 ? 2.0f : 0.0f)),
+                66.0f + (index == 1 ? 2.0f : 0.0f)),
             font, HBIND_LEFT, size,
             JUtility::TColor(234, 201, 55, 255));
         if (text != nullptr) {

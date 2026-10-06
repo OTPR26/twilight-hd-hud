@@ -8,12 +8,6 @@ constexpr float kHeaderBannerTop = 24.0f;
 constexpr float kHeaderBannerBottom = 80.0f;
 constexpr float kHeaderTextTop = 30.0f;
 constexpr float kHeaderTextBottom = 66.0f;
-constexpr float kSaveHeaderFontSize = kHeaderFontSize;
-constexpr float kSaveQuestionFontSize = kHeaderFontSize;
-constexpr float kSaveQuestionBannerTop = kHeaderBannerTop;
-constexpr float kSaveQuestionBannerBottom = kHeaderBannerBottom;
-constexpr float kSaveQuestionTextCenter = (kHeaderTextTop + kHeaderTextBottom) * 0.5f;
-constexpr float kSaveQuestionTextHeight = kHeaderTextBottom - kHeaderTextTop;
 
 // Both quest-log textures are 80 pixels tall. The lower divider occupies
 // pixel 57; the bottom border begins at 76. Center the text in that clear

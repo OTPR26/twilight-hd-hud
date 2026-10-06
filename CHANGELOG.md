@@ -2,7 +2,7 @@
 
 ## v2.5.2 - Unreleased
 
-- Match Save and Overwrite headers to File Selection, with stable sizing and border spacing.
+- Match Save headers to File Selection and preserve native title geometry during transitions.
 
 ## v2.5.1 - 2026-09-30
 
