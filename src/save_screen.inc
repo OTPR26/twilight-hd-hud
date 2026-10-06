@@ -77,14 +77,7 @@ void style_save_select_title(dMenu_save_c* menu) {
     const bool overwriteQuestion = nativeString != nullptr &&
         std::strstr(nativeString, "Overwrite this log?") != nullptr;
     const bool active = saveQuestion || overwriteQuestion;
-    if (J2DPane* rules = screen->search(MULTI_CHAR('hd_stlin'))) {
-        // Both log questions use one compact banner. Restore the original
-        // bounds for Saved/Continue and other native status/error messages.
-        const f32 top = active ? file_select_layout::kSaveQuestionBannerTop : 24.0f;
-        const f32 bottom = active ? file_select_layout::kSaveQuestionBannerBottom : 80.0f;
-        rules->resize(screen->getBounds().getWidth() - 48.0f, bottom - top);
-        rules->move(24.0f, top);
-    }
+    add_menu_title_rules(screen, MULTI_CHAR('hd_stlin'));
     J2DPane* group = screen->search(MULTI_CHAR('hd_stit'));
     if (group == nullptr) {
         group = JKR_NEW J2DPane(MULTI_CHAR('hd_stit'),
@@ -389,21 +382,8 @@ void style_save_menu_metadata(dMenu_save_c* menu) {
 }
 
 void add_save_menu_title_rules(dMenu_save_c* menu) {
-    ResTIMG const* rules = resource_texture(s_fileSelectTitleRulesResource);
-    J2DScreen* screen = menu != nullptr ? menu->mSaveSel.Scr : nullptr;
-    if (screen == nullptr || rules == nullptr ||
-        screen->search(MULTI_CHAR('hd_stlin')) != nullptr) {
-        return;
-    }
-    const JGeometry::TBox2<f32> rootBounds = screen->getBounds();
-    auto* overlay = JKR_NEW J2DPicture(MULTI_CHAR('hd_stlin'),
-        JGeometry::TBox2<f32>(24.0f, 24.0f,
-            rootBounds.getWidth() - 24.0f, 80.0f), rules, nullptr);
-    overlay->setTexCoord(overlay->getTexture(0), BIND15, MIRROR0, false);
-    overlay->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
-        JUtility::TColor(255, 255, 255, 255));
-    overlay->setCornerColor(JUtility::TColor(255, 255, 255, 190));
-    screen->appendChild(overlay);
+    add_menu_title_rules(menu != nullptr ? menu->mSaveSel.Scr : nullptr,
+        MULTI_CHAR('hd_stlin'));
 }
 
 void position_save_menu_prompts(dMenu_save_c* menu) {

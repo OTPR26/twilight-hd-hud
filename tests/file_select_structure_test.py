@@ -98,8 +98,9 @@ print('PASS: metadata uses fresh transforms and screen-space deltas on every pas
 
 heading = source.split('void style_save_select_title(', 1)[1].split(
     'void simplify_save_menu_rows(', 1)[0]
-assert 'active ? file_select_layout::kSaveQuestionBannerTop : 24.0f' in heading
-assert 'active ? file_select_layout::kSaveQuestionBannerBottom : 80.0f' in heading
+assert "add_menu_title_rules(screen, MULTI_CHAR('hd_stlin'));" in heading
+assert "file_select_layout::kHeaderBannerTop" in source
+assert "file_select_layout::kHeaderBannerBottom" in source
 assert 'constexpr f32 size = file_select_layout::kSaveQuestionFontSize' in heading
 assert '(608.0f - totalWidth) * 0.5f' in heading
 assert 'left, textTop + opticalDrop' in heading

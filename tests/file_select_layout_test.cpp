@@ -20,9 +20,12 @@ int main() {
     assert(kActionCursorPaddingX < 7.0f);
     assert(kActionCursorPaddingY < 5.0f);
     // Heading and compact rules share the same scalable canvas. The text
-    // cell stays inside the banner with a slight downward optical bias.
+    // cell matches the File Selection title position inside a fixed banner.
     // The native-to-custom heading transition must preserve its font size.
-    assert(kSaveHeaderFontSize == 24.0f);
+    assert(kSaveQuestionBannerTop == 24.0f && kSaveQuestionBannerBottom == 80.0f);
+    assert(kSaveHeaderFontSize == kHeaderFontSize);
+    assert(kSaveQuestionTextCenter - kSaveQuestionTextHeight * 0.5f == kHeaderTextTop);
+    assert(kSaveQuestionTextCenter + kSaveQuestionTextHeight * 0.5f == kHeaderTextBottom);
     assert(kSaveQuestionFontSize == kSaveHeaderFontSize);
     for (float scale : {0.5f, 1.0f, 1080.0f / 448.0f, 3.0f}) {
         const float top = kSaveQuestionBannerTop * scale;
@@ -31,7 +34,7 @@ int main() {
         const float halfHeight = kSaveQuestionTextHeight * scale * 0.5f;
         assert(center - halfHeight > top);
         assert(center + halfHeight < bottom);
-        assert(std::abs(center - (top + bottom) * 0.5f - 0.5f * scale) < 0.001f);
+        assert(std::abs(center - (kHeaderTextTop + kHeaderTextBottom) * 0.5f * scale) < 0.001f);
     }
     assert(play_time_center(0.0f, 80.0f) == 67.0f);
     // Short/tall cards, all slot positions, selection scale and resolution.
