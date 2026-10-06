@@ -21,7 +21,9 @@ int main() {
     assert(kActionCursorPaddingY < 5.0f);
     // Heading and compact rules share the same scalable canvas. The text
     // cell stays inside the banner with a slight downward optical bias.
-    assert(std::abs(69.0f * kSaveQuestionFontSize / 24.0f - 47.0f) < 1.0f);
+    // The native-to-custom heading transition must preserve its font size.
+    assert(kSaveHeaderFontSize == 24.0f);
+    assert(kSaveQuestionFontSize == kSaveHeaderFontSize);
     for (float scale : {0.5f, 1.0f, 1080.0f / 448.0f, 3.0f}) {
         const float top = kSaveQuestionBannerTop * scale;
         const float bottom = kSaveQuestionBannerBottom * scale;

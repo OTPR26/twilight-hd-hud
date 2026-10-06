@@ -116,3 +116,5 @@ assert heading.count('copy_metadata_text(group, tags[index],') == 1
 assert source.index('add_save_menu_title_rules(menu);') < source.index(
     'style_save_select_title(menu);', source.index('add_save_menu_title_rules(menu);'))
 print('PASS: shared compact Save/Overwrite heading, measured centering and other-message restoration')
+
+assert "title->setFontSize(file_select_layout::kSaveHeaderFontSize," in source

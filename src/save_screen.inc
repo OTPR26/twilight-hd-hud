@@ -628,7 +628,8 @@ void apply_save_menu_hd_style(dMenu_save_c* menu) {
             static_cast<J2DTextBox*>(titleManager->getPanePtr()) : nullptr;
         if (title != nullptr) {
             title->setFont(menu->mSaveSel.font[0]);
-            title->setFontSize(24.0f, 24.0f);
+            title->setFontSize(file_select_layout::kSaveHeaderFontSize,
+                file_select_layout::kSaveHeaderFontSize);
             title->setCharSpace(-0.5f);
             title->setFontColor(JUtility::TColor(234, 201, 55, 255),
                 JUtility::TColor(255, 244, 120, 255));

@@ -2,7 +2,7 @@
 
 ## v2.5.2 - Unreleased
 
-- Preserve Save and Overwrite heading proportions during widescreen transitions.
+- Preserve Save and Overwrite heading size and proportions during widescreen transitions.
 
 ## v2.5.1 - 2026-09-30
 
