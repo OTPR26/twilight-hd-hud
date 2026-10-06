@@ -17,24 +17,35 @@ void replace_save_menu_background(dMenu_save_c* menu) {
         return;
     }
 
-    // The save layout has two opaque full-screen stone pictures. A sibling
-    // overlay is necessarily either behind both of them or over the menu data,
-    // so replace the actual rear canvas and suppress the front stone sheet.
-    if (auto* background = as_picture(screen->search(MULTI_CHAR('w_dmbas0')))) {
-        apply_file_select_row_texture(background, replacement);
-        // The native save canvas stops almost exactly at the virtual-screen
-        // edges. Its widescreen transform can leave a thin view of gameplay at
-        // the top and bottom, so overscan the replacement vertically while
-        // preserving the native horizontal coverage.
-        background->move(-73.5f, -45.5f);
-        background->resize(712.0f, 486.0f);
-        background->show();
+    auto* background = as_picture(screen->search(MULTI_CHAR('hd_sbg')));
+    if (background == nullptr) {
+        background = JKR_NEW J2DPicture(MULTI_CHAR('hd_sbg'),
+            JGeometry::TBox2<f32>(0.0f, 0.0f, 608.0f, 448.0f),
+            replacement, nullptr);
+        background->setTexCoord(background->getTexture(0), BIND15, MIRROR0, false);
+        background->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
+            JUtility::TColor(255, 255, 255, 255));
+        background->setCornerColor(JUtility::TColor(255, 255, 255, 255));
+        if (J2DPane* first = screen->getFirstChildPane()) {
+            screen->insertChild(first, background);
+        } else {
+            screen->appendChild(background);
+        }
     }
-    if (J2DPane* obsoleteOverlay = screen->search(MULTI_CHAR('hd_sbg'))) {
-        obsoleteOverlay->hide();
-    }
-    for (u64 tag : {MULTI_CHAR('w_bas01'), MULTI_CHAR('w_bas13'),
-             MULTI_CHAR('w_bas14')}) {
+
+    // Map the backdrop to the viewport, as on File Selection.
+    const f32 scaleX = std::fabs(screen->getScaleX()) > 0.001f ?
+        screen->getScaleX() : 1.0f;
+    const f32 scaleY = std::fabs(screen->getScaleY()) > 0.001f ?
+        screen->getScaleY() : 1.0f;
+    background->resize(mDoGph_gInf_c::getWidthF() / scaleX,
+        mDoGph_gInf_c::getHeightF() / scaleY);
+    background->move(
+        (mDoGph_gInf_c::getMinXF() - screen->getTranslateX()) / scaleX,
+        (mDoGph_gInf_c::getMinYF() - screen->getTranslateY()) / scaleY);
+    background->show();
+    for (u64 tag : {MULTI_CHAR('w_dmbas0'), MULTI_CHAR('w_bas01'),
+             MULTI_CHAR('w_bas13'), MULTI_CHAR('w_bas14')}) {
         if (J2DPane* stone = screen->search(tag)) {
             stone->hide();
         }
@@ -66,8 +77,15 @@ void style_save_select_title(dMenu_save_c* menu) {
     J2DScreen* screen = menu != nullptr ? menu->mSaveSel.Scr : nullptr;
     if (screen == nullptr) return;
     add_save_title_rules(screen);
-    if (J2DPane* replacement = screen->search(MULTI_CHAR('hd_stit'))) {
-        replacement->hide();
+    if (J2DPane* shadow = screen->search(MULTI_CHAR('w_mgkage'))) {
+        shadow->hide();
+    }
+    // Preserve the native bands used by Choose a Quest Log.
+    for (u64 tag : {MULTI_CHAR('w_ti_w00'), MULTI_CHAR('w_ti_w01'),
+             MULTI_CHAR('w_ti_w02'), MULTI_CHAR('w_ti_w03')}) {
+        if (J2DPane* decoration = screen->search(tag)) {
+            decoration->show();
+        }
     }
     if (menu->mHeaderTxtType >= 2) return;
 
@@ -490,8 +508,6 @@ void hide_save_menu_stonework(dMenu_save_c* menu) {
         }
     }
     constexpr u64 titleStoneTags[] = {
-        MULTI_CHAR('w_ti_w00'), MULTI_CHAR('w_ti_w01'),
-        MULTI_CHAR('w_ti_w02'), MULTI_CHAR('w_ti_w03'),
         MULTI_CHAR('w_ti_w04'), MULTI_CHAR('w_ti_w05'),
         MULTI_CHAR('w_ti_w06'), MULTI_CHAR('w_ti_w07'),
         MULTI_CHAR('w_ti_w08'), MULTI_CHAR('w_ti_w09'),
@@ -505,7 +521,6 @@ void hide_save_menu_stonework(dMenu_save_c* menu) {
         MULTI_CHAR('w_mg_w10'), MULTI_CHAR('w_mg_w17'),
         MULTI_CHAR('w_mg_w09'), MULTI_CHAR('w_mg_w14'),
         MULTI_CHAR('w_mg_w08'), MULTI_CHAR('w_mg_w13'),
-        MULTI_CHAR('w_mgkage'),
     };
     for (u64 tag : titleStoneTags) {
         if (J2DPane* pane = menu->mSaveSel.Scr->search(tag)) {

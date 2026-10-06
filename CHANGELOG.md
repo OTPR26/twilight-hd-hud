@@ -1,8 +1,12 @@
 # Changelog
 
-## v2.5.2 - Unreleased
+## v2.5.2 - 2026-10-05
 
-- Match Save headers to File Selection and preserve native title geometry during transitions.
+- Improved Save screen layout and prevented heading text from shifting or shrinking.
+- Preserved the native Japanese font in item-get messages.
+- Enlarged the Wolf Link Dig and Sense icons and adjusted Attack icon alignment.
+- Added Wolf action icons to touch buttons, with an option to turn them off.
+- Added third-slot oil meter support for Fire Arrows Standalone Mod. Thanks to baxlek for PR #61.
 
 ## v2.5.1 - 2026-09-30
 

@@ -100,7 +100,6 @@ heading = source.split('void style_save_select_title(', 1)[1].split(
     'void simplify_save_menu_rows(', 1)[0]
 assert 'add_save_title_rules(screen);' in heading
 assert 'mHeaderAnmComplete' in heading
-assert 'replacement->hide()' in heading
 assert 'copy_metadata_text' not in heading and 'JKR_NEW' not in heading
 assert 'setFontSize' not in heading and 'translate(' not in heading
 assert 'Save to which log?' not in heading  # Preserve the native localized string.

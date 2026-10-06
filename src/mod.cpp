@@ -1,3 +1,4 @@
+#include "wolf_touch_icons.hpp"
 #include "config.hpp"
 #include "font_override.hpp"
 #include "host_compatibility.hpp"
@@ -66,10 +67,12 @@ MOD_EXPORT ModResult mod_initialize(ModError* error) {
 
 MOD_EXPORT ModResult mod_update(ModError*) {
     twilight_hd_hud::update_update_service();
+    twilight_hd_hud::update_wolf_touch_icons();
     return MOD_OK;
 }
 
 MOD_EXPORT ModResult mod_shutdown(ModError*) {
+    twilight_hd_hud::shutdown_wolf_touch_icons();
     twilight_hd_hud::shutdown_update_service();
     twilight_hd_hud::shutdown_font_override();
     twilight_hd_hud::shutdown_item_slot_resources();

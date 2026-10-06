@@ -25,6 +25,7 @@ ConfigVarHandle s_itemsScreen = 0;
 ConfigVarHandle s_swapMenuButtons = 0;
 ConfigVarHandle s_checkForUpdates = 0;
 ConfigVarHandle s_combinedMap = 0;
+ConfigVarHandle s_wolfTouchIcons = 0;
 std::array<ConfigVarHandle, 3> s_featureHandles{};
 std::array<bool, 3> s_activeFeatures{true, true, true};
 
@@ -130,7 +131,8 @@ ModResult register_config(ModError* error) {
         register_int("items-screen", 0, s_itemsScreen) != MOD_OK ||
         register_menu_swap() != MOD_OK ||
         register_bool("check-for-updates", true, s_checkForUpdates) != MOD_OK ||
-        register_bool("combined-map-control", true, s_combinedMap) != MOD_OK)
+        register_bool("combined-map-control", true, s_combinedMap) != MOD_OK ||
+        register_bool("wolf-touch-icons", true, s_wolfTouchIcons) != MOD_OK)
     {
         return mods::set_error(
             error, MOD_ERROR, "failed to register Twilight HD settings");
@@ -267,6 +269,9 @@ bool get_bool(ConfigVarHandle handle, bool fallback) {
 }
 }
 bool check_for_updates_enabled() { return get_bool(s_checkForUpdates, true); }
+bool wolf_touch_icons_enabled() { return get_bool(s_wolfTouchIcons, true); }
+ConfigVarHandle wolf_touch_icons_config_var() { return s_wolfTouchIcons; }
+
 bool combined_map_control() { return get_bool(s_combinedMap, true); }
 ConfigVarHandle check_for_updates_config_var() { return s_checkForUpdates; }
 ConfigVarHandle combined_map_config_var() { return s_combinedMap; }

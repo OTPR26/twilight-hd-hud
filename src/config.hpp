@@ -96,6 +96,8 @@ TextFont text_font();
 bool item_bank_enabled();
 bool swap_menu_buttons();
 bool check_for_updates_enabled();
+bool wolf_touch_icons_enabled();
+ConfigVarHandle wolf_touch_icons_config_var();
 bool combined_map_control();
 ConfigVarHandle check_for_updates_config_var();
 ConfigVarHandle combined_map_config_var();

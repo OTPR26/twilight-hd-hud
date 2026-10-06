@@ -249,6 +249,9 @@ ModResult build_hud_tab(
     swap.binding = UI_BINDING_CONFIG_VAR;
     swap.config_var = swap_menu_buttons_config_var();
     if (svc_ui->pane_add_control(ctx, left, &swap, nullptr) != MOD_OK) return MOD_ERROR;
+    if (add_toggle(ctx, left, "Wolf Icons on Touch Buttons", wolf_touch_icons_config_var(),
+            "Show Sense, Dig, and Attack on touch buttons. Hide their HUD icons while touch controls are active.") != MOD_OK)
+        return MOD_ERROR;
     if (add_section(ctx, left, "Optional Features (restart required)") != MOD_OK)
         return MOD_ERROR;
     if (add_toggle(ctx, left, "Third Item Slot (Z/R)",

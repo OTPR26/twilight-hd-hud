@@ -33,6 +33,7 @@ add_mod(twilight_hd_hud
         src/mod.cpp
         src/ui.cpp
         src/update_service.cpp
+        src/wolf_touch_icons.cpp
     MOD_JSON mod.json
     RES_DIR res
     OVERLAY_DIR overlay

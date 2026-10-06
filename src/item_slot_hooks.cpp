@@ -1,4 +1,5 @@
 #include "config.hpp"
+#include "wolf_touch_icons.hpp"
 #include "localized_labels.hpp"
 #include "action_prompt_layout.hpp"
 #include "collection_layout.hpp"
@@ -157,9 +158,9 @@ struct WolfIconLayout {
     f32 opacity;
 };
 
-constexpr WolfIconLayout kDigIconLayout = {-21.0f, 8.0f, 20.0f, 255.0f};
-constexpr WolfIconLayout kSenseIconLayout = {-25.0f, -22.0f, 16.0f, 255.0f};
-constexpr WolfIconLayout kAttackIconLayout = {3.0f, -37.0f, 22.0f, 220.0f};
+constexpr WolfIconLayout kDigIconLayout = {-22.5f, 6.5f, 23.0f, 255.0f};
+constexpr WolfIconLayout kSenseIconLayout = {-26.2f, -23.2f, 18.4f, 255.0f};
+constexpr WolfIconLayout kAttackIconLayout = {6.0f, -37.0f, 22.0f, 220.0f};
 
 DEFINE_HOOK(&dComIfGp_getSelectItem, GetSelectItemHook);
 DEFINE_HOOK(&dComIfGp_setSelectItem, SetSelectItemHook);
@@ -469,8 +470,6 @@ struct CollectPromptWidthState {
 };
 std::array<CollectPromptWidthState, 8> s_collectPromptWidthStates = {};
 std::size_t s_nextCollectPromptWidthState = 0;
-bool s_collectRailDiagnosticsLogged = false;
-bool s_collectCursorDiagnosticsLogged = false;
 bool s_collectLayoutReady = false;
 dMeter2Draw_c* s_wiiURButtonMeter = nullptr;
 dKantera_icon_c* s_zOilMeter = nullptr;
@@ -1925,6 +1924,11 @@ void apply_item_help_fit() {
 void style_item_get_text(dMsgScrnItem_c* itemScreen,
     jmessage_tReference* reference = nullptr) {
     if (itemScreen == nullptr) return;
+    // The subtitle font cannot decode Japanese text or its reading guides.
+    auto* mainText = itemScreen->mpTm_c[0] != nullptr ?
+        static_cast<J2DTextBox*>(itemScreen->mpTm_c[0]->getPanePtr()) : nullptr;
+    JUTFont* messageFont = mainText != nullptr ? mainText->getFont() : nullptr;
+    if (messageFont == nullptr || messageFont->getFontType() != 0) return;
 
     JUTFont* font = mDoExt_getSubFont();
     itemScreen->field_0x54 = font;
@@ -2618,32 +2622,6 @@ void hide_collect_stone_rails(J2DPane* pane) {
     }
 }
 
-// Identify nested rail panes by global bounds; local bounds omit parent transforms.
-void log_collect_rail_candidates(J2DPane* pane) {
-    if (pane == nullptr || s_collectRailDiagnosticsLogged) {
-        return;
-    }
-
-    const auto global = pane->getGlbBounds();
-    const f32 width = global.getWidth();
-    const f32 height = global.getHeight();
-    if (width > 300.0f && height > 1.0f && height < 120.0f &&
-        (global.i.y < 100.0f || global.i.y > 330.0f)) {
-        char message[192];
-        std::snprintf(message, sizeof(message),
-            "collect rail candidate tag=%08llx local=(%.1f,%.1f %.1fx%.1f) global=(%.1f,%.1f %.1fx%.1f) type=%u",
-            static_cast<unsigned long long>(pane->mInfoTag), pane->getBounds().i.x,
-            pane->getBounds().i.y, pane->getBounds().getWidth(),
-            pane->getBounds().getHeight(), global.i.x, global.i.y, width, height,
-            pane->getTypeID());
-        svc_log->info(mod_ctx, message);
-    }
-    for (J2DPane* child = pane->getFirstChildPane(); child != nullptr;
-         child = child->getNextChildPane()) {
-        log_collect_rail_candidates(child);
-    }
-}
-
 void style_collect_edge_rules(J2DScreen* screen) {
     ResTIMG const* texture = resource_texture(s_collectMenuButtonResource);
     if (screen == nullptr || texture == nullptr) {
@@ -2910,9 +2888,7 @@ void position_collect_footer_cursor(dMenu_Collect2D_c* menu) {
         return;
     }
 
-    // Collection exposes an exact footer row. Using it avoids stale global
-    // bounds from the transformed GameCube layout, which made the prior
-    // proximity test reject both buttons even while visibly selected.
+    // Row 5 contains the Save and Options buttons.
     if (menu->getCursorY() != 5) {
         return;
     }
@@ -2920,15 +2896,6 @@ void position_collect_footer_cursor(dMenu_Collect2D_c* menu) {
         menu->getCursorX() == 1 ? s_collectOptionsFrame : nullptr;
     if (target == nullptr) {
         return;
-    }
-    if (!s_collectCursorDiagnosticsLogged) {
-        char message[96];
-        std::snprintf(message, sizeof(message),
-            "collect footer cursor selected x=%u target=%s",
-            static_cast<unsigned>(menu->getCursorX()),
-            target == s_collectOptionsFrame ? "options" : "save");
-        svc_log->info(mod_ctx, message);
-        s_collectCursorDiagnosticsLogged = true;
     }
 #if defined(_WIN32)
     // The Windows desktop layout scales the footer's parent rather than the
@@ -4691,7 +4658,7 @@ void draw_wolf_icon(CPaneMgr* button, J2DPicture* icon, const WolfIconLayout& la
 }
 
 void draw_wolf_action_icons(dMeter2Draw_c* meter) {
-    if (meter == nullptr) {
+    if (meter == nullptr || (wolf_touch_icons_active() && touch_controls_active())) {
         return;
     }
 
@@ -5804,7 +5771,11 @@ void draw_z_ammo(dMeter2Draw_c* meter, const u8 itemNo, const f32 itemAlphaRate)
 }
 
 void draw_z_oil_meter(dMeter2Draw_c* meter, const u8 itemNo, const f32 itemAlphaRate) {
-    if (!is_z_lantern_item(itemNo) || dComIfGs_getMaxOil() == 0) {
+    const bool lanternComboActive =
+        dComIfGs_getMixItemIndex(kZItemSlot) == SLOT_4 &&
+        dComIfGs_getItem(dComIfGs_getSelectItemIndex(kZItemSlot), false) == dItemNo_KANTERA_e;
+
+    if ((!is_z_lantern_item(itemNo) && !lanternComboActive) || dComIfGs_getMaxOil() == 0) {
         return;
     }
 
@@ -7035,8 +7006,6 @@ void after_collect_create(ModContext*, void* args, void*, void*) {
     s_collectTopRuleInner = nullptr;
     s_collectBottomRuleInner = nullptr;
     s_collectTitleLabel = nullptr;
-    s_collectRailDiagnosticsLogged = false;
-    s_collectCursorDiagnosticsLogged = false;
     s_collectLayoutReady = false;
     apply_collect_menu_button_layout(s_activeCollectMenu);
     create_collection_screen(s_activeCollectMenu);
@@ -8651,11 +8620,7 @@ void after_collect_move(ModContext*, void* args, void*, void*) {
         return;
     }
     refresh_collect_menu_frames(menu);
-    if (menu != nullptr && menu->mpScreen != nullptr &&
-        !s_collectRailDiagnosticsLogged) {
-        log_collect_rail_candidates(menu->mpScreen);
-        s_collectRailDiagnosticsLogged = true;
-    }
+
 }
 
 #if defined(_WIN32)
