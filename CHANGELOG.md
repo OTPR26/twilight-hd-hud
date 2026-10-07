@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.5.3 - 2026-10-07
+
+- Item-acquisition messages now follow the mod's text font setting.
+
 ## v2.5.2 - 2026-10-05
 
 - Improved Save screen layout and prevented heading text from shifting or shrinking.

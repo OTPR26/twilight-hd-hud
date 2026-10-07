@@ -19,9 +19,6 @@ ResourceBuffer s_resource = RESOURCE_BUFFER_INIT;
 JUTFont* s_messageFont = nullptr;  // Observed, never retained or freed by this mod.
 JUTResFont* s_replacement = nullptr;
 bool s_attemptedConstruction = false;
-ResourceBuffer s_itemPromptResource = RESOURCE_BUFFER_INIT;
-JUTResFont* s_itemPromptFont = nullptr;
-bool s_attemptedItemPromptConstruction = false;
 int s_itemPromptDepth = 0;
 int s_mapDepth = 0;
 ResourceBuffer s_mapResource = RESOURCE_BUFFER_INIT;
@@ -62,24 +59,6 @@ bool ensure_replacement() {
     return true;
 }
 
-bool ensure_item_prompt_font() {
-    if (s_itemPromptFont) return true;
-    if (s_attemptedItemPromptConstruction || !s_itemPromptResource.data) return false;
-    s_attemptedItemPromptConstruction = true;
-    auto* heap = JKRHeap::getRootHeap();
-    if (!heap) return false;
-    s_itemPromptFont = JKR_NEW_ARGS(heap, 32) JUTResFont(
-        static_cast<const ResFONT*>(s_itemPromptResource.data), heap);
-    if (!s_itemPromptFont || !s_itemPromptFont->isValid()) {
-        JKR_DELETE(s_itemPromptFont);
-        s_itemPromptFont = nullptr;
-        svc_log->warn(mod_ctx,
-            "Item prompt font: native Fira Sans construction failed; using selected font");
-        return false;
-    }
-    return true;
-}
-
 }  // namespace
 
 void initialize_font_override() {
@@ -90,15 +69,6 @@ void initialize_font_override() {
     if (svc_resource->load(mod_ctx, "fonts/fira-regular.bfn", &s_mapResource) != MOD_OK ||
         !font_atlas::valid(s_mapResource.data, s_mapResource.size)) {
         svc_resource->free(mod_ctx, &s_mapResource);
-    }
-    // Item-acquisition cards deliberately use the same clean, high-legibility
-    // Fira presentation on every platform.  Keep this resource independent of
-    // the user's global dialogue-font choice so ordinary dialogue is untouched.
-    if (svc_resource->load(mod_ctx, "fonts/fira-bold.bfn", &s_itemPromptResource) != MOD_OK ||
-        !font_atlas::valid(s_itemPromptResource.data, s_itemPromptResource.size)) {
-        svc_log->warn(mod_ctx,
-            "Item prompt font: missing or invalid Fira Sans atlas; using selected font");
-        svc_resource->free(mod_ctx, &s_itemPromptResource);
     }
     // Latch once: changing the saved selection must not swap a live GPU font.
     s_activeFont = text_font();
@@ -152,12 +122,8 @@ void shutdown_font_override() {
     // Game panes still point at their original fonts. Only the mod's draw-only object is freed.
     JKR_DELETE(s_replacement);
     s_replacement = nullptr;
-    JKR_DELETE(s_itemPromptFont);
-    s_itemPromptFont = nullptr;
     svc_resource->free(mod_ctx, &s_resource);
-    svc_resource->free(mod_ctx, &s_itemPromptResource);
     s_attemptedConstruction = false;
-    s_attemptedItemPromptConstruction = false;
     s_itemPromptDepth = 0;
     s_mapDepth = 0;
     JKR_DELETE(s_mapFont);
@@ -206,21 +172,21 @@ bool draw_font_override(void* args, void* retval, FontDrawOriginal drawOriginal)
     constexpr int kMaleSymbolCode = 0xB2;
     constexpr int kFemaleSymbolCode = 0xB3;
     if (code == kMaleSymbolCode || code == kFemaleSymbolCode) return false;
-    // The item-card draw scope has a dedicated Fira face. Outside that narrow
-    // scope, preserve the selected global message-font behavior exactly.
-    const bool itemPrompt = s_itemPromptDepth > 0 && ensure_item_prompt_font();
+    // Item cards use the selected font even though their layout uses the subtitle font.
+    const bool itemPrompt = s_itemPromptDepth > 0;
     if (!source || source->getFontType() != 0 || !font_atlas::supported(code) ||
         source->getCellWidth() <= 0 ||
-        (!mapPrompt && !itemPrompt && (s_activeFont == TextFont::Original || source != s_messageFont))) {
+        (!mapPrompt && (s_activeFont == TextFont::Original ||
+            (!itemPrompt && source != s_messageFont)))) {
         return false;
     }
     const float scaleX = mods::arg<f32>(args, 3);
     const float scaleY = mods::arg<f32>(args, 4);
     // Preserve unusual mirrored/hidden draw paths rather than inventing their geometry.
-    if (scaleX <= 0 || scaleY <= 0 || (!mapPrompt && !itemPrompt && !ensure_replacement())) return false;
+    if (scaleX <= 0 || scaleY <= 0 || (!mapPrompt && !ensure_replacement())) return false;
 
     JUTResFont* replacement = mapPrompt ? (mapHeading ? s_mapHeadingFont : s_mapFont) :
-        itemPrompt ? s_itemPromptFont : s_replacement;
+        s_replacement;
 
     const bool subsequent = mods::arg<bool>(args, 6);
     JUTFont::TWidth nativeWidth{};
@@ -228,7 +194,7 @@ bool draw_font_override(void* args, void* retval, FontDrawOriginal drawOriginal)
     JUTFont::TWidth replacementWidth{};
     replacement->getWidthEntry(code, &replacementWidth);
     const float rasterScale = mapHeading ? font_atlas::opticalScale :
-        (mapPrompt || itemPrompt || s_activeFont == TextFont::FiraSans ?
+        (mapPrompt || s_activeFont == TextFont::FiraSans ?
         font_atlas::firaOpticalScale : (s_activeFont == TextFont::AlegreyaSansMedium ?
         font_atlas::alegreyaOpticalScale : font_atlas::opticalScale));
     const bool itemStem = itemPrompt &&
