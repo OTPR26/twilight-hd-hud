@@ -45,11 +45,11 @@ namespace mods {
 template<class T> T arg(void* args,int index) { return *static_cast<T*>(static_cast<void**>(args)[index]); }
 }
 TextFont s_activeFont=TextFont::Original;
-JUTResFont message,subtitle,selected,map,ruby;
-JUTResFont *s_messageFont=&message,*s_replacement=&selected,*s_mapFont=&map,*s_mapHeadingFont=&map;
+JUTResFont message,subtitle,selected,ruby;
+JUTResFont *s_messageFont=&message,*s_replacement=&selected;
 int s_itemPromptDepth=0,s_mapDepth=0;
-struct Resource { void* data=nullptr; } s_mapResource,s_mapHeadingResource;
 bool s_loggedDraw=true,available=true;
+bool s_preserveMapFont=false;
 bool ensure_replacement() { return available; }
 JUTResFont* mDoExt_getMesgFont() { return &message; }
 JUTResFont* mDoExt_getRubyFont() { return &ruby; }
@@ -93,8 +93,37 @@ int main() {
     available=true;s_itemPromptDepth=0;
     assert(!draw_font_override(args,&result,draw)); // Subtitle outside item cards.
     input=&message;assert(draw_font_override(args,&result,draw));
-    s_mapDepth=1;s_activeFont=TextFont::Original;
-    assert(draw_font_override(args,&result,draw) && drawn==&map);
+    s_mapDepth=1;
+    for(auto choice : {TextFont::ZenKakuGothicNew,TextFont::MPlus2,
+                       TextFont::FiraSans,TextFont::AlegreyaSansMedium}) {
+        s_activeFont=choice;
+        for(auto* nativeFont : {&message,&ruby}) {
+            input=nativeFont;
+            for(int glyph : {int('A'),0xe9,int('i')}) {
+                code=glyph;drawn=nullptr;
+                assert(draw_font_override(args,&result,draw) && drawn==&selected);
+                assert(result==8); // Native advances remain unchanged on maps.
+            }
+            for(int encoding : {1,2}) {
+                nativeFont->type=encoding;
+                assert(!draw_font_override(args,&result,draw));
+            }
+            nativeFont->type=0;
+        }
+        available=false;assert(!draw_font_override(args,&result,draw));available=true;
+    }
+    s_activeFont=TextFont::Original;
+    for(auto* nativeFont : {&message,&ruby}) {
+        input=nativeFont;assert(!draw_font_override(args,&result,draw));
+    }
+    s_activeFont=TextFont::FiraSans;s_preserveMapFont=true;code='A';
+    for(auto* nativeFont : {&message,&ruby}) {
+        input=nativeFont;drawn=nullptr;
+        assert(!draw_font_override(args,&result,draw) && drawn==nullptr);
+    }
+    s_mapDepth=0;input=&message;
+    assert(draw_font_override(args,&result,draw));
+    s_preserveMapFont=false;
     s_mapDepth=0;s_itemPromptDepth=1;s_activeFont=TextFont::FiraSans;
     for(int nativeCode : {0xb2,0xb3,0x81,0x3042}) {
         code=nativeCode;assert(!draw_font_override(args,&result,draw));
@@ -108,4 +137,4 @@ with tempfile.TemporaryDirectory(prefix='hud-item-font-selection-') as directory
     subprocess.run(['c++', '-std=c++20', '-I', str(root / 'src'),
                     str(path / 'test.cpp'), '-o', str(path / 'test')], check=True)
     subprocess.run([str(path / 'test')], check=True)
-print('PASS: selected item fonts, French accents, native Japanese fallback and isolated map fonts')
+print('PASS: selected item/map fonts, French accents and native Japanese fallback')

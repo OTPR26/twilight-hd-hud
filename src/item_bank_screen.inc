@@ -170,10 +170,10 @@ void create_item_bank(dMenu_Ring_c* ring) {
     s_itemBank.assignment = item_bank_text(310, 104, 176, 22, 12);
     s_itemBank.buttons[0] = item_bank_picture(item_assignment_button_texture(true), 352, 127, 24, 24);
     s_itemBank.buttons[1] = item_bank_picture(item_assignment_button_texture(false), 386, 127, 24, 24);
-    if (feature_enabled(Feature::ThirdItemSlot))
+    if (use_mod_item_slot())
         s_itemBank.buttons[2] = item_bank_picture(styled_r_button_texture(), 425, 123, 32, 32);
     s_itemBank.combo = item_bank_text(kBankComboX + 43, kBankComboY - 1, 240, 25, 12, HBIND_LEFT);
-    s_itemBank.comboButton = item_bank_picture(feature_enabled(Feature::ThirdItemSlot) ?
+    s_itemBank.comboButton = item_bank_picture(use_mod_item_slot() ?
         styled_zl_button_texture() : styled_zr_button_texture(),
         kBankComboX, kBankComboY, 32, 22);
     update_item_bank_positions(ring);
@@ -362,7 +362,7 @@ void draw_item_bank(dMenu_Ring_c* ring) {
             combo.erase(placeholder, 2);
         copy_item_bank_text(s_itemBank.combo, combo.c_str());
         if (auto* button = s_itemBank.comboButton) {
-            if (auto* texture = feature_enabled(Feature::ThirdItemSlot) ?
+            if (auto* texture = use_mod_item_slot() ?
                     styled_zl_button_texture() : styled_zr_button_texture())
                 button->changeTexture(texture, 0);
             button->setAlpha(bank_combo_button_alpha(prompts, comboVisible));

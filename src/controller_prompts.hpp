@@ -35,6 +35,35 @@ constexpr char face_letter_for_action(ButtonLayout layout, char action) {
     return position;
 }
 
+constexpr int companion_face_symbol_index(ButtonLayout layout, char action) {
+    const char position = face_position_for_action(layout, action);
+    return position == 'A' ? 0 : position == 'B' ? 1 : position == 'X' ? 2 : 3;
+}
+
+constexpr const char* companion_item_label(ButtonLayout layout, char action) {
+    if (is_playstation_layout(layout)) {
+        switch (companion_face_symbol_index(layout, action)) {
+        case 0: return "Circle";
+        case 1: return "Cross";
+        case 2: return "Triangle";
+        default: return "Square";
+        }
+    }
+    switch (face_letter_for_action(layout, action)) {
+    case 'A': return "A";
+    case 'B': return "B";
+    case 'X': return "X";
+    default: return "Y";
+    }
+}
+
+constexpr const char* companion_shoulder_label(ButtonLayout layout, bool left) {
+    if (uses_xbox_prompts(layout)) return left ? "LB" : "RB";
+    if (is_playstation_layout(layout) || is_steam_deck_layout(layout))
+        return left ? "L1" : "R1";
+    return left ? "L" : "R";
+}
+
 enum class ShoulderPrompt { L, R, Zl, Zr };
 
 // Indices match ShoulderPrompt; rows match Silver and Black Pro.

@@ -49,7 +49,7 @@ option(TWILIGHT_HUD_BUILD_TESTS "Build native HUD regression tests" OFF)
 if (TWILIGHT_HUD_BUILD_TESTS)
     enable_testing()
     foreach(test_name IN ITEMS
-        host_compatibility controller_prompts diamond_layout font_atlas
+        host_compatibility dual_screen controller_prompts diamond_layout font_atlas
         hud_scaling hud_settings hud_visibility input_gate menu_input_state
         touch_input_state map_touch_portals file_select_layout ui_refinements collection_layout
         item_bank_layout wallet_description dungeon_map_layout

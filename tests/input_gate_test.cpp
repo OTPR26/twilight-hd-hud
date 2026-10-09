@@ -22,6 +22,10 @@ int main() {
     // that semantic distinct from a physical Start/+ press, which is swapped
     // to Items by the TPHD layout.
     assert(menu_shortcut_buttons(start, down, down, start, 0, true, true) == start);
+    // Companion mode keeps native Start and routes Down to the same menu.
+    assert(menu_shortcut_buttons(down, down, down, start, 0, true, true) == start);
+    assert(menu_shortcut_buttons(start | down, down, down, start, 0, true, true) == start);
+    assert(menu_shortcut_buttons(a | down, down, down, start, 0, true, true) == (a | start));
     assert(menu_shortcut_buttons(start | down, down, down, start) == (start | down));
     // Follow-mode Midna on Down relocates Collection to Right; Start still
     // opens Items, and the Midna press cannot also open either menu.

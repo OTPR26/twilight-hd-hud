@@ -26,6 +26,9 @@ ConfigVarHandle s_swapMenuButtons = 0;
 ConfigVarHandle s_checkForUpdates = 0;
 ConfigVarHandle s_combinedMap = 0;
 ConfigVarHandle s_wolfTouchIcons = 0;
+ConfigVarHandle s_dualTopButtons = 0;
+ConfigVarHandle s_dualTopMidna = 0;
+ConfigVarHandle s_dualTopDpad = 0;
 std::array<ConfigVarHandle, 3> s_featureHandles{};
 std::array<bool, 3> s_activeFeatures{true, true, true};
 
@@ -132,7 +135,10 @@ ModResult register_config(ModError* error) {
         register_menu_swap() != MOD_OK ||
         register_bool("check-for-updates", true, s_checkForUpdates) != MOD_OK ||
         register_bool("combined-map-control", true, s_combinedMap) != MOD_OK ||
-        register_bool("wolf-touch-icons", true, s_wolfTouchIcons) != MOD_OK)
+        register_bool("wolf-touch-icons", true, s_wolfTouchIcons) != MOD_OK ||
+        register_int("dual-top-buttons", 0, s_dualTopButtons) != MOD_OK ||
+        register_bool("dual-top-midna", false, s_dualTopMidna) != MOD_OK ||
+        register_bool("dual-top-dpad", true, s_dualTopDpad) != MOD_OK)
     {
         return mods::set_error(
             error, MOD_ERROR, "failed to register Twilight HD settings");
@@ -271,6 +277,13 @@ bool get_bool(ConfigVarHandle handle, bool fallback) {
 bool check_for_updates_enabled() { return get_bool(s_checkForUpdates, true); }
 bool wolf_touch_icons_enabled() { return get_bool(s_wolfTouchIcons, true); }
 ConfigVarHandle wolf_touch_icons_config_var() { return s_wolfTouchIcons; }
+
+bool dual_screen_full_diamond() { return get_int(s_dualTopButtons, 0) == 1; }
+bool dual_screen_show_midna() { return get_bool(s_dualTopMidna, false); }
+bool dual_screen_show_dpad() { return get_bool(s_dualTopDpad, true); }
+ConfigVarHandle dual_screen_buttons_config_var() { return s_dualTopButtons; }
+ConfigVarHandle dual_screen_midna_config_var() { return s_dualTopMidna; }
+ConfigVarHandle dual_screen_dpad_config_var() { return s_dualTopDpad; }
 
 bool combined_map_control() { return get_bool(s_combinedMap, true); }
 ConfigVarHandle check_for_updates_config_var() { return s_checkForUpdates; }

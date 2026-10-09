@@ -1,5 +1,6 @@
 #include "font_override.hpp"
 #include "font_atlas.hpp"
+#include "translated_font.hpp"
 #include "config.hpp"
 #include "service_imports.hpp"
 
@@ -21,11 +22,10 @@ JUTResFont* s_replacement = nullptr;
 bool s_attemptedConstruction = false;
 int s_itemPromptDepth = 0;
 int s_mapDepth = 0;
-ResourceBuffer s_mapResource = RESOURCE_BUFFER_INIT;
-JUTResFont* s_mapFont = nullptr;
-ResourceBuffer s_mapHeadingResource = RESOURCE_BUFFER_INIT;
-JUTResFont* s_mapHeadingFont = nullptr;
 bool s_loggedDraw = false;
+const ResFONT* s_mapMessageResource = nullptr;
+const ResFONT* s_mapRubyResource = nullptr;
+bool s_preserveMapFont = false;
 
 void after_acquire_message_font(ModContext*, void*, void* retval, void*) {
     if (s_activeFont != TextFont::Original && retval) {
@@ -34,6 +34,13 @@ void after_acquire_message_font(ModContext*, void*, void* retval, void*) {
 }
 
 HookAction before_release_font(ModContext*, void* args, void*, void*) {
+    auto* released = mods::arg<JUTResFont*>(args, 0);
+    if (released && (released->getResFont() == s_mapMessageResource ||
+        released->getResFont() == s_mapRubyResource)) {
+        s_mapMessageResource = nullptr;
+        s_mapRubyResource = nullptr;
+        s_preserveMapFont = false;
+    }
     if (mods::arg<JUTResFont*>(args, 0) == s_messageFont) {
         s_messageFont = nullptr;
     }
@@ -62,14 +69,6 @@ bool ensure_replacement() {
 }  // namespace
 
 void initialize_font_override() {
-    if (svc_resource->load(mod_ctx, "fonts/mplus-bold.bfn", &s_mapHeadingResource) != MOD_OK ||
-        !font_atlas::valid(s_mapHeadingResource.data, s_mapHeadingResource.size)) {
-        svc_resource->free(mod_ctx, &s_mapHeadingResource);
-    }
-    if (svc_resource->load(mod_ctx, "fonts/fira-regular.bfn", &s_mapResource) != MOD_OK ||
-        !font_atlas::valid(s_mapResource.data, s_mapResource.size)) {
-        svc_resource->free(mod_ctx, &s_mapResource);
-    }
     // Latch once: changing the saved selection must not swap a live GPU font.
     s_activeFont = text_font();
     if (s_activeFont == TextFont::Original) return;
@@ -126,20 +125,28 @@ void shutdown_font_override() {
     s_attemptedConstruction = false;
     s_itemPromptDepth = 0;
     s_mapDepth = 0;
-    JKR_DELETE(s_mapFont);
-    s_mapFont = nullptr;
-    svc_resource->free(mod_ctx, &s_mapResource);
-    JKR_DELETE(s_mapHeadingFont);
-    s_mapHeadingFont = nullptr;
-    svc_resource->free(mod_ctx, &s_mapHeadingResource);
     s_loggedDraw = false;
+    s_mapMessageResource = nullptr;
+    s_mapRubyResource = nullptr;
+    s_preserveMapFont = false;
 }
 
 void begin_item_prompt_font() {
     ++s_itemPromptDepth;
 }
 
-void begin_map_font() { ++s_mapDepth; }
+void begin_map_font() {
+    ++s_mapDepth;
+    auto* message = mDoExt_getMesgFont();
+    auto* ruby = mDoExt_getRubyFont();
+    const auto* messageResource = message ? message->getResFont() : nullptr;
+    const auto* rubyResource = ruby ? ruby->getResFont() : nullptr;
+    if (messageResource != s_mapMessageResource || rubyResource != s_mapRubyResource) {
+        s_mapMessageResource = messageResource;
+        s_mapRubyResource = rubyResource;
+        s_preserveMapFont = is_zelda64rus_font(messageResource) || is_zelda64rus_font(rubyResource);
+    }
+}
 void end_map_font() { if (s_mapDepth > 0) --s_mapDepth; }
 
 void end_item_prompt_font() {
@@ -150,53 +157,39 @@ bool draw_font_override(void* args, void* retval, FontDrawOriginal drawOriginal)
     if (!retval || !drawOriginal) return false;
     auto* source = mods::arg<JUTResFont*>(args, 0);
     const int code = mods::arg<int>(args, 5);
+    if (s_mapDepth > 0 && s_preserveMapFont) return false;
     // Use a real bold face, not displaced copies of thin glyphs. Native text
     // decoding and advances remain authoritative; unsupported glyphs fall back.
-    const bool mapHeading = s_mapDepth > 0 && source && source == mDoExt_getRubyFont();
-    if (mapHeading && !s_mapHeadingFont && s_mapHeadingResource.data && JKRHeap::getRootHeap()) {
-        s_mapHeadingFont = JKR_NEW_ARGS(JKRHeap::getRootHeap(), 32) JUTResFont(
-            static_cast<const ResFONT*>(s_mapHeadingResource.data), JKRHeap::getRootHeap());
-        if (s_mapHeadingFont && !s_mapHeadingFont->isValid()) {
-            JKR_DELETE(s_mapHeadingFont); s_mapHeadingFont = nullptr;
-        }
-    }
-    const bool mapLabel = s_mapDepth > 0 && source == mDoExt_getMesgFont();
-    if (mapLabel && !s_mapFont && s_mapResource.data && JKRHeap::getRootHeap()) {
-        s_mapFont = JKR_NEW_ARGS(JKRHeap::getRootHeap(), 32) JUTResFont(
-            static_cast<const ResFONT*>(s_mapResource.data), JKRHeap::getRootHeap());
-        if (s_mapFont && !s_mapFont->isValid()) { JKR_DELETE(s_mapFont); s_mapFont = nullptr; }
-    }
-    const bool mapPrompt = (mapLabel && s_mapFont) || (mapHeading && s_mapHeadingFont);
+    const bool mapPrompt = s_mapDepth > 0 && source &&
+        (source == s_messageFont || source == mDoExt_getRubyFont());
     // B2/B3 are Golden Bug sex symbols in the native font, not superscript
     // numerals. Keep the native glyphs when using a Latin replacement font.
     constexpr int kMaleSymbolCode = 0xB2;
     constexpr int kFemaleSymbolCode = 0xB3;
     if (code == kMaleSymbolCode || code == kFemaleSymbolCode) return false;
-    // Item cards use the selected font even though their layout uses the subtitle font.
+    // Item cards and map headings also follow the selected message font.
     const bool itemPrompt = s_itemPromptDepth > 0;
     if (!source || source->getFontType() != 0 || !font_atlas::supported(code) ||
         source->getCellWidth() <= 0 ||
-        (!mapPrompt && (s_activeFont == TextFont::Original ||
-            (!itemPrompt && source != s_messageFont)))) {
+        (s_activeFont == TextFont::Original ||
+            (!mapPrompt && !itemPrompt && source != s_messageFont))) {
         return false;
     }
     const float scaleX = mods::arg<f32>(args, 3);
     const float scaleY = mods::arg<f32>(args, 4);
     // Preserve unusual mirrored/hidden draw paths rather than inventing their geometry.
-    if (scaleX <= 0 || scaleY <= 0 || (!mapPrompt && !ensure_replacement())) return false;
+    if (scaleX <= 0 || scaleY <= 0 || !ensure_replacement()) return false;
 
-    JUTResFont* replacement = mapPrompt ? (mapHeading ? s_mapHeadingFont : s_mapFont) :
-        s_replacement;
+    JUTResFont* replacement = s_replacement;
 
     const bool subsequent = mods::arg<bool>(args, 6);
     JUTFont::TWidth nativeWidth{};
     source->getWidthEntry(code, &nativeWidth);
     JUTFont::TWidth replacementWidth{};
     replacement->getWidthEntry(code, &replacementWidth);
-    const float rasterScale = mapHeading ? font_atlas::opticalScale :
-        (mapPrompt || s_activeFont == TextFont::FiraSans ?
-        font_atlas::firaOpticalScale : (s_activeFont == TextFont::AlegreyaSansMedium ?
-        font_atlas::alegreyaOpticalScale : font_atlas::opticalScale));
+    const float rasterScale = s_activeFont == TextFont::FiraSans ?
+        font_atlas::firaOpticalScale : s_activeFont == TextFont::AlegreyaSansMedium ?
+        font_atlas::alegreyaOpticalScale : font_atlas::opticalScale;
     const bool itemStem = itemPrompt &&
         (code == 'i' || code == 'j' || code == 'l' || code == 'I');
     // Ruby's narrow stem advances must not horizontally squash the bold

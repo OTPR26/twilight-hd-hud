@@ -27,6 +27,8 @@ digits = source.split('void draw_uniform_rupee_digits(', 1)[1].split('void draw_
 for helper in ('rupee_digit_size(scale)', 'rupee_digit_step(scale)', 'rupee_digit_gap(scale)'):
     assert helper in digits
 assert 'digit->setAlpha(icon->getAlpha())' in digits
+assert 'const int value = displayed_rupee_count()' in digits
+assert 'displayed_rupee_count() >= 1000' in icon
 minimap = source.split('void apply_wii_u_minimap_layout(', 1)[1].split(
     '// Item wheel and R-slot HUD', 1)[0]
 assert 'minimap_multiplier(hud_scales().minimap)' in minimap

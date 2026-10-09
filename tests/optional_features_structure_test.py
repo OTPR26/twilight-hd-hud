@@ -4,6 +4,9 @@ import re
 
 root = Path(__file__).resolve().parents[1]
 source = (root / 'src/item_slot_hooks.cpp').read_text()
+assert 'feature_enabled(Feature::ThirdItemSlot) &&' in source
+assert '!s_dualScreenHost.owns_item_slots()' in source
+source = source.replace('use_mod_item_slot()', 'feature_enabled(Feature::ThirdItemSlot)')
 install = source.split('ModResult install_item_slot_hooks(', 1)[1]
 owned = {
     'ThirdItemSlot': '''before_get_select_item after_set_select_item
@@ -41,13 +44,18 @@ guards = {
 }
 for feature, functions in guards.items():
     for function in functions.split():
+        dual_guard = function in {'apply_wii_u_r_button_art', 'position_midna_hud', 'update_midna_shoulder_badge'}
+        suffix = r' && !dualTop' if dual_guard else ''
         assert re.search(r'void ' + function + r'\([^)]*\) \{\s*'
-                         r'if \(!feature_enabled\(Feature::' + feature + r'\)\) return;', source), function
+                         r'if \(!feature_enabled\(Feature::' + feature + r'\)' + suffix + r'\) return;', source), function
+        if dual_guard:
+            assert re.search(r'void ' + function + r'\(dMeter2Draw_c\* meter, bool dualTop = false\)', source), function
 
 pad = source.split('void after_pad_read(', 1)[1].split('HookAction before_meter_map_ctrl_show(', 1)[0]
 assert pad.index('if (!feature_enabled(Feature::ThirdItemSlot)) return;') < pad.index('const bool leftShoulderHeld')
 menu = source.split('HookAction before_menu_window_execute(', 1)[1].split('void after_menu_window_execute(', 1)[0]
-assert menu.index('if (!feature_enabled(Feature::DpadShortcuts)) return HOOK_CONTINUE;') < menu.index('pad.mButtonFlags =')
+single_menu = menu.split('    s_dmapInputScope = nullptr;', 1)[1]
+assert single_menu.index('if (!feature_enabled(Feature::DpadShortcuts)) return HOOK_CONTINUE;') < single_menu.index('pad.mButtonFlags =')
 for filename, function in [('overworld_map_screen.inc', 'add_fmap_back_hint'),
                            ('dungeon_map_screen.inc', 'add_dmap_back_hint')]:
     text = (root / 'src' / filename).read_text()

@@ -1,4 +1,5 @@
 #include "config.hpp"
+#include "dual_screen.hpp"
 #include "wolf_touch_icons.hpp"
 #include "localized_labels.hpp"
 #include "action_prompt_layout.hpp"
@@ -119,9 +120,54 @@ class TouchControls;
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <vector>
+#include <memory>
 
 namespace twilight_hd_hud {
 namespace {
+
+DualScreenHost s_dualScreenHost;
+
+void* resolve_host_symbol(const char* name) {
+        void* address = nullptr;
+        HookSymbolFlags flags{};
+        return svc_hook->resolve(mod_ctx, name, &address, &flags) == MOD_OK ?
+            address : nullptr;
+}
+
+std::array<J2DPicture*, 2> s_companionShoulders{};
+std::array<J2DPicture*, 2> s_companionFaceBackings{};
+J2DPicture* s_companionBackdrop = nullptr;
+J2DPicture* s_companionSymbol = nullptr;
+ResourceBuffer s_companionSymbolResources[2][4]{};
+f32* s_companionWolfBlend = nullptr;
+f32 (*s_companionMeasureText)(f32, const char*) = nullptr;
+bool (*s_companionItemUsable)(dMeter2Draw_c*, int) = nullptr;
+
+
+void resolve_dual_screen_host() {
+    s_dualScreenHost.hudOnCompanion = reinterpret_cast<DualScreenHost::HudQuery>(
+        resolve_host_symbol("dusk::dualscreen::hudOnCompanion"));
+    s_dualScreenHost.slotTriggerBits = reinterpret_cast<DualScreenHost::SlotQuery>(
+        resolve_host_symbol("dusk::companion::slotTriggerBits"));
+    s_dualScreenHost.slotHoldBits = reinterpret_cast<DualScreenHost::SlotQuery>(
+        resolve_host_symbol("dusk::companion::slotHoldBits"));
+
+    s_companionItemUsable = reinterpret_cast<decltype(s_companionItemUsable)>(
+        resolve_host_symbol("dMeter2Draw_c::isItemUsable"));
+    s_companionMeasureText = reinterpret_cast<f32 (*)(f32, const char*)>(
+        resolve_host_symbol("dusk::companion::measureText"));
+    s_companionWolfBlend = static_cast<f32*>(resolve_host_symbol("dusk::companion::s_wolfBlend"));
+    if (s_dualScreenHost.hudOnCompanion != nullptr) {
+        svc_log->info(mod_ctx, "Dual-screen HUD compatibility enabled");
+    }
+}
+
+
+bool use_mod_item_slot() {
+    return feature_enabled(Feature::ThirdItemSlot) &&
+        !s_dualScreenHost.owns_item_slots();
+}
 
 std::string localized_label(MenuLabel label) {
     char text[512]{};
@@ -296,6 +342,23 @@ DEFINE_HOOK_SYMBOL("_ZN4dusk2ui13TouchControls17sync_visual_stateEv",
 DEFINE_HOOK_SYMBOL("dusk::ui::midna_icon_source",
     std::string(), TouchZIconSourceHook);
 #endif
+DEFINE_HOOK_SYMBOL("dusk::companion::drawTextEllipsized",
+    void(f32, f32, f32, f32, u32, const char*), CompanionEquipHintHook);
+DEFINE_HOOK_SYMBOL("dusk::companion::drawBackdrop",
+    void(f32, f32), CompanionBackdropHook);
+DEFINE_HOOK_SYMBOL("dusk::companion::drawButtonCircleBase",
+    void(dMeter2Draw_c*, int, f32, f32, f32), CompanionCircleHook);
+DEFINE_HOOK_SYMBOL("dusk::companion::drawFunctionalItemButtons",
+    void(dMeter2Draw_c*, f32, f32, f32), CompanionFaceLabelsHook);
+DEFINE_HOOK_SYMBOL("dusk::companion::drawFunctionalSlotCorners",
+    void(dMeter2Draw_c*, f32, f32, f32, f32, f32, f32), CompanionSlotsHook);
+DEFINE_HOOK_SYMBOL("dusk::companion::drawFunctionalZCorner",
+    void(dMeter2Draw_c*, f32, f32, f32, f32), CompanionMidnaHook);
+DEFINE_HOOK_SYMBOL("dusk::companion::drawBeveledCornerButton",
+    void(f32, f32, f32, f32, bool, int), CompanionPlateHook);
+DEFINE_HOOK_SYMBOL("dusk::companion::drawPaneComposite",
+    void(J2DPane*, f32, f32, f32, f32, u8, bool, bool, f32*, bool), CompanionCompositeHook);
+DEFINE_HOOK_SYMBOL("dusk::getActionBindHold", bool(int, u32), CompanionItemHoldHook);
 DEFINE_HOOK(&daAlink_c::checkItemButtonChange, CheckItemButtonChangeHook);
 DEFINE_HOOK(&daAlink_c::checkItemChangeFromButton, CheckItemChangeFromButtonHook);
 DEFINE_HOOK(&daAlink_c::checkSetItemTrigger, CheckSetItemTriggerHook);
@@ -529,6 +592,7 @@ enum class DusklightActionBind {
     CallMidna,
     OpenMapScreen,
     ToggleMinimap,
+    UseSlotItem1 = 6,
 };
 
 using GetActionBindTrigFn = bool (*)(DusklightActionBind, u32);
@@ -669,7 +733,7 @@ int action_native_button(const DusklightActionBind action) {
 }
 
 bool use_tphd_midna_binding() {
-    if (!feature_enabled(Feature::ThirdItemSlot)) return false;
+    if (!use_mod_item_slot()) return false;
     return controller_compatibility() == ControllerCompatibility::FixedTphd ||
         midna_native_button() == PAD_NATIVE_BUTTON_INVALID;
 }
@@ -699,7 +763,7 @@ u32 game_button_mask_for_native(const int nativeButton) {
 }
 
 bool midna_action_triggered() {
-    if (!feature_enabled(Feature::ThirdItemSlot)) return false;
+    if (!use_mod_item_slot()) return false;
     if (!feature_enabled(Feature::DpadShortcuts) &&
         (game_button_mask_for_native(midna_native_button()) &
             (PAD_BUTTON_UP | PAD_BUTTON_DOWN | PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT)) != 0)
@@ -1924,13 +1988,13 @@ void apply_item_help_fit() {
 void style_item_get_text(dMsgScrnItem_c* itemScreen,
     jmessage_tReference* reference = nullptr) {
     if (itemScreen == nullptr) return;
-    // The subtitle font cannot decode Japanese text or its reading guides.
+    // Keep multibyte text and reading guides at their native metrics.
     auto* mainText = itemScreen->mpTm_c[0] != nullptr ?
         static_cast<J2DTextBox*>(itemScreen->mpTm_c[0]->getPanePtr()) : nullptr;
     JUTFont* messageFont = mainText != nullptr ? mainText->getFont() : nullptr;
     if (messageFont == nullptr || messageFont->getFontType() != 0) return;
 
-    JUTFont* font = mDoExt_getSubFont();
+    JUTFont* font = messageFont;
     itemScreen->field_0x54 = font;
     itemScreen->mFontSize.mSizeX = kItemHelpBodyFontSize;
     itemScreen->mFontSize.mSizeY = kItemHelpBodyFontSize;
@@ -2102,7 +2166,7 @@ void after_item_get_message_index_demo(ModContext*, void* args, void*, void*) {
 }
 
 void apply_item_explain_button_layout(dMenu_ItemExplain_c* menu) {
-    if (!feature_enabled(Feature::ThirdItemSlot)) return;
+    if (!use_mod_item_slot()) return;
     if (menu == nullptr) {
         return;
     }
@@ -2143,7 +2207,7 @@ void apply_item_get_assignment_buttons(dMsgScrnItem_c* itemScreen) {
         {7, styled_r_button_texture()},
     }};
     for (const auto& [type, texture] : buttons) {
-        if (type == 7 && !feature_enabled(Feature::ThirdItemSlot)) continue;
+        if (type == 7 && !use_mod_item_slot()) continue;
         J2DPicture* picture = itemScreen->mpOutFont->mpPane[type];
         if (picture == nullptr || texture == nullptr) continue;
         picture->changeTexture(texture, 0);
@@ -4282,8 +4346,8 @@ void restore_wii_u_item_num_layout(dMeter2Draw_c* meter) {
     s_wiiUItemNumTransform = {};
 }
 
-void apply_wii_u_r_button_art(dMeter2Draw_c* meter) {
-    if (!feature_enabled(Feature::ThirdItemSlot)) return;
+void apply_wii_u_r_button_art(dMeter2Draw_c* meter, bool dualTop = false) {
+    if (!use_mod_item_slot() && !dualTop) return;
     if (meter == nullptr || meter->mpScreen == nullptr) {
         return;
     }
@@ -4585,6 +4649,12 @@ bool ensure_rupee_digit_textures() {
     return true;
 }
 
+int displayed_rupee_count() {
+    const auto* meter = dMeter2Info_getMeterClass();
+    return meter != nullptr ? static_cast<int>(meter->mRupeeNum) :
+        static_cast<int>(dComIfGs_getRupee());
+}
+
 void draw_uniform_rupee_digits(dMeter2Draw_c* meter) {
     if (meter == nullptr || meter->mpScreen == nullptr ||
         !ensure_rupee_digit_textures())
@@ -4597,7 +4667,7 @@ void draw_uniform_rupee_digits(dMeter2Draw_c* meter) {
         return;
     }
 
-    const int value = static_cast<int>(dComIfGs_getRupee());
+    const int value = displayed_rupee_count();
     const int digitCount = value >= 1000 ? 4 : 3;
     int divisor = digitCount == 4 ? 1000 : 100;
 
@@ -4633,6 +4703,234 @@ void draw_uniform_rupee_digits(dMeter2Draw_c* meter) {
         remainder %= divisor;
         divisor = std::max(1, divisor / 10);
     }
+}
+
+bool draw_companion_symbol(void* args, void* retval, char action);
+bool draw_companion_shoulder_label(void* args, void* retval, bool left);
+
+enum class CompanionPrompt { None, Item, Midna, Face };
+CompanionPrompt s_companionPrompt = CompanionPrompt::None;
+int s_companionSlot = -1;
+int s_companionLabelChars = 0;
+
+HookAction before_companion_backdrop(ModContext*, void* args, void*, void*) {
+    if (!s_dualScreenHost.active()) return HOOK_CONTINUE;
+    const auto* texture = resource_texture(s_collectBackgroundResource);
+    if (texture == nullptr) return HOOK_CONTINUE;
+    const f32 width = mods::arg<f32>(args, 0);
+    const f32 height = mods::arg<f32>(args, 1);
+    if (width <= 0.0f || height <= 0.0f) return HOOK_CONTINUE;
+    if (s_companionBackdrop == nullptr) s_companionBackdrop = JKR_NEW J2DPicture(texture);
+    if (s_companionBackdrop == nullptr) return HOOK_CONTINUE;
+    configure_hd_picture(s_companionBackdrop);
+    s_companionBackdrop->draw(0.0f, 0.0f, width, height, false, false, false);
+    dComIfGp_getCurrentGrafPort()->setup2D();
+    return HOOK_SKIP_ORIGINAL;
+}
+
+
+
+HookAction before_companion_circle(ModContext*, void* args, void*, void*) {
+    const int index = mods::arg<int>(args, 1);
+    if (!s_dualScreenHost.active() || index < 2 || index > 3) return HOOK_CONTINUE;
+    const auto* texture = styled_blank_face_button_texture();
+    if (texture == nullptr) return HOOK_CONTINUE;
+    auto*& picture = s_companionFaceBackings[index - 2];
+    if (picture == nullptr) picture = JKR_NEW J2DPicture(texture);
+    if (picture == nullptr) return HOOK_CONTINUE;
+    picture->changeTexture(texture, 0);
+    picture->setTexCoord(picture->getTexture(0), BIND15, MIRROR0, false);
+    set_neutral_picture_colors(picture);
+    picture->setAlpha(255);
+    const f32 x = mods::arg<f32>(args, 2);
+    const f32 y = mods::arg<f32>(args, 3);
+    const f32 size = mods::arg<f32>(args, 4);
+    picture->draw(x, y, size, size, false, false, false);
+    dComIfGp_getCurrentGrafPort()->setup2D();
+    return HOOK_SKIP_ORIGINAL;
+}
+
+HookAction before_companion_face_labels(ModContext*, void*, void*, void*) {
+    if (s_dualScreenHost.active()) s_companionPrompt = CompanionPrompt::Face;
+    return HOOK_CONTINUE;
+}
+
+HookAction before_companion_slots(ModContext*, void*, void*, void*) {
+    if (!s_dualScreenHost.active()) return HOOK_CONTINUE;
+    if (s_companionWolfBlend != nullptr && *s_companionWolfBlend > 0.5f)
+        return HOOK_CONTINUE;
+    s_companionPrompt = CompanionPrompt::Item;
+    s_companionSlot = -1;
+    return HOOK_CONTINUE;
+}
+
+HookAction before_companion_midna(ModContext*, void*, void*, void*) {
+    if (s_dualScreenHost.active()) s_companionPrompt = CompanionPrompt::Midna;
+    return HOOK_CONTINUE;
+}
+
+void after_companion_prompt(ModContext*, void*, void*, void*) {
+    s_companionPrompt = CompanionPrompt::None;
+    s_companionLabelChars = 0;
+}
+
+bool draw_companion_shoulder(void* args, const bool midna) {
+    const ResTIMG* texture = resource_texture(s_blankShoulderResources[0]);
+    if (texture == nullptr || texture->width == 0) return false;
+    auto*& picture = s_companionShoulders[midna ? 0 : 1];
+    if (picture == nullptr) picture = JKR_NEW J2DPicture(texture);
+    if (picture == nullptr) return false;
+    picture->changeTexture(texture, 0);
+    picture->setTexCoord(picture->getTexture(0), BIND15, MIRROR0, false);
+    set_neutral_picture_colors(picture);
+    const f32 x0 = mods::arg<f32>(args, 0);
+    const f32 y0 = mods::arg<f32>(args, 1);
+    const f32 x1 = mods::arg<f32>(args, 2);
+    const f32 y1 = mods::arg<f32>(args, 3);
+    const f32 width = (x1 - x0) * 0.75f;
+    const f32 height = width * texture->height / texture->width;
+    picture->setAlpha(255);
+    picture->draw((x0 + x1 - width) * 0.5f, (y0 + y1 - height) * 0.5f,
+        width, height, midna, false, false);
+    dComIfGp_getCurrentGrafPort()->setup2D();
+    return true;
+}
+
+HookAction before_companion_plate(ModContext*, void* args, void*, void*) {
+    if (s_companionPrompt == CompanionPrompt::Midna) {
+        s_companionLabelChars = 1;
+        if (draw_companion_shoulder(args, true)) return HOOK_SKIP_ORIGINAL;
+    } else if (s_companionPrompt == CompanionPrompt::Item) {
+        ++s_companionSlot;
+        s_companionLabelChars = s_companionSlot == 0 ? 1 : 2;
+        if (s_companionSlot == 0 && draw_companion_shoulder(args, false))
+            return HOOK_SKIP_ORIGINAL;
+    }
+    return HOOK_CONTINUE;
+}
+
+HookAction before_companion_composite(ModContext*, void* args, void*, void*) {
+    if (s_companionPrompt != CompanionPrompt::Midna) return HOOK_CONTINUE;
+    auto& x = mods::arg_ref<f32>(args, 1);
+    auto& y = mods::arg_ref<f32>(args, 2);
+    auto& width = mods::arg_ref<f32>(args, 3);
+    auto& height = mods::arg_ref<f32>(args, 4);
+    constexpr f32 portraitScale = 0.80f;
+    x += width * (1.0f - portraitScale) * 0.5f;
+    y += height * (1.0f - portraitScale) * 0.5f;
+    width *= portraitScale;
+    height *= portraitScale;
+    return HOOK_CONTINUE;
+}
+
+bool companion_prompt_character(void* args, void* retval) {
+    auto& character = mods::arg_ref<int>(args, 5);
+    if (s_companionPrompt == CompanionPrompt::Face && (character == 'X' || character == 'Y')) {
+        if (is_universal_layout(button_layout())) {
+            *static_cast<f32*>(retval) = 0.0f;
+            return true;
+        }
+        if (is_playstation_layout(button_layout()))
+            return draw_companion_symbol(args, retval, static_cast<char>(character));
+        character = face_letter_for_action(button_layout(), static_cast<char>(character));
+        return false;
+    }
+    if (s_companionLabelChars == 0) return false;
+    const int expected = s_companionPrompt == CompanionPrompt::Midna ? 'Z' : 'I';
+    if (character != expected) {
+        s_companionLabelChars = 0;
+        return false;
+    }
+    --s_companionLabelChars;
+    if (s_companionPrompt == CompanionPrompt::Midna)
+        return draw_companion_shoulder_label(args, retval, true);
+    else if (s_companionSlot == 0)
+        return draw_companion_shoulder_label(args, retval, false);
+    else {
+        *static_cast<f32*>(retval) = 0.0f;
+        return true;
+    }
+    return false;
+}
+
+HookAction before_companion_item_hold(ModContext*, void* args, void* retval, void*) {
+    if (!s_dualScreenHost.active() || mods::arg<int>(args, 0) != static_cast<int>(DusklightActionBind::UseSlotItem1) ||
+        mods::arg<u32>(args, 1) != PAD_1) return HOOK_CONTINUE;
+    *static_cast<bool*>(retval) = !s_inputGate.blocked() &&
+        physical_button_held(kSdlRightShoulderButton);
+    return HOOK_SKIP_ORIGINAL;
+}
+
+bool draw_companion_symbol(void* args, void* retval, char action) {
+    const int style = button_style() == ButtonStyle::PlayStationColors ? 1 : 0;
+    const auto* texture = resource_texture(s_companionSymbolResources[style][
+        companion_face_symbol_index(button_layout(), action)]);
+    if (texture == nullptr) return false;
+    if (s_companionSymbol == nullptr) s_companionSymbol = JKR_NEW J2DPicture(texture);
+    if (s_companionSymbol == nullptr) return false;
+    s_companionSymbol->changeTexture(texture, 0);
+    configure_hd_picture(s_companionSymbol);
+    auto* font = mods::arg<JUTResFont*>(args, 0);
+    s_companionSymbol->setAlpha(font->mColor1.a);
+    const f32 size = mods::arg<f32>(args, 4) * 1.2f;
+    s_companionSymbol->draw(mods::arg<f32>(args, 1),
+        mods::arg<f32>(args, 2) - size, size, size, false, false, false);
+    if (auto* context = mods::arg<FontDrawContext*>(args, 7)) context->isTextureLoaded = false;
+    dComIfGp_getCurrentGrafPort()->setup2D();
+    *static_cast<f32*>(retval) = size;
+    return true;
+}
+
+bool draw_companion_shoulder_label(void* args, void* retval, bool left) {
+    const char* label = companion_shoulder_label(button_layout(), left);
+    if (label[1] == '\0') {
+        mods::arg_ref<int>(args, 5) = label[0];
+        return false;
+    }
+    auto* font = mods::arg<JUTResFont*>(args, 0);
+    f32 advance = 0.0f;
+    for (const char* glyph = label; *glyph != '\0'; ++glyph) {
+        advance += ResFontDrawCharHook::g_orig(font,
+            mods::arg<f32>(args, 1) + advance, mods::arg<f32>(args, 2),
+            mods::arg<f32>(args, 3), mods::arg<f32>(args, 4), *glyph,
+            mods::arg<bool>(args, 6) || glyph != label,
+            mods::arg<FontDrawContext*>(args, 7));
+    }
+    *static_cast<f32*>(retval) = advance;
+    return true;
+}
+
+HookAction before_companion_equip_hint(ModContext*, void* args, void*, void*) {
+    if (!s_dualScreenHost.active()) return HOOK_CONTINUE;
+    const char* text = mods::arg<const char*>(args, 5);
+    if (text == nullptr || std::strcmp(text, "Drag an item onto X or Y to equip") != 0)
+        return HOOK_CONTINUE;
+    static char hint[128];
+    const auto layout = button_layout();
+    if (is_universal_layout(layout))
+        std::snprintf(hint, sizeof(hint), "Drag an item onto a button or the touch slot to equip");
+    else
+        std::snprintf(hint, sizeof(hint), "Drag an item onto %s, %s, %s, or the touch slot to equip",
+            companion_item_label(layout, 'X'), companion_item_label(layout, 'Y'),
+            companion_shoulder_label(layout, false));
+    mods::arg_ref<const char*>(args, 5) = hint;
+    const f32 size = mods::arg<f32>(args, 2);
+    const f32 maxWidth = mods::arg<f32>(args, 3);
+    if (s_companionMeasureText != nullptr && size > 0.0f && maxWidth > 0.0f) {
+        const f32 width = s_companionMeasureText(size, hint);
+        if (width > maxWidth)
+            mods::arg_ref<f32>(args, 2) = size * maxWidth / width;
+    }
+    return HOOK_CONTINUE;
+}
+
+HookAction before_companion_midna_trigger(ModContext*, void* args, void* retval, void*) {
+    if (!s_dualScreenHost.active()) return HOOK_CONTINUE;
+    const auto* link = mods::arg<const daAlink_c*>(args, 0);
+    const BOOL native = MidnaTalkTriggerHook::g_orig != nullptr && link != nullptr ?
+        MidnaTalkTriggerHook::g_orig(link) : FALSE;
+    *static_cast<BOOL*>(retval) = !s_inputGate.blocked() && (s_fixedMidnaTrig || native);
+    return HOOK_SKIP_ORIGINAL;
 }
 
 void draw_wolf_icon(CPaneMgr* button, J2DPicture* icon, const WolfIconLayout& layout) {
@@ -4914,7 +5212,7 @@ void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
         MULTI_CHAR('cont_at1'), MULTI_CHAR('cont_at2'), MULTI_CHAR('cont_at3'),
         MULTI_CHAR('cont_at4'), MULTI_CHAR('cont_at'),
     };
-    const bool swappedMenus = swap_menu_buttons();
+    const bool swappedMenus = s_dualScreenHost.active() || swap_menu_buttons();
     const auto collectionLabelText = swappedMenus ?
         collection_shortcut_label(localized_label(MenuLabel::Collection), localized_label(MenuLabel::Save)) :
         localized_label(MenuLabel::Items);
@@ -5100,7 +5398,7 @@ void hide_picture_descendants(J2DPane* pane) {
 }
 
 void style_ring_combo_prompt(dMenu_Ring_c* ring) {
-    if (!feature_enabled(Feature::ThirdItemSlot)) return;
+    if (!use_mod_item_slot()) return;
     if (ring == nullptr || ring->mpScreen == nullptr) {
         return;
     }
@@ -5112,7 +5410,7 @@ void style_ring_combo_prompt(dMenu_Ring_c* ring) {
 }
 
 void style_ring_direct_select_prompt(dMenu_Ring_c* ring) {
-    if (!feature_enabled(Feature::ThirdItemSlot)) return;
+    if (!use_mod_item_slot()) return;
     if (ring == nullptr || ring->mpScreen == nullptr) {
         return;
     }
@@ -5156,7 +5454,7 @@ void destroy_ring_z_prompt(dMenu_Ring_c* ring) {
 }
 
 void create_ring_z_prompt(dMenu_Ring_c* ring) {
-    if (!feature_enabled(Feature::ThirdItemSlot)) return;
+    if (!use_mod_item_slot()) return;
     destroy_ring_z_prompt(s_ringZPrompt.ring);
     if (ring == nullptr || ring->mPlayerIsWolf || ring->mpScreen == nullptr) {
         return;
@@ -5238,7 +5536,7 @@ void create_ring_z_prompt(dMenu_Ring_c* ring) {
 }
 
 void draw_ring_z_prompt(dMenu_Ring_c* ring) {
-    if (!feature_enabled(Feature::ThirdItemSlot)) return;
+    if (!use_mod_item_slot()) return;
     if (s_ringZPrompt.ring != ring || s_ringZPrompt.screen == nullptr ||
         ring == nullptr || ring->mpScreen == nullptr ||
         !show_ring_assignment_prompts(ring->mPlayerIsWolf,
@@ -5492,7 +5790,7 @@ void fix_xy_hud_bow_combo_layering(dMeter2Draw_c* meter) {
     // The R-slot layout is rebuilt every frame, so its two combo pictures
     // need the same final alignment after layout_z_hud_item() has run. Doing
     // this here also keeps the result stable when the HUD scale changes.
-    if (feature_enabled(Feature::ThirdItemSlot) &&
+    if (use_mod_item_slot() &&
         meter->mpItemR != nullptr && meter->mpItemXYPane[2] != nullptr) {
         const u8 itemNo = dComIfGp_getSelectItem(kZItemSlot);
         arrange_hud_bow_combo_layers(itemNo,
@@ -5706,7 +6004,7 @@ void set_z_item_num_textures(u8 itemNum, const u8 itemMax) {
     }
 }
 
-void update_z_hud_item_alpha(dMeter2Draw_c* meter) {
+void update_z_hud_item_alpha(dMeter2Draw_c* meter, bool usable) {
     const f32 buttonAlpha =
         g_drawHIO.mButtonZAlpha * (g_drawHIO.mParentAlpha * g_drawHIO.mMainHUDButtonsAlpha);
     const f32 parentAlpha = meter->mpButtonParent->getAlphaRate();
@@ -5715,7 +6013,7 @@ void update_z_hud_item_alpha(dMeter2Draw_c* meter) {
         g_drawHIO.mButtonZItemBaseAlpha * (buttonAlpha * meter->mpLightXY[2]->getInitAlpha()));
     u8 buttonBaseAlpha = clamp_hud_alpha(255.0f * buttonAlpha);
 
-    if (!s_zHudItemUsable)
+    if (!usable)
     {
         itemAlpha = g_drawHIO.mButtonXYItemDimAlpha;
         itemBaseAlpha = g_drawHIO.mButtonXYItemDimAlpha;
@@ -5811,7 +6109,7 @@ void draw_z_oil_meter(dMeter2Draw_c* meter, const u8 itemNo, const f32 itemAlpha
 }
 
 void draw_z_hud_item_meters(dMeter2Draw_c* meter) {
-    if (!feature_enabled(Feature::ThirdItemSlot)) return;
+    if (!use_mod_item_slot()) return;
     if (meter == nullptr || meter->mpItemR == nullptr ||
         meter->mpButtonParent == nullptr || daPy_py_c::checkNowWolf())
     {
@@ -5836,7 +6134,7 @@ void draw_z_hud_item_meters(dMeter2Draw_c* meter) {
 }
 
 void update_z_hud_item(dMeter2Draw_c* meter) {
-    if (!feature_enabled(Feature::ThirdItemSlot)) return;
+    if (!use_mod_item_slot()) return;
     if (meter == nullptr || meter->mpItemR == nullptr ||
         meter->mpLightXY[2] == nullptr || meter->mpButtonXY[2] == nullptr ||
         meter->mpItemXYPane[2] == nullptr)
@@ -5892,11 +6190,11 @@ void update_z_hud_item(dMeter2Draw_c* meter) {
     meter->mpLightXY[2]->hide();
     change_z_hud_item_texture(meter, itemNo);
     layout_z_hud_item(meter, itemNo);
-    update_z_hud_item_alpha(meter);
+    update_z_hud_item_alpha(meter, s_zHudItemUsable);
 }
 
 void style_native_midna_backing(dMeter2Draw_c* meter) {
-    if (feature_enabled(Feature::ThirdItemSlot)) return;
+    if (use_mod_item_slot()) return;
     if (meter == nullptr || meter->mpScreen == nullptr || meter->mpButtonMidona == nullptr) return;
     auto* button = as_picture(meter->mpScreen->search(MULTI_CHAR('zbtn')));
     auto* parent = meter->mpButtonMidona->getPanePtr();
@@ -5932,7 +6230,7 @@ void style_native_midna_backing(dMeter2Draw_c* meter) {
 }
 
 void align_native_midna_hud(dMeter2Draw_c* meter) {
-    if (feature_enabled(Feature::ThirdItemSlot)) return;
+    if (use_mod_item_slot()) return;
     if (meter == nullptr || meter->mpScreen == nullptr ||
         meter->mpButtonMidona == nullptr || meter->mpButtonXY[2] == nullptr) return;
 
@@ -5976,8 +6274,8 @@ void align_native_midna_hud(dMeter2Draw_c* meter) {
     }
 }
 
-void position_midna_hud(dMeter2Draw_c* meter) {
-    if (!feature_enabled(Feature::ThirdItemSlot)) return;
+void position_midna_hud(dMeter2Draw_c* meter, bool dualTop = false) {
+    if (!use_mod_item_slot() && !dualTop) return;
     if (meter == nullptr || meter->mpScreen == nullptr) {
         return;
     }
@@ -5994,14 +6292,14 @@ void position_midna_hud(dMeter2Draw_c* meter) {
 
     const bool fixedTphdBindings =
         controller_compatibility() == ControllerCompatibility::FixedTphd;
-    const int configuredButton = fixedTphdBindings ?
+    const int configuredButton = fixedTphdBindings || dualTop ?
         PAD_NATIVE_BUTTON_INVALID : midna_native_button();
     // Follow mode means explicit Dusklight custom actions override the TPHD
     // defaults. An unassigned custom action therefore keeps Call Midna on L.
     const int nativeButton = configuredButton == PAD_NATIVE_BUTTON_INVALID ?
         kSdlLeftShoulderButton : configuredButton;
 
-    const bool legacyFollowLayout = use_legacy_follow_dpad_layout();
+    const bool legacyFollowLayout = !dualTop && use_legacy_follow_dpad_layout();
     J2DPane* anchorPane = nullptr;
     f32 positionX = 8.0f;
     f32 positionY = -34.0f;
@@ -6096,8 +6394,8 @@ void position_midna_hud(dMeter2Draw_c* meter) {
         anchorAlpha);
 }
 
-void update_midna_shoulder_badge(dMeter2Draw_c* meter) {
-    if (!feature_enabled(Feature::ThirdItemSlot)) return;
+void update_midna_shoulder_badge(dMeter2Draw_c* meter, bool dualTop = false) {
+    if (!use_mod_item_slot() && !dualTop) return;
     if (meter == nullptr || meter->mpScreen == nullptr) {
         return;
     }
@@ -6115,7 +6413,7 @@ void update_midna_shoulder_badge(dMeter2Draw_c* meter) {
 
     const bool fixedTphdBindings =
         controller_compatibility() == ControllerCompatibility::FixedTphd;
-    const int configuredButton = fixedTphdBindings ?
+    const int configuredButton = fixedTphdBindings || dualTop ?
         PAD_NATIVE_BUTTON_INVALID : midna_native_button();
     const int nativeButton = configuredButton == PAD_NATIVE_BUTTON_INVALID ?
         kSdlLeftShoulderButton : configuredButton;
@@ -6709,7 +7007,74 @@ void after_set_select_item(ModContext*, void* args, void*, void*) {
     sync_play_select_item(mods::arg<int>(args, 0));
 }
 
+void update_dpad_shortcuts(interface_of_controller_pad& pad, bool gameplayShortcuts) {
+    const bool fixedMapAvailable = use_tphd_dpad_map_bindings() && gameplayShortcuts;
+    const auto mapControls = active_map_masks();
+    const u32 mapMask = mapControls.map;
+    const u32 minimapMask = mapControls.minimap;
+    const u32 originalPressed = pad.mPressedButtonFlags;
+    const bool combinedMapAndMinimap = mapControls.combined;
+    const bool touchItemsTriggered = s_touchInput.items_triggered() &&
+        (originalPressed & PAD_BUTTON_UP) != 0;
+    s_combinedMapMinimapTrig = fixedMapAvailable &&
+        combinedMapAndMinimap && (originalPressed & mapMask) != 0 &&
+        !(touchItemsTriggered && (mapMask & PAD_BUTTON_UP) != 0);
+    s_fixedOpenMapTrig = fixedMapAvailable && !combinedMapAndMinimap &&
+        (originalPressed & mapMask) != 0 &&
+        !(touchItemsTriggered && (mapMask & PAD_BUTTON_UP) != 0);
+    s_fixedToggleMinimapTrig = fixedMapAvailable && !combinedMapAndMinimap &&
+        (originalPressed & minimapMask) != 0 &&
+        !(touchItemsTriggered && (minimapMask & PAD_BUTTON_UP) != 0);
+
+    // The fixed TPHD actions above consume these directions during gameplay.
+    // Remove the original GameCube directions so Up cannot also open the item
+    // ring and Left/Right cannot leak into unrelated native handling.
+    // Preserve native behavior if Dusklight's virtual-action API is ever
+    // unavailable instead of leaving the physical directions inert.
+    if (fixedMapAvailable) {
+        u32 consumedMapMask = mapMask | minimapMask;
+        if (s_touchInput.items_held()) {
+            consumedMapMask &= ~PAD_BUTTON_UP;
+        }
+        pad.mButtonFlags &= ~consumedMapMask;
+        pad.mPressedButtonFlags &= ~consumedMapMask;
+    }
+}
+
 void after_pad_read(ModContext*, void*, void*, void*) {
+    if (s_dualScreenHost.owns_item_slots()) {
+        update_input_gate();
+        const bool held = physical_button_held(kSdlLeftShoulderButton);
+        s_fixedMidnaTrig = held && !s_fixedMidnaHeld && !s_inputGate.blocked();
+        s_fixedMidnaHeld = held;
+        auto& pad = mDoCPd_c::getCpadInfo(PAD_1);
+        update_dpad_shortcuts(pad, s_dualScreenHost.active() && gameplay_shortcuts_active(
+            daAlink_getAlinkActorClass() != nullptr, s_fileSelectScreenActive,
+            z_item_menu_or_pause_context(), s_inputGate.blocked()));
+        if (!s_dualScreenHost.active() || s_inputGate.blocked()) return;
+        const u32 shoulders = game_button_mask_for_native(kSdlLeftShoulderButton) |
+            game_button_mask_for_native(kSdlRightShoulderButton);
+        pad.mButtonFlags &= ~shoulders;
+        pad.mPressedButtonFlags &= ~shoulders;
+        // A profile can map shoulders and triggers to the same logical input.
+        const auto restoreTrigger = [&](u32 mask, int axis, bool& previous,
+            f32& analog, u8& holdLock, u8& trigLock) {
+            if ((shoulders & mask) == 0) return;
+            const bool down = physical_axis_held(axis);
+            const bool triggered = down && !previous;
+            previous = down;
+            analog = down ? 1.0f : 0.0f;
+            holdLock = down;
+            trigLock = triggered;
+            if (down) pad.mButtonFlags |= mask;
+            if (triggered) pad.mPressedButtonFlags |= mask;
+        };
+        restoreTrigger(PAD_TRIGGER_L, kSdlLeftTriggerAxis, s_fixedZlHeld,
+            pad.mTriggerLeft, pad.mHoldLockL, pad.mTrigLockL);
+        restoreTrigger(PAD_TRIGGER_R, kSdlRightTriggerAxis, s_fixedZrHeld,
+            pad.mTriggerRight, pad.mHoldLockR, pad.mTrigLockR);
+        return;
+    }
     update_input_gate();
     auto& pad = mDoCPd_c::getCpadInfo(PAD_1);
     // Observe accepted virtual L before Fixed bindings rebuild logical L
@@ -6747,41 +7112,9 @@ void after_pad_read(ModContext*, void*, void*, void*) {
     // behavior. Dusklight's touch-controls pass clears virtual action binds
     // later in this frame, so the map hook consumes these canonical triggers
     // directly instead of racing that synchronization.
-    const bool fixedMapAvailable = use_tphd_dpad_map_bindings() && gameplayShortcuts;
-    const FollowDpadLayout followLayout = follow_dpad_layout();
-    const auto mapControls = active_map_masks();
-    const u32 mapMask = mapControls.map;
-    const u32 minimapMask = mapControls.minimap;
-    const u32 originalPressed = pad.mPressedButtonFlags;
-    const bool combinedMapAndMinimap = mapControls.combined;
-    const bool touchItemsTriggered = s_touchInput.items_triggered() &&
-        (originalPressed & PAD_BUTTON_UP) != 0;
-    s_combinedMapMinimapTrig = fixedMapAvailable &&
-        combinedMapAndMinimap && (originalPressed & mapMask) != 0 &&
-        !(touchItemsTriggered && (mapMask & PAD_BUTTON_UP) != 0);
-    s_fixedOpenMapTrig = fixedMapAvailable && !combinedMapAndMinimap &&
-        (originalPressed & mapMask) != 0 &&
-        !(touchItemsTriggered && (mapMask & PAD_BUTTON_UP) != 0);
-    s_fixedToggleMinimapTrig = fixedMapAvailable && !combinedMapAndMinimap &&
-        (originalPressed & minimapMask) != 0 &&
-        !(touchItemsTriggered && (minimapMask & PAD_BUTTON_UP) != 0);
+    update_dpad_shortcuts(pad, gameplayShortcuts);
 
-    // The fixed TPHD actions above consume these directions during gameplay.
-    // Remove the original GameCube directions so Up cannot also open the item
-    // ring and Left/Right cannot leak into unrelated native handling.
-    // Preserve native behavior if Dusklight's virtual-action API is ever
-    // unavailable instead of leaving the physical directions inert.
-    if (fixedMapAvailable) {
-        u32 consumedMapMask = mapMask | minimapMask;
-        if (s_touchInput.items_held()) {
-            consumedMapMask &= ~PAD_BUTTON_UP;
-        }
-        pad.mButtonFlags &= ~consumedMapMask;
-        pad.mPressedButtonFlags &= ~consumedMapMask;
-
-    }
-
-    if (!feature_enabled(Feature::ThirdItemSlot)) return;
+    if (!use_mod_item_slot()) return;
 
     const bool leftShoulderHeld = fixedMidnaAvailable &&
         physical_button_held(kSdlLeftShoulderButton);
@@ -9146,6 +9479,7 @@ void after_brightness_check_draw(ModContext*, void*, void*, void*) {
 }
 
 HookAction before_res_font_draw_char(ModContext*, void* args, void* retval, void*) {
+    if (companion_prompt_character(args, retval)) return HOOK_SKIP_ORIGINAL;
     if (draw_font_override(args, retval, ResFontDrawCharHook::g_orig)) {
         return HOOK_SKIP_ORIGINAL;
     }
@@ -9365,6 +9699,7 @@ HookAction before_save_dlst_draw(ModContext*, void* args, void*, void*) {
 }
 
 void after_meter_move_button_cross(ModContext*, void* args, void*, void*) {
+    if (s_dualScreenHost.active()) return;
     auto* meter = mods::arg<dMeter2_c*>(args, 0);
     if (meter == nullptr || meter->getMeterDrawPtr() == nullptr) {
         return;
@@ -9447,7 +9782,7 @@ void after_ring_set_mix_message(ModContext*, void* args, void*, void*) {
 }
 
 void hide_legacy_overlay_z(dMeterButton_c* buttons) {
-    if (!feature_enabled(Feature::ThirdItemSlot)) return;
+    if (!use_mod_item_slot()) return;
     if (buttons == nullptr) {
         return;
     }
@@ -9736,7 +10071,7 @@ void apply_context_button_layout(dMeterButton_c* buttons) {
 }
 
 void hide_ring_stock_z_prompt(dMeter2Draw_c* meter) {
-    if (!feature_enabled(Feature::ThirdItemSlot)) return;
+    if (!use_mod_item_slot()) return;
     if (meter == nullptr || s_ringZPrompt.ring == nullptr) {
         return;
     }
@@ -9817,7 +10152,7 @@ void scale_rupee_icon_for_draw(dMeter2Draw_c* meter) {
     CPaneMgr manager;
     Mtx matrix;
     const Vec originalBR = manager.getGlobalVtx(icon, &matrix, 3, false, 0);
-    const int digits = dComIfGs_getRupee() >= 1000 ? 4 : 3;
+    const int digits = displayed_rupee_count() >= 1000 ? 4 : 3;
     const float right = rupee_icon_right(originalBR.x, digits, scales.rupees);
     const float factor = rupee_icon_multiplier(scales.overall, scales.rupees);
     icon->scale(s_rupeeIconDrawState.scaleX * factor, s_rupeeIconDrawState.scaleY * factor);
@@ -9991,6 +10326,8 @@ void after_meter_button_execute(ModContext*, void* args, void*, void*) {
     hide_legacy_overlay_z(buttons);
 }
 
+#include "dual_screen_hud.inc"
+
 dMeter2Draw_c* s_pendingMeterDraw = nullptr;
 
 HookAction before_meter_draw(ModContext*, void* args, void*, void*) {
@@ -10007,6 +10344,21 @@ HookAction before_meter_screen_draw(ModContext*, void* args, void*, void*) {
     // Prepare after dMeter2Draw_c::draw updates animations, before panes and
     // item counts render.
     s_pendingMeterDraw = nullptr;
+    if (s_dualScreenHost.active()) {
+        apply_button_layout_preference(meter);
+        if (meter->mpButtonCrossParent != nullptr) {
+            meter->mpButtonCrossParent->show();
+            if (feature_enabled(Feature::DpadShortcuts)) {
+                meter->drawButtonCross(g_drawHIO.mButtonCrossOFFPosX, 0.0f);
+                hud_pane_state(HudPaneSlot::DPad) = {};
+                apply_wii_u_dpad_transform(meter);
+                apply_wii_u_dpad_style(meter);
+            }
+        }
+        prepare_dual_screen_top_hud(meter);
+        apply_hud_backing_visibility(meter);
+        return HOOK_CONTINUE;
+    }
     refresh_native_face_button_items_for_touch_transition(meter);
     update_z_hud_item(meter);
     restore_archive_face_button_diamond(meter);
@@ -10032,7 +10384,7 @@ HookAction before_meter_screen_draw(ModContext*, void* args, void*, void*) {
     position_midna_hud(meter);
     update_midna_shoulder_badge(meter);
     apply_hud_backing_visibility(meter);
-    if (feature_enabled(Feature::ThirdItemSlot) && meter->mpLightXY[2] != nullptr) {
+    if (use_mod_item_slot() && meter->mpLightXY[2] != nullptr) {
         // Run after all native/restored HUD styling, including form changes.
         meter->mpLightXY[2]->hide();
         meter->mpLightXY[2]->setAlpha(0);
@@ -10042,12 +10394,19 @@ HookAction before_meter_screen_draw(ModContext*, void* args, void*, void*) {
 }
 
 void after_meter_draw_kantera_meter(ModContext*, void* args, void*, void*) {
+    if (s_dualScreenHost.active()) return;
     apply_wii_u_lantern_meter_layout(
         mods::arg<dMeter2Draw_c*>(args, 0), mods::arg<u8>(args, 1));
 }
 
 void after_meter_draw(ModContext*, void* args, void*, void*) {
     auto* meter = mods::arg<dMeter2Draw_c*>(args, 0);
+    if (s_dualScreenHost.active()) {
+        if (dual_screen_show_dpad()) draw_tphd_map_icon(meter);
+        draw_dual_screen_top_hud(meter);
+        restore_dual_screen_top_pose();
+        return;
+    }
     s_pendingMeterDraw = nullptr;
     restore_wii_u_item_num_layout(meter);
     draw_z_hud_item_meters(meter);
@@ -10114,6 +10473,7 @@ HookAction before_gauge_screen_draw(ModContext*, void* args, void*, void*) {
     if (s_activeCollectMenu != nullptr && screen == s_activeCollectMenu->getIconScreen()) {
         apply_collection_prompts(s_activeCollectMenu);
     }
+    if (s_dualScreenHost.active()) return HOOK_CONTINUE;
     auto* meter = s_gaugeDraw.meter;
     if (meter == nullptr || screen != meter->mpKanteraScreen ||
         meter->mpMagicParent == nullptr || s_gaugeDraw.pane != nullptr) {
@@ -10257,6 +10617,7 @@ void after_meter_midna_alpha(ModContext*, void* args, void*, void*) {
 }
 
 HookAction before_meter_draw_button_cross(ModContext*, void* args, void*, void*) {
+    if (s_dualScreenHost.active()) return HOOK_CONTINUE;
     // Both simulation and presentation update the native cross. Keep its
     // established minimap-off anchor in both paths; Midna shares this anchor.
     mods::arg_ref<f32>(args, 1) = g_drawHIO.mButtonCrossOFFPosX;
@@ -10265,6 +10626,7 @@ HookAction before_meter_draw_button_cross(ModContext*, void* args, void*, void*)
 }
 
 void after_meter_draw_button_cross(ModContext*, void* args, void*, void*) {
+    if (s_dualScreenHost.active()) return;
     auto* meter = mods::arg<dMeter2Draw_c*>(args, 0);
     // Dusklight recomputes this pane from the live user HUD scale whenever the
     // viewport/aspect changes. Reapply the TPHD icon-only sizing immediately
@@ -10281,6 +10643,7 @@ void after_meter_draw_button_cross(ModContext*, void* args, void*, void*) {
 }
 
 HookAction before_meter_map_draw(ModContext*, void* args, void*, void*) {
+    if (s_dualScreenHost.active()) return HOOK_CONTINUE;
     apply_wii_u_minimap_layout(mods::arg<dMeterMap_c*>(args, 0));
     return HOOK_CONTINUE;
 }
@@ -10439,6 +10802,21 @@ HookAction before_menu_window_execute(ModContext*, void* args, void*, void*) {
     s_menuWindowSuppressedHeld = 0;
     s_menuWindowSuppressedTrig = 0;
     s_menuWindowRestoreMask = 0;
+    if (s_dualScreenHost.owns_item_slots()) {
+        if (s_dualScreenHost.active() &&
+            menu_shortcuts_active(dMeter2Info_getWindowStatus(), s_inputGate.blocked())) {
+            auto& pad = mDoCPd_c::getCpadInfo(PAD_1);
+            s_menuWindowRestoreMask = PAD_BUTTON_DOWN | PAD_BUTTON_START;
+            s_menuWindowSuppressedHeld = pad.mButtonFlags;
+            s_menuWindowSuppressedTrig = pad.mPressedButtonFlags;
+            // Down joins Start as Collection; Items stays on the companion.
+            pad.mButtonFlags = menu_shortcut_buttons(pad.mButtonFlags,
+                PAD_BUTTON_DOWN, PAD_BUTTON_DOWN, PAD_BUTTON_START, 0, true, true);
+            pad.mPressedButtonFlags = menu_shortcut_buttons(pad.mPressedButtonFlags,
+                PAD_BUTTON_DOWN, PAD_BUTTON_DOWN, PAD_BUTTON_START, 0, true, true);
+        }
+        return HOOK_CONTINUE;
+    }
 
     s_dmapInputScope = nullptr;
     s_dmapBackTriggered = false;
@@ -10496,7 +10874,7 @@ HookAction before_menu_window_execute(ModContext*, void* args, void*, void*) {
         // the TPHD default: physical L. An explicit Dusklight action below is
         // the only thing that replaces this default.
         suppressMask = game_button_mask_for_native(kSdlLeftShoulderButton);
-    } else if (feature_enabled(Feature::ThirdItemSlot) && midna_action_triggered()) {
+    } else if (use_mod_item_slot() && midna_action_triggered()) {
         // Follow mode leaves the controller profile untouched. When its Call
         // Midna action fires, suppress the normal game button fed by that same
         // physical control only while the item-menu dispatcher processes it.
@@ -10519,7 +10897,8 @@ HookAction before_menu_window_execute(ModContext*, void* args, void*, void*) {
 }
 
 void after_menu_window_execute(ModContext*, void* args, void*, void*) {
-    preserve_map_minimap_preference(mods::arg<dMw_c*>(args, 0));
+    if (!s_dualScreenHost.owns_item_slots())
+        preserve_map_minimap_preference(mods::arg<dMw_c*>(args, 0));
     s_fmapInputScope = nullptr;
     s_fmapBackTriggered = false;
     s_dmapInputScope = nullptr;
@@ -10917,6 +11296,12 @@ void free_picture(ResourceBuffer& resource, J2DPicture*& picture) {
 
 }  // namespace
 
+bool dual_screen_available() {
+    return resolve_host_symbol("dusk::dualscreen::hudOnCompanion") != nullptr &&
+        resolve_host_symbol("dusk::companion::slotHoldBits") != nullptr;
+}
+
+
 void initialize_wolf_action_icons() {
     load_picture("hud/wolf_actions/sense.bti", "Unable to load the Sense HUD icon",
         s_senseIconResource, s_senseIconPicture);
@@ -11020,6 +11405,17 @@ void initialize_face_button_textures() {
     if (svc_resource->load(mod_ctx, "hud/face-button-blank-silver.bti",
             &s_silverBlankFaceButtonResource) != MOD_OK) {
         svc_log->warn(mod_ctx, "Unable to load the blank Silver button texture");
+    }
+    constexpr const char* companionSymbols[2][4] = {
+        {"circle", "cross", "triangle", "square"},
+        {"circle-colors", "cross-colors", "triangle-colors", "square-colors"},
+    };
+    for (int style = 0; style < 2; ++style) {
+        for (int symbol = 0; symbol < 4; ++symbol) {
+            char path[80];
+            std::snprintf(path, sizeof(path), "hud/companion-symbol-%s.bti", companionSymbols[style][symbol]);
+            svc_resource->load(mod_ctx, path, &s_companionSymbolResources[style][symbol]);
+        }
     }
     constexpr const char* blankShoulderPaths[] = {
         "hud/shoulder-button-blank-silver.bti",
@@ -11297,6 +11693,29 @@ void shutdown_face_button_textures() {
 }
 
 void shutdown_item_slot_resources() {
+    restore_dual_screen_top_pose();
+    s_companionItemUsable = nullptr;
+    if (s_companionSymbol != nullptr) {
+        JKR_DELETE(s_companionSymbol);
+        s_companionSymbol = nullptr;
+    }
+    for (auto& style : s_companionSymbolResources)
+        for (auto& resource : style) free_resource(resource);
+    JKR_DELETE(s_companionBackdrop);
+    s_companionBackdrop = nullptr;
+    for (auto*& picture : s_companionShoulders) {
+        JKR_DELETE(picture);
+        picture = nullptr;
+    }
+    for (auto*& picture : s_companionFaceBackings) {
+        JKR_DELETE(picture);
+        picture = nullptr;
+    }
+    s_companionWolfBlend = nullptr;
+    s_companionMeasureText = nullptr;
+    s_dualScreenHost = {};
+    after_companion_prompt(nullptr, nullptr, nullptr, nullptr);
+
     s_baitLookupScope = false;
     s_thirdSlotTalk = {};
     destroy_item_bank();
@@ -11390,8 +11809,30 @@ void shutdown_wolf_action_icons() {
 }
 
 ModResult install_item_slot_hooks(ModError* error) {
+    resolve_dual_screen_host();
     resolve_action_binding_functions();
     resolve_fish_journal_pointer_functions();
+    if (s_dualScreenHost.owns_item_slots()) {
+        const auto install = [&](auto hook, HookPreFn callback) {
+            using Hook = decltype(hook);
+            if (Hook::resolved_target() == nullptr ||
+                mods::hook::add_pre<Hook>(svc_hook, callback) != MOD_OK)
+                svc_log->warn(mod_ctx, "Companion HUD hook unavailable");
+        };
+        install(CompanionFaceLabelsHook{}, before_companion_face_labels);
+        mods::hook::add_post<CompanionFaceLabelsHook>(svc_hook, after_companion_prompt);
+        install(CompanionEquipHintHook{}, before_companion_equip_hint);
+        install(CompanionBackdropHook{}, before_companion_backdrop);
+        install(CompanionCircleHook{}, before_companion_circle);
+        install(CompanionSlotsHook{}, before_companion_slots);
+        install(CompanionMidnaHook{}, before_companion_midna);
+        install(CompanionPlateHook{}, before_companion_plate);
+        mods::hook::add_post<CompanionSlotsHook>(svc_hook, after_companion_prompt);
+        mods::hook::add_post<CompanionMidnaHook>(svc_hook, after_companion_prompt);
+        install(CompanionCompositeHook{}, before_companion_composite);
+        install(CompanionItemHoldHook{}, before_companion_item_hold);
+        install(MidnaTalkTriggerHook{}, before_companion_midna_trigger);
+    }
 
 #define ADD_PRE(type, callback, name) \
     if (const ModResult result = add_pre_hook<type>(name, callback, error); result != MOD_OK) { \
@@ -11402,7 +11843,7 @@ ModResult install_item_slot_hooks(ModError* error) {
         return result; \
     }
 
-    if (feature_enabled(Feature::ThirdItemSlot)) {
+    if (use_mod_item_slot()) {
         ADD_PRE(GetSelectItemHook, before_get_select_item, "get selected item");
         ADD_POST(SetSelectItemHook, after_set_select_item, "set selected item");
     }
@@ -11448,7 +11889,7 @@ ModResult install_item_slot_hooks(ModError* error) {
             "Dusklight touch-icon observation unavailable; touch HUD adaptation may be unavailable");
     }
 #endif
-    if (feature_enabled(Feature::ThirdItemSlot)) {
+    if (use_mod_item_slot()) {
         ADD_PRE(ItemActionTriggerHook, before_item_action_trigger,
             "boomerang ZR multi-target input");
         ADD_POST(SetStickDataHook, after_set_stick_data, "scoped third-item input");
@@ -11465,13 +11906,13 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_PRE(ItemExplainDrawHook, before_item_explain_draw,
         "item description button styling");
     ADD_POST(ItemExplainDrawHook, after_item_explain_draw, "item description scope cleanup");
-    if (feature_enabled(Feature::ThirdItemSlot)) {
+    if (use_mod_item_slot()) {
         ADD_POST(ItemHelpMessageHook, after_item_help_message, "three-button item instructions");
     }
     if (feature_enabled(Feature::CollectionScreen)) {
         ADD_POST(ItemHelpMessageHook, after_collection_wallet_message, "live wallet capacity description");
     }
-    if (feature_enabled(Feature::ThirdItemSlot)) {
+    if (use_mod_item_slot()) {
         ADD_POST(ItemGetMessageIndexHook, after_item_get_message_index,
             "three-button soup item-get instructions");
         ADD_POST(ItemGetMessageIndexDemoHook, after_item_get_message_index_demo,
@@ -11499,7 +11940,7 @@ ModResult install_item_slot_hooks(ModError* error) {
         ADD_POST(MeterDrawButtonCrossHook, after_meter_draw_button_cross,
             "persistent TPHD D-pad scale after viewport refresh");
     }
-    if (feature_enabled(Feature::ThirdItemSlot)) {
+    if (use_mod_item_slot()) {
         ADD_PRE(MeterDrawButtonZHook, before_meter_draw_button_z,
             "disable item-ring Z action label");
         ADD_POST(MeterDrawButtonZHook, after_meter_draw_button_z,
@@ -11519,7 +11960,7 @@ ModResult install_item_slot_hooks(ModError* error) {
         "item-get text and inline button metrics");
     ADD_PRE(MessageScreenDrawHook, before_message_screen_draw, "Howl button prompt");
     ADD_POST(MessageScreenDrawHook, after_message_screen_draw, "Restore dialogue draw geometry");
-    if (feature_enabled(Feature::ThirdItemSlot)) {
+    if (use_mod_item_slot()) {
         ADD_POST(MeterMidnaAlphaHook, after_meter_midna_alpha, "Midna icon opacity");
     }
     ADD_PRE(MeterMapDrawHook, before_meter_map_draw, "minimap draw (before)");
@@ -11546,7 +11987,7 @@ ModResult install_item_slot_hooks(ModError* error) {
         ADD_POST(CollectTextEscapeHook, after_collection_text_escape, "collection inline slot end");
         ADD_PRE(CollectOutFontDrawHook, before_collection_out_font_draw, "collection final inline alignment");
     }
-    if (feature_enabled(Feature::ThirdItemSlot)) {
+    if (use_mod_item_slot()) {
         ADD_PRE(CollectOutFontDrawHook, before_item_help_out_font_draw, "item help icon spacing");
         ADD_POST(CollectOutFontDrawHook, after_item_help_out_font_draw, "item help icon position restore");
     }
@@ -11649,7 +12090,7 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_PRE(SaveDlstDrawHook, before_save_dlst_draw, "save menu HD final draw");
     ADD_PRE(MenuWindowExecuteHook, before_menu_window_execute, "Collection and Items shortcuts");
     ADD_POST(MenuWindowExecuteHook, after_menu_window_execute, "Menu shortcut input restore");
-    if (feature_enabled(Feature::ThirdItemSlot)) {
+    if (use_mod_item_slot()) {
         ADD_PRE(RingSetActiveCursorHook, before_ring_set_active_cursor, "item ring cursor (before)");
         ADD_POST(RingSetActiveCursorHook, after_ring_set_active_cursor, "item ring cursor (after)");
         ADD_POST(RingSetMixMessageHook, after_ring_set_mix_message,

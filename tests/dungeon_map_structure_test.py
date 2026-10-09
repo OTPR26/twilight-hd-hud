@@ -30,6 +30,7 @@ assert 'getGlobalVtx(frame, nullptr' not in hint
 assert 'getGlobalVtx(frame, &matrix' in hint
 execute = source.split('HookAction before_menu_window_execute(', 1)[1].split(
     'void after_menu_window_execute(', 1)[0]
+execute = execute.split('    s_dmapInputScope = nullptr;', 1)[1]
 assert execute.index('dungeon_map_navigation_buttons(') < execute.index('menu_shortcuts_active(')
 assert 'window->mMenuProc == dMw_c::DMAP_MOVE' in execute
 assert 'pad.mPressedButtonFlags, PAD_BUTTON_UP' in execute

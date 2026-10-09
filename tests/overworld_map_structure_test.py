@@ -82,6 +82,7 @@ assert 'map_responsive_layout::scale(' in hint
 assert 'group->scale(mDoGph_gInf_c::hudAspectScaleDown' not in hint
 execute = hooks.split('HookAction before_menu_window_execute(', 1)[1].split(
     'void after_menu_window_execute(', 1)[0]
+execute = execute.split('    s_dmapInputScope = nullptr;', 1)[1]
 assert 'window->mMenuProc == dMw_c::FMAP_MOVE' in execute
 assert 's_fmapBackTriggered = dungeon_map_back_requested' in execute
 assert '!fmap_accepts_back(window->mpMenuFmap)' in execute

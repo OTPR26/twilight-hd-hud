@@ -5,9 +5,11 @@ from pathlib import Path
 source = read_hook_source()
 pad = source.split('void after_pad_read(', 1)[1].split('HookAction before_meter_map_ctrl_show(', 1)[0]
 assert 'daAlink_getAlinkActorClass() != nullptr, s_fileSelectScreenActive' in pad
-assert 'use_tphd_dpad_map_bindings() && gameplayShortcuts' in pad
+shortcuts = source.split('void update_dpad_shortcuts(', 1)[1].split('void after_pad_read(', 1)[0]
+assert 'use_tphd_dpad_map_bindings() && gameplayShortcuts' in shortcuts
 assert 'use_tphd_midna_binding() && gameplayShortcuts' in pad
-assert pad.index('gameplay_shortcuts_active(') < pad.index('pad.mButtonFlags &= ~consumedMapMask')
+assert 'update_dpad_shortcuts(pad, gameplayShortcuts)' in pad
+assert 'pad.mButtonFlags &= ~consumedMapMask' in shortcuts
 before = source.split('HookAction before_menu_window_execute(', 1)[1].split('void after_menu_window_execute(', 1)[0]
 after = source.split('void after_menu_window_execute(', 1)[1].split('HookAction before_check_item_button_change(', 1)[0]
 assert 'preserve_map_minimap_preference(window)' in before

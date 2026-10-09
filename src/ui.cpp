@@ -252,6 +252,18 @@ ModResult build_hud_tab(
     if (add_toggle(ctx, left, "Wolf Icons on Touch Buttons", wolf_touch_icons_config_var(),
             "Show Sense, Dig, and Attack on touch buttons. Hide their HUD icons while touch controls are active.") != MOD_OK)
         return MOD_ERROR;
+    if (dual_screen_available()) {
+        static constexpr const char* kTopButtons[] = {"A + B", "Full Diamond + R"};
+        if (add_section(ctx, left, "Dual Screen") != MOD_OK ||
+            add_select(ctx, left, "Top Screen Buttons", dual_screen_buttons_config_var(),
+                kTopButtons, std::size(kTopButtons),
+                "Choose the buttons shown on the top screen. Bottom-screen controls stay available.") != MOD_OK ||
+            add_toggle(ctx, left, "Show L / Midna on Top Screen", dual_screen_midna_config_var(),
+                "Show Midna's L prompt on the top screen.") != MOD_OK ||
+            add_toggle(ctx, left, "Show D-Pad on Top Screen", dual_screen_dpad_config_var(),
+                "Show or hide the D-Pad icons. All D-Pad controls keep working.") != MOD_OK)
+            return MOD_ERROR;
+    }
     if (add_section(ctx, left, "Optional Features (restart required)") != MOD_OK)
         return MOD_ERROR;
     if (add_toggle(ctx, left, "Third Item Slot (Z/R)",

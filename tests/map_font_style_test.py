@@ -3,12 +3,13 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 font = (root / 'src/font_override.cpp').read_text()
 screen = (root / 'src/overworld_map_screen.inc').read_text()
-assert 's_mapDepth > 0 && source && source == mDoExt_getRubyFont()' in font
-assert 'fonts/mplus-bold.bfn' in font
+assert 's_mapDepth > 0 && source &&' in font
+assert 'source == s_messageFont || source == mDoExt_getRubyFont()' in font
+assert 's_mapHeadingFont' not in font and 's_mapFont' not in font
 assert 'drawOriginal(source, x' not in font
 assert 'mapStem ? 1.0f : itemStem ? 0.5f : 0.0f' in font
 assert 'int(black.b) + 22' not in screen
-assert 'fonts/fira-regular.bfn' in font
+assert 'fonts/fira-regular.bfn' not in font
 assert 'begin_map_font();' in screen and 'end_map_font();' in screen
 assert 'title->setFont(mDoExt_getRubyFont())' in screen
 assert 'area->setFont(areaSource->getFont())' in screen

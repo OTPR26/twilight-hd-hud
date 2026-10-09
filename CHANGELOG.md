@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.6 - 2026-10-09
+
+- Added dual-screen fork support including various HUD options for dual screen users
+- Map text now follows the mod’s text font setting.
+- Fixed font mismatch in item-acquisition messages.
+- Restored rupee counter animation when gaining or spending rupees.
+
 ## v2.5.3 - 2026-10-07
 
 - Item-acquisition messages now follow the mod's text font setting.

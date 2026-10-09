@@ -10,7 +10,11 @@ ModContext* mod_ctx = nullptr;
 const ConfigService* svc_config = nullptr;
 const HostService* svc_host = nullptr;
 const UiService* svc_ui = nullptr;
-namespace twilight_hd_hud { ModResult register_ui(ModError*); }
+static bool dualHost = false;
+namespace twilight_hd_hud {
+ModResult register_ui(ModError*);
+bool dual_screen_available() { return dualHost; }
+}
 using namespace twilight_hd_hud;
 
 static std::map<std::string, int64_t> saved;
@@ -18,6 +22,7 @@ static std::vector<std::string> names;
 static std::map<std::string, ConfigVarType> types;
 static std::vector<UiControlDesc> controls;
 static UiMenuTabDesc menuTab{};
+static decltype(UiTabDesc{}.build) hudBuilder = nullptr;
 static std::map<UiElementHandle, bool> visible;
 static std::string sizingGuide;
 static ModResult set_visible(ModContext*, UiElementHandle handle, bool value) {
@@ -73,6 +78,7 @@ static ModResult control(ModContext*, UiElementHandle pane, const UiControlDesc*
     return MOD_OK;
 }
 static ModResult window(ModContext*, const UiWindowDesc* desc, UiWindowHandle* handle) {
+    hudBuilder = desc->tabs[0].build;
     assert(desc->tab_count == 2);
     assert(std::string(desc->tabs[1].title) == "HUD Sizing");
     assert(desc->tabs[0].build(nullptr, 1, 2, 3, nullptr, nullptr) == MOD_OK);
@@ -368,5 +374,33 @@ int main() {
         for (int i = 0; i < 3; ++i)
             assert(feature_enabled(static_cast<Feature>(i)) == ((mask & (1 << i)) != 0));
     }
+    assert(!dual_screen_full_diamond() && !dual_screen_show_midna() && dual_screen_show_dpad());
+    controls.clear();
+    assert(hudBuilder(nullptr, 1, 2, 3, nullptr, nullptr) == MOD_OK);
+    for (const auto& control : controls)
+        assert(std::string(control.label).find("Top Screen") == std::string::npos);
+    controls.clear();dualHost = true;
+    assert(hudBuilder(nullptr, 1, 2, 3, nullptr, nullptr) == MOD_OK);
+    int dualControls = 0;
+    for (const auto& control : controls) {
+        const std::string label = control.label;
+        if (label == "Top Screen Buttons") {
+            ++dualControls;
+            assert(control.option_count == 2);
+            assert(std::string(control.options[1]) == "Full Diamond + R");
+            svc_config->set_int(nullptr, control.config_var, 1);
+            assert(dual_screen_full_diamond());
+        } else if (label == "Show L / Midna on Top Screen") {
+            ++dualControls;
+            svc_config->set_bool(nullptr, control.config_var, true);
+            assert(dual_screen_show_midna());
+        } else if (label == "Show D-Pad on Top Screen") {
+            ++dualControls;
+            svc_config->set_bool(nullptr, control.config_var, false);
+            assert(!dual_screen_show_dpad());
+            assert(std::string(control.help_rml).find("All D-Pad controls keep working") != std::string::npos);
+        }
+    }
+    assert(dualControls == 3);
     std::cout << "PASS: settings, optional feature combinations, and restart snapshots\n";
 }

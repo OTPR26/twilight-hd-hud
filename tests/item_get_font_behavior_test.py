@@ -69,11 +69,11 @@ int main() {
     assert(subtitleRequests==0 && reference==expected);
     body[0].text.font=&native; native.type=0;
     style_item_get_text(&screen,&reference);
-    assert(subtitleRequests==1 && screen.field_0x54==&subtitle);
-    assert(reference.font==&subtitle && reference.x==kItemHelpBodyFontSize);
+    assert(subtitleRequests==0 && screen.field_0x54==&native);
+    assert(reference.font==&native && reference.x==kItemHelpBodyFontSize);
     for(int i=0;i<7;++i) {
-        assert(body[i].text.font==&subtitle && body[i].text.x==kItemHelpBodyFontSize);
-        assert(ruby[i].text.font==&subtitle && ruby[i].text.x==kItemHelpRubyFontSize);
+        assert(body[i].text.font==&native && body[i].text.x==kItemHelpBodyFontSize);
+        assert(ruby[i].text.font==&native && ruby[i].text.x==kItemHelpRubyFontSize);
     }
     style_item_get_text(nullptr,&reference);
     screen.mpTm_c[0]=nullptr; screen.mpTmr_c[0]=nullptr;

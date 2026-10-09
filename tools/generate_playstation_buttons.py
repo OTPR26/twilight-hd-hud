@@ -57,7 +57,7 @@ def decode_ia4_bti(data: bytes) -> Image.Image:
     return image
 
 
-def make_wii_u_l_from_archive_r() -> Image.Image:
+def make_wii_u_l_from_archive_r(label: str = "L") -> Image.Image:
     """Mirror TPHD's exact R cap and replace only its embedded glyph."""
     r_button = decode_ia4_bti(extract_rarc_file(MAIN_2D_ARCHIVE, "wiiu_r.bti"))
     image = r_button.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
@@ -77,13 +77,14 @@ def make_wii_u_l_from_archive_r() -> Image.Image:
             shade = round(187 + (clean[0] - 187) * t)
             pixels[x, y] = (shade, shade, shade, pixels[x, y][3])
 
-    draw = ImageDraw.Draw(image)
-    font = ImageFont.truetype(FONT_PATH, 22, index=1)
-    box = draw.textbbox((0, 0), "L", font=font, stroke_width=1)
-    x = width / 2 - (box[2] - box[0]) / 2 - box[0]
-    y = height / 2 - (box[3] - box[1]) / 2 - box[1]
-    draw.text((x, y), "L", font=font, fill=(92, 94, 96, 255),
-              stroke_width=1, stroke_fill=(245, 245, 245, 255))
+    if label:
+        draw = ImageDraw.Draw(image)
+        font = ImageFont.truetype(FONT_PATH, 22, index=1)
+        box = draw.textbbox((0, 0), label, font=font, stroke_width=1)
+        x = width / 2 - (box[2] - box[0]) / 2 - box[0]
+        y = height / 2 - (box[3] - box[1]) / 2 - box[1]
+        draw.text((x, y), label, font=font, fill=(92, 94, 96, 255),
+                  stroke_width=1, stroke_fill=(245, 245, 245, 255))
     assert image.getchannel("A").tobytes() == original.getchannel("A").tobytes()
     for py in range(height):
         for px in range(width):
