@@ -194,6 +194,8 @@ int main(){
 with tempfile.TemporaryDirectory() as directory:
     cpp=Path(directory)/'test.cpp';binary=Path(directory)/'test'
     cpp.write_text(fixture)
-    subprocess.run(['c++','-std=c++20','-I',str(root/'src'),'-I',str(root.parent/'dusklight-sdk/sdk/include'),str(cpp),'-o',str(binary)],check=True)
+    sdk = next(path for path in (root/'dusklight/sdk/include', root.parent/'dusklight-sdk/sdk/include')
+               if (path/'mods/api.h').is_file())
+    subprocess.run(['c++','-std=c++20','-I',str(root/'src'),'-I',str(sdk),str(cpp),'-o',str(binary)],check=True)
     subprocess.run([str(binary)],check=True)
 print('PASS: actual L/R artwork, prompt sizing, fourth-slot preservation, and normal-host fallback')
