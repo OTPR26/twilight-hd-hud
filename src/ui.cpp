@@ -52,6 +52,15 @@ ModResult update_hud_tab(ModContext* ctx, void*, ModError*) {
     return MOD_OK;
 }
 
+void get_dpad_style(ModContext*, void*, UiControlValue* value) {
+    value->int_value = playstation_dpad_enabled() ? 1 : 0;
+}
+
+void set_dpad_style(ModContext* ctx, void*, const UiControlValue* value) {
+    if (value->int_value == 0 || value->int_value == 1)
+        svc_config->set_int(ctx, playstation_dpad_config_var(), value->int_value);
+}
+
 ModResult add_section(ModContext* ctx, UiElementHandle pane, const char* title) {
     return svc_ui->pane_add_section(ctx, pane, title);
 }
@@ -208,6 +217,17 @@ ModResult build_hud_tab(
     psStyle.set = set_playstation_style;
     psStyle.is_disabled = playstation_style_disabled;
     if (svc_ui->pane_add_control(ctx, left, &psStyle, &s_playStationStyle) != MOD_OK)
+        return MOD_ERROR;
+    static constexpr const char* kDpadStyles[] = {"Wii U", "PlayStation"};
+    UiControlDesc dpadStyle = UI_CONTROL_DESC_INIT;
+    dpadStyle.kind = UI_CONTROL_SELECT;
+    dpadStyle.label = "D-Pad Style";
+    dpadStyle.help_rml = "Choose the D-Pad artwork.";
+    dpadStyle.options = kDpadStyles;
+    dpadStyle.option_count = std::size(kDpadStyles);
+    dpadStyle.get = get_dpad_style;
+    dpadStyle.set = set_dpad_style;
+    if (svc_ui->pane_add_control(ctx, left, &dpadStyle, nullptr) != MOD_OK)
         return MOD_ERROR;
     update_hud_tab(ctx, nullptr, nullptr);
     static constexpr const char* kControllerCompatibility[] = {

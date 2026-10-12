@@ -1,13 +1,16 @@
 from source_helpers import read_hook_source
-"""Guard the dialogue-only draw scope and native layout restoration."""
+"""Guard the message draw scope and native layout restoration."""
 from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 source = (root / 'src/dialogue_text_screen.inc').read_text()
 hooks = read_hook_source()
 assert 'dynamic_cast<dMsgScrnTalk_c*>(screen)' in source
-assert 'talk->mpTm_c[i] : talk->mpTmr_c[i - 7]' in source
+assert 'dynamic_cast<dMsgScrnItem_c*>(screen)' in source
+assert 'itemCard ? hud_scales().dialogueText' in source
+assert 'symbol->mPosX + symbolOffsetX' in source
+assert 'screen->mpTm_c[i] : screen->mpTmr_c[i - 7]' in source
 assert 'dialogue_text_multiplier(hud_scales().dialogueText, sourceMessageScale)' in source
-assert 'talk->mCharInfoPtr[0].field_0x08' in source
+assert 'screen->mCharInfoPtr[0].field_0x08' in source
 assert 'symbol->getTextBoxPtr() != nullptr' in source
 assert 'characterCount = std::clamp<int>' in source
 assert 'state.characterCount = characterCount' in source
@@ -33,4 +36,4 @@ assert '{6, item_assignment_button_texture(false)}' in out_font_layout
 assert '{7, dialogue ? dialogue_midna_texture(outFont) : nullptr}' in out_font_layout
 assert 'apply_out_font_button_layout(messageScreen->mpOutFont,' in hooks
 assert 'dynamic_cast<dMsgScrnItem_c*>(messageScreen) == nullptr' in hooks
-print('PASS: dialogue-only text/ruby/glow/symbol scaling, geometry restored, choices/parser unchanged')
+print('PASS: dialogue and item text/ruby/glow/symbol scaling, geometry restored, choices/parser unchanged')

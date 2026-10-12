@@ -89,6 +89,7 @@ void set_hud_size_percent(HudSizeSetting setting, int64_t percent);
 ModResult register_config(ModError* error);
 ButtonLayout button_layout();
 ButtonStyle button_style();
+bool playstation_dpad_enabled();
 ControllerCompatibility controller_compatibility();
 float hud_scale();
 HudScales hud_scales();
@@ -111,6 +112,7 @@ ConfigVarHandle combined_map_config_var();
 
 ConfigVarHandle button_layout_config_var();
 ConfigVarHandle button_style_config_var();
+ConfigVarHandle playstation_dpad_config_var();
 ConfigVarHandle controller_compatibility_config_var();
 ConfigVarHandle text_font_config_var();
 ConfigVarHandle items_screen_config_var();

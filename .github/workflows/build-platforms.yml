@@ -54,6 +54,7 @@ jobs:
         run: |
           python3 tests/action_text_structure_test.py
           python3 tests/dialogue_text_structure_test.py
+          python3 tests/message_text_scaling_behavior_test.py
           python3 tests/playstation_colors_test.py
           python3 tests/third_slot_interactions_test.py
           python3 tests/third_slot_talk_behavior_test.py
@@ -74,6 +75,7 @@ jobs:
           python3 tests/optional_features_structure_test.py
           python3 tests/dual_screen_draw_test.py
           python3 tests/companion_hud_behavior_test.py
+          python3 tests/companion_item_reader_test.py
           python3 tests/language_layout_structure_test.py
           python3 tests/touch_hook_structure_test.py
           python3 tests/quick_transform_structure_test.py

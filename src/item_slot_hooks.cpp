@@ -5,6 +5,7 @@
 #include "action_prompt_layout.hpp"
 #include "collection_layout.hpp"
 #include "controller_prompts.hpp"
+#include "companion_item_help.hpp"
 #include "diamond_layout.hpp"
 #include "dungeon_map_layout.hpp"
 #include "overworld_map_layout.hpp"
@@ -140,6 +141,7 @@ std::array<J2DPicture*, 2> s_companionFaceBackings{};
 J2DPicture* s_companionBackdrop = nullptr;
 J2DPicture* s_companionSymbol = nullptr;
 ResourceBuffer s_companionSymbolResources[2][4]{};
+ResourceBuffer s_companionWolfPortraitResource = RESOURCE_BUFFER_INIT;
 f32* s_companionWolfBlend = nullptr;
 f32 (*s_companionMeasureText)(f32, const char*) = nullptr;
 bool (*s_companionItemUsable)(dMeter2Draw_c*, int) = nullptr;
@@ -342,6 +344,14 @@ DEFINE_HOOK_SYMBOL("_ZN4dusk2ui13TouchControls17sync_visual_stateEv",
 DEFINE_HOOK_SYMBOL("dusk::ui::midna_icon_source",
     std::string(), TouchZIconSourceHook);
 #endif
+DEFINE_HOOK_SYMBOL("dusk::companion::drawItemInfo",
+    void(f32, f32, f32, f32), CompanionItemInfoHook);
+DEFINE_HOOK_SYMBOL("dusk::companion::drawTransformCorner",
+    void(f32, f32, f32, f32), CompanionTransformHook);
+DEFINE_HOOK_SYMBOL("dusk::companion::dmapFloorFaceTimgSharp",
+    const ResTIMG*(bool), CompanionTransformFaceHook);
+DEFINE_HOOK_SYMBOL("dMeter2Info_c::getStringFull",
+    void(dMeter2Info_c*, u32, char*, int, int), CompanionItemTextHook);
 DEFINE_HOOK_SYMBOL("dusk::companion::drawTextEllipsized",
     void(f32, f32, f32, f32, u32, const char*), CompanionEquipHintHook);
 DEFINE_HOOK_SYMBOL("dusk::companion::drawBackdrop",
@@ -408,6 +418,8 @@ J2DPicture* s_digIconPicture = nullptr;
 ResourceBuffer s_attackIconResource = RESOURCE_BUFFER_INIT;
 J2DPicture* s_attackIconPicture = nullptr;
 ResourceBuffer s_tphdMapIconResource = RESOURCE_BUFFER_INIT;
+ResourceBuffer s_playStationDpadResources[2] = {RESOURCE_BUFFER_INIT, RESOURCE_BUFFER_INIT};
+J2DPicture* s_playStationDpadPictures[2]{};
 J2DPicture* s_tphdMapIconPicture = nullptr;
 ResourceBuffer s_faceButtonAResource = RESOURCE_BUFFER_INIT;
 ResourceBuffer s_faceButtonBResource = RESOURCE_BUFFER_INIT;
@@ -4708,6 +4720,32 @@ void draw_uniform_rupee_digits(dMeter2Draw_c* meter) {
 bool draw_companion_symbol(void* args, void* retval, char action);
 bool draw_companion_shoulder_label(void* args, void* retval, bool left);
 
+int s_companionTransformDepth = 0;
+
+HookAction before_companion_transform(ModContext*, void*, void*, void*) {
+    if (s_dualScreenHost.active()) ++s_companionTransformDepth;
+    return HOOK_CONTINUE;
+}
+
+void after_companion_transform(ModContext*, void*, void*, void*) {
+    if (s_companionTransformDepth > 0) --s_companionTransformDepth;
+}
+
+HookAction before_companion_transform_face(ModContext*, void* args, void* retval, void*) {
+    if (s_companionTransformDepth == 0) return HOOK_CONTINUE;
+    const auto* link = daAlink_getAlinkActorClass();
+    if (s_companionWolfBlend == nullptr && link == nullptr) return HOOK_CONTINUE;
+    const bool wolf = s_companionWolfBlend != nullptr ? *s_companionWolfBlend > 0.5f :
+        link->checkWolf();
+    // Keep the original Link texture and its texture-pack replacement.
+    mods::arg_ref<bool>(args, 0) = wolf;
+    if (!wolf) return HOOK_CONTINUE;
+    const auto* texture = resource_texture(s_companionWolfPortraitResource);
+    if (texture == nullptr) return HOOK_CONTINUE;
+    *static_cast<const ResTIMG**>(retval) = texture;
+    return HOOK_SKIP_ORIGINAL;
+}
+
 enum class CompanionPrompt { None, Item, Midna, Face };
 CompanionPrompt s_companionPrompt = CompanionPrompt::None;
 int s_companionSlot = -1;
@@ -4965,6 +5003,8 @@ void draw_wolf_action_icons(dMeter2Draw_c* meter) {
     draw_wolf_icon(meter->mpButtonB, s_attackIconPicture, kAttackIconLayout);
 }
 
+#include "companion_item_reader.inc"
+
 void draw_tphd_map_icon(dMeter2Draw_c* meter) {
     if (!feature_enabled(Feature::DpadShortcuts)) return;
     if (touch_controls_active()) {
@@ -4972,10 +5012,6 @@ void draw_tphd_map_icon(dMeter2Draw_c* meter) {
     }
     const bool fixedTphdBindings =
         controller_compatibility() == ControllerCompatibility::FixedTphd;
-    const auto mapControls = active_map_masks();
-    if (mapControls.map == 0) return;
-    const DpadDirection mapDirection = combined_map_control() || fixedTphdBindings ?
-        DpadDirection::Up : follow_dpad_layout().map;
     if (meter == nullptr || meter->mpScreen == nullptr ||
         s_tphdMapIconPicture == nullptr || meter->mpButtonCrossParent == nullptr)
     {
@@ -5021,6 +5057,23 @@ void draw_tphd_map_icon(dMeter2Draw_c* meter) {
     if (!haveBounds || right <= left || bottom <= top) {
         return;
     }
+
+    if (playstation_dpad_enabled()) {
+        auto* picture = s_playStationDpadPictures[uses_dark_buttons(button_style()) ? 1 : 0];
+        if (picture != nullptr) {
+            dComIfGp_getCurrentGrafPort()->setup2D();
+            picture->setAlpha(meter->mpButtonCrossParent->getAlpha());
+            constexpr f32 dpadScale = 0.85f;
+            const f32 width = (right - left) * dpadScale;
+            const f32 height = (bottom - top) * dpadScale;
+            picture->draw((left + right - width) * 0.5f, (top + bottom - height) * 0.5f,
+                width, height, false, false, false);
+        }
+    }
+    const auto mapControls = active_map_masks();
+    if (mapControls.map == 0) return;
+    const DpadDirection mapDirection = combined_map_control() || fixedTphdBindings ?
+        DpadDirection::Up : follow_dpad_layout().map;
 
     // TPHD's parchment is almost as wide as the cross. Its lower edge sits
     // across the upper stem instead of floating above it. Deriving both size
@@ -5136,7 +5189,9 @@ void apply_wii_u_dpad_style(dMeter2Draw_c* meter) {
             // The individual directions carry stock pulse animation. TPHD
             // presents them as one steady white cross; retain only the common
             // parent's HUD fade.
-            piece->setAlpha(255);
+            const bool customDpad = playstation_dpad_enabled() &&
+                s_playStationDpadPictures[blackPro ? 1 : 0] != nullptr;
+            piece->setAlpha(customDpad ? 0 : 255);
             if (J2DPicture* picture = as_picture(piece)) {
                 picture->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
                     blackPro ? JUtility::TColor(112, 117, 124, 255)
@@ -10585,7 +10640,6 @@ HookAction before_message_screen_draw(ModContext*, void* args, void*, void*) {
         // and item cards instead of retaining the stock green GameCube art.
         apply_out_font_button_layout(talk->mpOutFont);
     }
-    scale_dialogue_for_draw(messageScreen);
     auto* itemScreen = dynamic_cast<dMsgScrnItem_c*>(messageScreen);
     if (itemScreen != nullptr) {
         // Hidden-skill completion cards use the item-acquisition screen, but
@@ -10597,6 +10651,7 @@ HookAction before_message_screen_draw(ModContext*, void* args, void*, void*) {
     style_item_get_text(itemScreen);
     apply_item_get_assignment_buttons(itemScreen);
     lift_item_get_assignment_icons(itemScreen);
+    scale_dialogue_for_draw(messageScreen);
     auto* howl = dynamic_cast<dMsgScrnHowl_c*>(messageScreen);
     if (howl == nullptr || howl->mpButtonIcon[1] == nullptr) return HOOK_CONTINUE;
     J2DPane* group = howl->mpButtonIcon[1]->getPanePtr();
@@ -11309,11 +11364,18 @@ void initialize_wolf_action_icons() {
         s_digIconResource, s_digIconPicture);
     load_picture("hud/wolf_actions/attack.bti", "Unable to load the Attack HUD icon",
         s_attackIconResource, s_attackIconPicture);
+    load_picture("hud/playstation-dpad-grey.bti", "Unable to load the grey PlayStation D-pad",
+        s_playStationDpadResources[0], s_playStationDpadPictures[0]);
+    load_picture("hud/playstation-dpad-black.bti", "Unable to load the black PlayStation D-pad",
+        s_playStationDpadResources[1], s_playStationDpadPictures[1]);
     load_picture("hud/tphd-map-icon.bti", "Unable to load the TPHD map HUD icon",
         s_tphdMapIconResource, s_tphdMapIconPicture);
 }
 
 void initialize_face_button_textures() {
+    if (dual_screen_available() &&
+        svc_resource->load(mod_ctx, "hud/companion-wolf.bti", &s_companionWolfPortraitResource) != MOD_OK)
+        svc_log->warn(mod_ctx, "Unable to load the companion wolf portrait");
     for (std::size_t style = 0; style < 2; ++style) {
         for (std::size_t index = 0; index < 4; ++index) {
             if (svc_resource->load(mod_ctx, kXboxShoulderPaths[style][index],
@@ -11695,6 +11757,7 @@ void shutdown_face_button_textures() {
 void shutdown_item_slot_resources() {
     restore_dual_screen_top_pose();
     s_companionItemUsable = nullptr;
+    s_companionItemInfoDepth = 0;
     if (s_companionSymbol != nullptr) {
         JKR_DELETE(s_companionSymbol);
         s_companionSymbol = nullptr;
@@ -11712,6 +11775,8 @@ void shutdown_item_slot_resources() {
         picture = nullptr;
     }
     s_companionWolfBlend = nullptr;
+    s_companionTransformDepth = 0;
+    free_resource(s_companionWolfPortraitResource);
     s_companionMeasureText = nullptr;
     s_dualScreenHost = {};
     after_companion_prompt(nullptr, nullptr, nullptr, nullptr);
@@ -11806,6 +11871,8 @@ void shutdown_wolf_action_icons() {
     free_picture(s_digIconResource, s_digIconPicture);
     free_picture(s_attackIconResource, s_attackIconPicture);
     free_picture(s_tphdMapIconResource, s_tphdMapIconPicture);
+    for (int style = 0; style < 2; ++style)
+        free_picture(s_playStationDpadResources[style], s_playStationDpadPictures[style]);
 }
 
 ModResult install_item_slot_hooks(ModError* error) {
@@ -11819,6 +11886,16 @@ ModResult install_item_slot_hooks(ModError* error) {
                 mods::hook::add_pre<Hook>(svc_hook, callback) != MOD_OK)
                 svc_log->warn(mod_ctx, "Companion HUD hook unavailable");
         };
+        install(CompanionItemInfoHook{}, before_companion_item_info);
+        mods::hook::add_post<CompanionItemInfoHook>(svc_hook, after_companion_item_info);
+        if (CompanionTransformHook::resolved_target() != nullptr &&
+            CompanionTransformFaceHook::resolved_target() != nullptr) {
+            install(CompanionTransformHook{}, before_companion_transform);
+            mods::hook::add_post<CompanionTransformHook>(svc_hook, after_companion_transform);
+            install(CompanionTransformFaceHook{}, before_companion_transform_face);
+        }
+        if (CompanionItemTextHook::resolved_target() != nullptr)
+            mods::hook::add_post<CompanionItemTextHook>(svc_hook, after_companion_item_text);
         install(CompanionFaceLabelsHook{}, before_companion_face_labels);
         mods::hook::add_post<CompanionFaceLabelsHook>(svc_hook, after_companion_prompt);
         install(CompanionEquipHintHook{}, before_companion_equip_hint);

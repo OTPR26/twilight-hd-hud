@@ -6,7 +6,7 @@ import tempfile
 root = Path(__file__).resolve().parents[1]
 source = (root / 'src/item_slot_hooks.cpp').read_text()
 start = source.index('bool ensure_rupee_digit_textures()')
-end = source.index('\nenum class CompanionPrompt', start)
+end = source.index('\nbool draw_companion_symbol', start)
 fixture = r'''
 #include <algorithm>
 #include <cassert>

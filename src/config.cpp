@@ -11,6 +11,7 @@ namespace {
 
 ConfigVarHandle s_buttonLayout = 0;
 ConfigVarHandle s_buttonStyle = 0;
+ConfigVarHandle s_playstationDpad = 0;
 ConfigVarHandle s_controllerCompatibility = 0;
 ConfigVarHandle s_hudScale = 0;
 ConfigVarHandle s_controllerDiamondSize = 0;
@@ -122,6 +123,7 @@ ModResult register_config(ModError* error) {
             s_buttonLayout) != MOD_OK ||
         register_int("button-style", static_cast<int64_t>(ButtonStyle::Silver),
             s_buttonStyle) != MOD_OK ||
+        register_int("playstation-dpad-style", -1, s_playstationDpad) != MOD_OK ||
         register_int("controller-compatibility",
             static_cast<int64_t>(ControllerCompatibility::FollowDusklight),
             s_controllerCompatibility) != MOD_OK ||
@@ -189,6 +191,12 @@ ButtonStyle button_style() {
     return static_cast<ButtonStyle>(value);
 }
 
+bool playstation_dpad_enabled() {
+    const auto style = get_int(s_playstationDpad, -1);
+    if (style == 0 || style == 1) return style == 1;
+    return is_playstation_layout(button_layout());
+}
+
 float hud_scale() {
     return hud_size_multiplier(hud_size_percent(HudSizeSetting::Overall));
 }
@@ -229,6 +237,10 @@ ConfigVarHandle button_layout_config_var() {
 
 ConfigVarHandle button_style_config_var() {
     return s_buttonStyle;
+}
+
+ConfigVarHandle playstation_dpad_config_var() {
+    return s_playstationDpad;
 }
 
 ConfigVarHandle controller_compatibility_config_var() {

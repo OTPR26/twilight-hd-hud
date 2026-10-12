@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.7.0 - 2026-10-11
+
+- Fixed text and button glyph scaling in item-acquisition and Hidden Skill messages.
+- Added option for PlayStation style D-pad.
+- Improved item descriptions in dual-screen mode.
+- Updated the dual-screen transform portrait to reflect Link’s current form, both human and wolf.
+
 ## v2.6 - 2026-10-09
 
 - Added dual-screen fork support including various HUD options for dual screen users

@@ -115,6 +115,18 @@ static ModResult window(ModContext*, const UiWindowDesc* desc, UiWindowHandle* h
         const bool playstation = index >= 8 && index <= 12;
         assert(visible.at(2) == (!universal && !playstation) && visible.at(3) == universal);
         assert(visible.at(4) == playstation);
+        assert(controls[4].is_disabled == nullptr);
+        saved["playstation-dpad-style"] = -1;
+        assert(playstation_dpad_enabled() == playstation);
+        UiControlValue dpad = UI_CONTROL_VALUE_INIT;
+        controls[4].get(nullptr, nullptr, &dpad);
+        assert(dpad.int_value == (playstation ? 1 : 0));
+        for (int64_t style : {0, 1}) {
+            dpad.int_value = style;
+            controls[4].set(nullptr, nullptr, &dpad);
+            assert(saved["playstation-dpad-style"] == style);
+            assert(playstation_dpad_enabled() == (style == 1));
+        }
         assert(controls[1].is_disabled(nullptr, nullptr) == (universal || playstation));
         assert(controls[2].is_disabled(nullptr, nullptr) == !universal);
         assert(controls[3].is_disabled(nullptr, nullptr) == !playstation);
@@ -127,9 +139,14 @@ static ModResult window(ModContext*, const UiWindowDesc* desc, UiWindowHandle* h
     }
     saved["button-layout"] = 0;
     assert(controls[1].option_count == 2 && controls[2].option_count == 3);
-    assert(std::string(controls[4].label) == "Shoulder & D-Pad Behavior");
-    assert(controls[4].config_var == controller_compatibility_config_var());
-    assert(std::string(controls[4].help_rml).find(
+    assert(std::string(controls[4].label) == "D-Pad Style");
+    assert(controls[4].binding == UI_BINDING_CALLBACKS);
+    assert(controls[4].option_count == 2);
+    assert(std::string(controls[4].options[0]) == "Wii U");
+    assert(std::string(controls[4].options[1]) == "PlayStation");
+    assert(std::string(controls[5].label) == "Shoulder & D-Pad Behavior");
+    assert(controls[5].config_var == controller_compatibility_config_var());
+    assert(std::string(controls[5].help_rml).find(
         "Face-button bindings are always configured in Dusklight.") != std::string::npos);
     assert(std::string(controls[2].options[2]) == "Transparent");
     for (int64_t raw = 0; raw < 15; ++raw) {
@@ -152,31 +169,31 @@ static ModResult window(ModContext*, const UiWindowDesc* desc, UiWindowHandle* h
     normal.int_value = 0;
     layout.set(nullptr, nullptr, &normal);
     assert(saved["button-style"] == 1);
-    assert(std::string(controls[5].help_rml) ==
+    assert(std::string(controls[6].help_rml) ==
         "Choose the in-game text font. Restart Dusklight to apply changes.");
-    assert(std::string(controls[6].label) == "Items Screen");
-    assert(controls[6].option_count == 2);
-    assert(std::string(controls[6].options[0]) == "TPHD Bank");
-    assert(std::string(controls[6].options[1]) == "Original Wheel");
-    assert(controls.size() == 13);
-    assert(controls[5].option_count == 5);
+    assert(std::string(controls[7].label) == "Items Screen");
+    assert(controls[7].option_count == 2);
+    assert(std::string(controls[7].options[0]) == "TPHD Bank");
+    assert(std::string(controls[7].options[1]) == "Original Wheel");
+    assert(controls.size() == 14);
+    assert(controls[6].option_count == 5);
     saved["text-font"] = 4;
     assert(text_font() == TextFont::AlegreyaSansMedium);
     saved["text-font"] = 0;
     assert(combined_map_control());
-    assert(std::string(controls[12].label) == "Map / Minimap on Up");
+    assert(std::string(controls[13].label) == "Map / Minimap on Up");
     for (int i = 0; i < 3; ++i) {
-        assert(controls[9 + i].kind == UI_CONTROL_TOGGLE);
-        assert(controls[9 + i].config_var == feature_config_var(static_cast<Feature>(i)));
+        assert(controls[10 + i].kind == UI_CONTROL_TOGGLE);
+        assert(controls[10 + i].config_var == feature_config_var(static_cast<Feature>(i)));
     }
-    const auto& wolf = controls[8];
+    const auto& wolf = controls[9];
     assert(std::string(wolf.label) == "Wolf Icons on Touch Buttons");
     assert(wolf.config_var == wolf_touch_icons_config_var());
     assert(wolf_touch_icons_enabled());
     assert(svc_config->set_bool(nullptr, wolf.config_var, false) == MOD_OK);
     assert(!wolf_touch_icons_enabled());
     assert(svc_config->set_bool(nullptr, wolf.config_var, true) == MOD_OK);
-    const auto& swap = controls[7];
+    const auto& swap = controls[8];
     assert(swap.kind == UI_CONTROL_TOGGLE);
     assert(std::string(swap.label) == "TPHD Items / Collection Buttons");
     assert(swap.binding == UI_BINDING_CONFIG_VAR);
