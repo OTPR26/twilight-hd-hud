@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.7.2 - 2026-10-12
+
+- Fixed enlarged item-acquisition and Hidden Skill text overlapping item icons.
+- Dungeon map backgrounds and borders now fill ultra-wide presentations.
+- Dungeon maps now follow the selected D-pad style.
+- Preserved third-slot item assignments during Wolf Link cutscenes.
+- Fixed built-in updates when the mods and data folders are separate, with clearer failure messages.
+
 ## v2.7.0 - 2026-10-11
 
 - Fixed text and button glyph scaling in item-acquisition and Hidden Skill messages.

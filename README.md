@@ -117,8 +117,10 @@ The mod's panel includes **Auto Update Checks** and **Check Now**. It checks thi
 repository's GitHub releases independently of mod-site update services. Desktop
 and Android offer **Update Now** when a newer stable release is available. The
 updater verifies the release asset's size and SHA-256 before replacing one known
-Twilight HD package; restart Dusklight to load the new version. Renamed or duplicate
-packages require manual installation. Offline checks leave the mod usable.
+Twilight HD package in the user or app-adjacent mods folder, including a custom
+`--mods` folder on desktop. The mods and data folders can be on different drives.
+Restart Dusklight to load the new version. Renamed or duplicate packages require
+manual installation. Offline checks leave the mod usable.
 
 iOS and tvOS support **update notices only**. They never download or replace the
 native mod themselves; install a newly bundled and signed Dusklight app instead.

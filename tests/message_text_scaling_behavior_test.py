@@ -14,6 +14,7 @@ fixture = r'''
 using namespace twilight_hd_hud;
 using s16=short;
 struct Vec {float x,y,z;};
+using Mtx=float[3][4];
 struct J2DPane {
  float x=100,y=200,sx=1,sy=1;
  float getTranslateX(){return x;} float getTranslateY(){return y;}
@@ -23,6 +24,7 @@ struct J2DPane {
 struct CPaneMgr {
  J2DPane* pane=nullptr;J2DPane* getPanePtr(){return pane;}
  Vec getGlobalVtxCenter(J2DPane* p,bool,int){return {p->x,p->y,0};}
+ Vec getGlobalVtx(J2DPane* p,Mtx*,int,bool,int){return {p->x-50,p->y-20,0};}
 };
 void shift_action_pane(J2DPane* p,float x,float y){p->x+=x;p->y+=y;}
 struct CharInfo {float field_0x00,field_0x04,field_0x08,field_0x0c;};
@@ -60,7 +62,7 @@ int main(){
   assert(near(main.sx,factor)&&near(ruby.sy,factor));
   assert(near(chars.data[0].field_0x08,factor)&&near(symbol.mSizeX,24*factor));
   float ox=item?10:0,oy=item?20:0;
-  assert(near(symbol.mPosX+ox,100+(80+ox-100)*factor));
+  assert(near(symbol.mPosX+ox,(item?50:100)+(80+ox-(item?50:100))*factor));
   assert(near(symbol.mPosY+oy,200+(180+oy-200)*factor));
   after_message_screen_draw(nullptr,&screen,nullptr,nullptr);
   assert(main.sx==1&&ruby.sy==1&&main.x==100&&main.y==200);

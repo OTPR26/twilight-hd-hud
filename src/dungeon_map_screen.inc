@@ -266,6 +266,14 @@ void add_dmap_back_hint(dMenu_DmapBg_c* map, float size = 1.0f) {
             JUtility::TColor(255, 255, 255, 255));
         group->appendChild(text);
     }
+    if (auto* icon = as_picture(group->search(MULTI_CHAR('hd_ddup')))) {
+        const auto* texture = playstation_dpad_enabled()
+            ? resource_texture(s_playStationDpadResources[0]) : resource_texture(s_dmapBackDpadResource);
+        if (texture != nullptr) {
+            icon->changeTexture(texture, 0);
+            icon->setTexCoord(icon->getTexture(0), BIND15, MIRROR0, false);
+        }
+    }
     auto* frame = map->mMapScreen[0]->search(MULTI_CHAR('bs_00_0'));
     if (frame == nullptr) { group->hide(); return; }
     CPaneMgr manager;
@@ -470,4 +478,17 @@ void apply_dmap_hd_layout(dMenu_DmapBg_c* map) {
     }
 }
 
-// Field map -----------------------------------------------------------------
+void extend_dmap_background(dMenu_DmapBg_c* map) {
+    if (map == nullptr || map->mBaseScreen == nullptr) return;
+    const float scale = mDoGph_gInf_c::hudAspectScaleUp;
+    if (scale <= 0) return;
+    const float left = (mDoGph_gInf_c::getMinXF() - mDoGph_gInf_c::getSafeMinXF()) / scale;
+    const float width = mDoGph_gInf_c::getWidthF() / scale;
+    for (int i = -1; i < 6; ++i) {
+        const u64 tag = i < 0 ? MULTI_CHAR('hd_dbg0') : MULTI_CHAR('hd_drl0') + i;
+        if (auto* pane = map->mBaseScreen->search(tag)) {
+            pane->move(left, pane->getTranslateY());
+            pane->resize(width, pane->getHeight());
+        }
+    }
+}

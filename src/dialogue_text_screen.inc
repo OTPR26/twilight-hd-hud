@@ -1,6 +1,6 @@
 // Draw-only scaling keeps the native parser, line breaks, reveal timing and
 // choice layout unchanged. Text, ruby, shadows, character halos and embedded
-// symbols all use the same transform around the native text box center.
+// symbols share one transform; item cards keep their left text edge fixed.
 struct DialoguePaneState {
     J2DPane* pane = nullptr;
     float x = 0, y = 0, scaleX = 1, scaleY = 1;
@@ -42,7 +42,11 @@ void scale_dialogue_for_draw(dMsgScrnBase_c* screen) {
         }
     }
     CPaneMgr manager;
-    const Vec anchor = manager.getGlobalVtxCenter(mainText, false, 0);
+    Vec anchor = manager.getGlobalVtxCenter(mainText, false, 0);
+    if (itemCard) {
+        Mtx matrix;
+        anchor.x = manager.getGlobalVtx(mainText, &matrix, 0, false, 0).x;
+    }
     const dialogue_text_layout::Transform transform{anchor.x, anchor.y,
         itemCard ? hud_scales().dialogueText :
             dialogue_text_multiplier(hud_scales().dialogueText, sourceMessageScale)};

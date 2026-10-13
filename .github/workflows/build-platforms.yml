@@ -55,6 +55,7 @@ jobs:
           python3 tests/action_text_structure_test.py
           python3 tests/dialogue_text_structure_test.py
           python3 tests/message_text_scaling_behavior_test.py
+          python3 tests/third_slot_cutscene_behavior_test.py
           python3 tests/playstation_colors_test.py
           python3 tests/third_slot_interactions_test.py
           python3 tests/third_slot_talk_behavior_test.py
@@ -66,6 +67,7 @@ jobs:
           python3 tests/wolf_touch_icons_test.py
           python3 tests/item_bank_structure_test.py
           python3 tests/dungeon_map_structure_test.py
+          python3 tests/dungeon_map_width_behavior_test.py
           python3 tests/overworld_map_structure_test.py
           python3 tests/map_touch_portals_structure_test.py
           python3 tests/rupee_minimap_structure_test.py

@@ -16,7 +16,7 @@ ConfigVarHandle check_for_updates_config_var() { return 1; }
 using namespace twilight_hd_hud;
 namespace fs = std::filesystem;
 static HttpCompleteFn completion = nullptr;
-static std::string requestedUrl, downloadPath, dataPath, dialogTitle;
+static std::string requestedUrl, downloadPath, dataPath, scratchPath, dialogTitle, dialogBody;
 static UiDialogActionFn installAction = nullptr, dismissAction = nullptr;
 static HttpRequestHandle nextHandle = 1;
 static ModResult request(ModContext*, const HttpRequestDesc* desc, HttpCompleteFn fn, void*, HttpRequestHandle* handle) {
@@ -26,10 +26,11 @@ static ModResult request(ModContext*, const HttpRequestDesc* desc, HttpCompleteF
 }
 static ModResult cancel(ModContext*, HttpRequestHandle) { return MOD_OK; }
 static ModResult data_dir(ModContext*, const char** path) { *path=dataPath.c_str(); return MOD_OK; }
+static const char* mod_dir(ModContext*) { return scratchPath.c_str(); }
 static const char* version(ModContext*) { return "2.4.4"; }
 static ModResult subscribe(ModContext*, ConfigVarHandle, ConfigChangedFn, void*, uint64_t*) { return MOD_OK; }
 static ModResult dialog(ModContext*, const UiDialogDesc* desc, UiDialogHandle*) {
-    dialogTitle=desc->title; dismissAction=desc->on_dismiss;
+    dialogBody=desc->body_rml; dialogTitle=desc->title; dismissAction=desc->on_dismiss;
     installAction=desc->action_count==2 ? desc->actions[0].on_pressed : nullptr;
     return MOD_OK;
 }
@@ -48,7 +49,7 @@ int main() {
     const fs::path temp=fs::temp_directory_path()/std::string("hud-update-test-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     dataPath=(temp/"mod_data/org.twilight.hd_hud").string(); fs::create_directories(dataPath); fs::create_directories(temp/"mods");
     ConfigService config{}; config.subscribe=subscribe; svc_config=&config;
-    HostService host{}; host.mod_version=version; host.data_dir=data_dir; svc_host=&host;
+    HostService host{}; host.mod_version=version; host.data_dir=data_dir; host.mod_dir=mod_dir; svc_host=&host;
     HttpService http{}; http.request=request; http.cancel=cancel; svc_http=&http;
     UiService ui{}; ui.dialog_push=dialog; svc_ui=&ui;
     const auto package=temp/"mods"/kReleaseAsset;
@@ -58,6 +59,7 @@ int main() {
     const std::string json=std::string("{\"tag_name\":\"v2.5.0\",\"assets\":[{\"name\":\"")+kReleaseAsset+
         "\",\"size\":2048,\"digest\":\"sha256:"+digest+"\",\"browser_download_url\":\"https://github.com/OTPR26/twilight-hd-hud/releases/download/v2.5.0/"+kReleaseAsset+"\"}]}";
     initialize_update_service();
+    s_executablePath = temp/"installation/dusklight.exe";
     assert(requestedUrl.find("api.github.com/repos/OTPR26/twilight-hd-hud/")!=std::string::npos);
     complete_check(json);
     if (kCanSelfInstall) {
@@ -72,6 +74,7 @@ int main() {
         downloaded.download_path=downloadPath.c_str();
         completion(nullptr,2,&downloaded,nullptr); update_update_service();
         assert(dialogTitle=="Update Failed" && read(package)=="existing package");
+        assert(!dialogBody.empty());
         assert(!fs::exists(downloadPath));
         // Ambiguous existing packages cannot create or replace a duplicate.
         write(temp/"mods/twilight_hd_hud.dusk","second copy");
@@ -79,6 +82,7 @@ int main() {
         installAction(nullptr,0,nullptr); write(downloadPath,payload);
         completion(nullptr,3,&downloaded,nullptr); update_update_service();
         assert(dialogTitle=="Update Failed" && read(package)=="existing package");
+        assert(!dialogBody.empty());
         fs::remove(temp/"mods/twilight_hd_hud.dusk");
         request_update_check(nullptr,reinterpret_cast<void*>(1)); complete_check(json);
         installAction(nullptr,0,nullptr); write(downloadPath,payload);
@@ -96,6 +100,41 @@ int main() {
         write(package, "duplicate");
         assert(update_target().empty());
         fs::remove(package);
+        const auto relocated = temp/update_paths::from_utf8("別のフォルダ/mods");
+        fs::create_directories(relocated);
+        const auto movedPackage = relocated/managerName.filename();
+        fs::rename(managerName, movedPackage);
+        const auto scratchUtf8=(relocated/".cache/org.twilight.hd_hud/data").u8string();
+        scratchPath.assign(scratchUtf8.begin(), scratchUtf8.end());
+        assert(update_target() == movedPackage);
+        request_update_check(nullptr,reinterpret_cast<void*>(1)); complete_check(json);
+        installAction(nullptr,0,nullptr); write(downloadPath,payload);
+        HttpResult relocatedDownload{}; relocatedDownload.error=HTTP_ERROR_NONE; relocatedDownload.status_code=200;
+        completion(nullptr,5,&relocatedDownload,nullptr); update_update_service();
+        assert(dialogTitle=="Update Complete" && read(movedPackage)==payload);
+        const auto app = temp/"installation/dusklight.exe";
+        fs::create_directories(app.parent_path()/"mods");
+        const auto appPackage = app.parent_path()/"mods"/kReleaseAsset;
+        fs::rename(movedPackage, appPackage);
+        const auto roots = update_paths::roots(update_paths::from_utf8(dataPath), update_paths::from_utf8(scratchPath), app);
+        assert(find_update_target(roots)==appPackage);
+        auto aliases=roots;
+        aliases.push_back(appPackage.parent_path());
+        assert(find_update_target(aliases)==appPackage);
+        fs::create_directories(temp/"mods-alias");
+        fs::create_hard_link(appPackage,temp/"mods-alias"/kReleaseAsset);
+        aliases.push_back(temp/"mods-alias");
+        assert(find_update_target(aliases)==appPackage);
+        write(relocated/kReleaseAsset,"second copy");
+        assert(find_update_target(roots).empty());
+        assert(s_result.installError.find("Multiple")!=std::string::npos);
+        fs::remove(relocated/kReleaseAsset);
+        fs::remove(appPackage);
+        assert(find_update_target(roots).empty());
+        assert(s_result.installError.find("could not be found")!=std::string::npos);
+        const auto macRoots=update_paths::roots({}, {}, temp/"Dusklight.app/Contents/MacOS/dusklight");
+        assert(macRoots.size()==2 && macRoots[0]==temp/"mods" &&
+            macRoots[1]==temp/"Dusklight.app/Contents/Resources/mods");
     }
     shutdown_update_service();
     svc_http=nullptr;

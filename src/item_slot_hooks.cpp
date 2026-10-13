@@ -212,6 +212,7 @@ constexpr WolfIconLayout kAttackIconLayout = {6.0f, -37.0f, 22.0f, 220.0f};
 
 DEFINE_HOOK(&dComIfGp_getSelectItem, GetSelectItemHook);
 DEFINE_HOOK(&dComIfGp_setSelectItem, SetSelectItemHook);
+DEFINE_HOOK(&dComIfGs_setSelectItemIndex, SetSelectItemIndexHook);
 DEFINE_HOOK(&dMenu_Ring_c::_create, RingCreateHook);
 DEFINE_HOOK(&dMw_c::dMw_ring_delete, MenuRingDeleteHook);
 DEFINE_HOOK(&dMenu_Ring_c::_draw, RingDrawHook);
@@ -7044,6 +7045,8 @@ struct ThirdSlotTalk {
 };
 ThirdSlotTalk s_thirdSlotTalk;
 
+#include "third_slot_cutscene.inc"
+
 HookAction before_get_select_item(ModContext*, void* args, void* retval, void*) {
     const int index = mods::arg<int>(args, 0);
     if (s_baitLookupScope && index == kBaitRodAlias) {
@@ -9380,7 +9383,9 @@ HookAction before_dmap_bg_draw(ModContext*, void* args, void*, void*) {
 
 void after_dmap_wide(ModContext*, void* args, void*, void*) {
     auto* map = mods::arg<dMenu_DmapBg_c*>(args, 0);
-    if (!s_compactDmap.active || map != s_dmapDrawing) return;
+    if (map != s_dmapDrawing) return;
+    extend_dmap_background(map);
+    if (!s_compactDmap.active) return;
     compact_dmap_attachments(map);
     if (auto* hint = map->mBaseScreen->search(MULTI_CHAR('hd_dbak'))) {
         remember_compact_pane(hint);
@@ -11923,6 +11928,7 @@ ModResult install_item_slot_hooks(ModError* error) {
     if (use_mod_item_slot()) {
         ADD_PRE(GetSelectItemHook, before_get_select_item, "get selected item");
         ADD_POST(SetSelectItemHook, after_set_select_item, "set selected item");
+        ADD_PRE(SetSelectItemIndexHook, before_set_select_item_index, "preserve third slot during wolf events");
     }
     ADD_POST(PadReadHook, after_pad_read, "controller read");
 #if !defined(_WIN32)
