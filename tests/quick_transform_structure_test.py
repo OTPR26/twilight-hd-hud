@@ -11,6 +11,6 @@ player_update = source.split("void after_player_execute(", 1)[1].split(
     "template <class Hook>", 1
 )[0]
 assert "s_zHudItemUsable = false;" in player_update
-assert "s_zHudItemUsable = third_slot_item_usable(" in player_update
+assert "s_zHudItemUsable = third_slot_native_usable(" in player_update
 
 print("PASS: third-item HUD leaves native Midna and Quick Transform availability untouched")

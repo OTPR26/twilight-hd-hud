@@ -59,6 +59,7 @@ jobs:
           python3 tests/playstation_colors_test.py
           python3 tests/third_slot_interactions_test.py
           python3 tests/third_slot_talk_behavior_test.py
+          python3 tests/third_slot_fade_behavior_test.py
           python3 tests/controller_texture_behavior_test.py
           python3 tests/epona_prompt_behavior_test.py
           python3 tests/save_title_behavior_test.py

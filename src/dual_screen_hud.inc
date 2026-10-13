@@ -207,8 +207,17 @@ void prepare_dual_screen_full_hud(dMeter2Draw_c* meter) {
         s_dualRItemScope = std::make_unique<DualRItemScope>(meter);
         change_z_hud_item_texture(meter, item);
         layout_z_hud_item(meter, item);
-        update_z_hud_item_alpha(meter,
-            s_companionItemUsable == nullptr || s_companionItemUsable(meter, 2));
+        auto* link = daAlink_getAlinkActorClass();
+        // The fork's usability result remains authoritative when present.
+        // Enforce the same stage/action restrictions as the ordinary HUD;
+        // missing optional symbols must not imply an always-usable item.
+        const bool usable = link != nullptr &&
+            link->checkCastleTownUseItem(item) && third_slot_action_available(link, item) &&
+            (s_companionItemUsable != nullptr ? s_companionItemUsable(meter, 2) :
+                third_slot_native_usable(link, item));
+        update_z_hud_item_alpha(meter, usable);
+        arrange_hud_bow_combo_layers(item,
+            static_cast<J2DPicture*>(meter->mpItemR->getPanePtr()), meter->mpItemXYPane[2]);
         meter->mpItemR->show();
         if (auto* parent = meter->mpScreen->search(MULTI_CHAR('item_r_n'))) parent->show();
     }

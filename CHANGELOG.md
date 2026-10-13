@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.7.3 - 2026-10-13
+
+- Fixed R-slot items dimming in restricted gameplay states.
+- Fixed bow artwork on X/Y/R combo icons failing to fade with the rest of the item.
+- Applied consistent item dimming to the dual-screen presentations.
+
 ## v2.7.2 - 2026-10-12
 
 - Fixed enlarged item-acquisition and Hidden Skill text overlapping item icons.

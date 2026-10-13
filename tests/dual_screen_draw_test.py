@@ -274,27 +274,31 @@ alpha_source = 'void update_z_hud_item_alpha(' + source.split('void update_z_hud
 alpha_fixture = r'''
 #include <algorithm>
 #include <cassert>
+#include "hud_visibility.hpp"
+using namespace twilight_hd_hud;
 using f32=float;using u8=unsigned char;
-struct Pane {u8 alpha=255;f32 rate=1;u8 getInitAlpha(){return 255;}f32 getAlphaRate(){return rate;}void setAlpha(u8 a){alpha=a;}};
-struct dMeter2Draw_c {Pane* mpItemR;Pane* mpLightXY[3]{};Pane* mpButtonXY[3]{};Pane* mpButtonParent;};
+struct Pane {Pane* parent=nullptr;u8 alpha=255;f32 rate=1;Pane* getParentPane(){return parent;}Pane* getPanePtr(){return this;}u8 getAlpha(){return alpha;}u8 getInitAlpha(){return 255;}f32 getAlphaRate(){return rate;}void setAlpha(u8 a){alpha=a;}};
+using J2DPane=Pane;
+struct dMeter2Draw_c {Pane* mpItemR;Pane* mpItemXYPane[3]{};Pane* mpLightXY[3]{};Pane* mpButtonXY[3]{};Pane* mpButtonParent;};
 struct Hio {float mButtonZAlpha=1,mParentAlpha=1,mMainHUDButtonsAlpha=1,mButtonZItemBaseAlpha=1;u8 mButtonXYItemDimAlpha=96,mButtonXYBaseDimAlpha=128;} g_drawHIO;
 u8 clamp_hud_alpha(float a){return static_cast<u8>(std::clamp(a,0.0f,255.0f));}
 ''' + alpha_source + r'''
 int main(){
- Pane item,light,button,parent;dMeter2Draw_c meter{};
+ Pane item,combo,light,button,parent;dMeter2Draw_c meter{};
+ item.parent=combo.parent=&parent;meter.mpItemXYPane[2]=&combo;
  meter.mpItemR=&item;meter.mpLightXY[2]=&light;
  meter.mpButtonXY[2]=&button;meter.mpButtonParent=&parent;
  update_z_hud_item_alpha(&meter,true);
- assert(item.alpha==255&&button.alpha==255);
+ assert(item.alpha==255&&combo.alpha==255&&button.alpha==255);
  update_z_hud_item_alpha(&meter,false);
- assert(item.alpha==96&&button.alpha==128);
+ assert(item.alpha==96&&combo.alpha==96&&button.alpha==128);
  parent.rate=0.5f;update_z_hud_item_alpha(&meter,true);
- assert(item.alpha==127&&button.alpha==127);
+ assert(item.alpha==127&&combo.alpha==127&&button.alpha==127);
 }
 '''
 with tempfile.TemporaryDirectory() as directory:
     cpp=Path(directory)/'alpha.cpp';binary=Path(directory)/'alpha'
     cpp.write_text(alpha_fixture)
-    subprocess.run(['c++','-std=c++20',str(cpp),'-o',str(binary)],check=True)
+    subprocess.run(['c++','-std=c++20','-I',str(root/'src'),str(cpp),'-o',str(binary)],check=True)
     subprocess.run([str(binary)],check=True)
 print('PASS: usable R items stay opaque; unavailable items dim and respect HUD fades')

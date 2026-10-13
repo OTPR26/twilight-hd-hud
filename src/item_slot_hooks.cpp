@@ -5804,6 +5804,8 @@ void arrange_hud_bow_combo_layers(const u8 itemNo, J2DPicture* primaryPicture,
         return;
     }
 
+    sync_detached_item_alpha<J2DPane>(primaryPicture, secondaryPicture);
+
     // As siblings, the two pictures no longer inherit one another's geometry.
     // Keep their centers and authored HUD scale identical, then reduce only
     // the attachment by 40 percent for a combo.
@@ -6060,6 +6062,25 @@ void set_z_item_num_textures(u8 itemNum, const u8 itemMax) {
     }
 }
 
+bool third_slot_action_available(daAlink_c* link, u8 itemNo) {
+    if (link == nullptr || link->checkWolf() || itemNo == 0 ||
+        itemNo == dItemNo_NONE_e) return false;
+    // Query eligibility without starting the action or changing equipment.
+    // This includes water, vehicle, ground, room and item-specific limits.
+    // An already-readied item has no new equip action; native input scanning
+    // must still be allowed to keep its current action available.
+    return link->checkNewItemChange(kZItemSlot) != 0 ||
+        (link->mEquipItem == itemNo && link->mSelectItemId == kZItemSlot &&
+            link->checkReadyItem());
+}
+
+bool third_slot_native_usable(daAlink_c* link, u8 itemNo) {
+    if (link == nullptr || link->checkWolf()) return false;
+    return third_slot_item_usable(itemNo, dItemNo_NONE_e,
+        link->mUseButtonFlags, daAlink_c::BTN_Z,
+        link->checkCastleTownUseItem(itemNo), third_slot_action_available(link, itemNo));
+}
+
 void update_z_hud_item_alpha(dMeter2Draw_c* meter, bool usable) {
     const f32 buttonAlpha =
         g_drawHIO.mButtonZAlpha * (g_drawHIO.mParentAlpha * g_drawHIO.mMainHUDButtonsAlpha);
@@ -6077,6 +6098,11 @@ void update_z_hud_item_alpha(dMeter2Draw_c* meter, bool usable) {
     }
 
     meter->mpItemR->setAlpha(clamp_hud_alpha(static_cast<f32>(itemAlpha) * parentAlpha));
+    // Combo layering moves the bow picture out of mpItemR's child tree.
+    // It must now receive the same fade explicitly; inheriting it while
+    // still nested would instead apply the disabled opacity twice.
+    sync_detached_item_alpha<J2DPane>(
+        meter->mpItemR->getPanePtr(), meter->mpItemXYPane[2]);
     meter->mpLightXY[2]->setAlpha(clamp_hud_alpha(static_cast<f32>(itemBaseAlpha) * parentAlpha));
     meter->mpButtonXY[2]->setAlpha(clamp_hud_alpha(static_cast<f32>(buttonBaseAlpha) * parentAlpha));
 }
@@ -11284,9 +11310,8 @@ void after_player_execute(ModContext*, void* args, void*, void*) {
 
     tick_z_heavy_boots_guard(link);
     sync_play_select_item(kZItemSlot);
-    s_zHudItemUsable = third_slot_item_usable(
-        resolved_select_item(kZItemSlot), dItemNo_NONE_e,
-        link->mUseButtonFlags, daAlink_c::BTN_Z);
+    const u8 itemNo = resolved_select_item(kZItemSlot);
+    s_zHudItemUsable = third_slot_native_usable(link, itemNo);
 }
 
 template <class Hook>
