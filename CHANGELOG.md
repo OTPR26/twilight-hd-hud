@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.7.4 - 2026-10-13
+
+- Fixed built-in updates on Windows failing after a successful download.
+- Improved update failure messages to show the underlying error.
+
 ## v2.7.3 - 2026-10-13
 
 - Fixed R-slot items dimming in restricted gameplay states.

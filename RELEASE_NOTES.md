@@ -1,3 +1,2 @@
-- Fixed R-slot items dimming in restricted gameplay states.
-- Fixed bow artwork on X/Y/R combo icons failing to fade with the rest of the item.
-- Applied consistent item dimming to the dual-screen presentations.
+- Fixed built-in updates on Windows failing after a successful download.
+- Improved update failure messages to show the underlying error.

@@ -19,9 +19,11 @@ static HttpCompleteFn completion = nullptr;
 static std::string requestedUrl, downloadPath, dataPath, scratchPath, dialogTitle, dialogBody;
 static UiDialogActionFn installAction = nullptr, dismissAction = nullptr;
 static HttpRequestHandle nextHandle = 1;
+static uint64_t bodyLimit = 0;
 static ModResult request(ModContext*, const HttpRequestDesc* desc, HttpCompleteFn fn, void*, HttpRequestHandle* handle) {
     completion = fn; requestedUrl = desc->url;
     downloadPath = desc->download_path ? desc->download_path : "";
+    bodyLimit = desc->max_body_bytes;
     *handle = nextHandle++; return MOD_OK;
 }
 static ModResult cancel(ModContext*, HttpRequestHandle) { return MOD_OK; }
@@ -76,6 +78,48 @@ int main() {
         assert(dialogTitle=="Update Failed" && read(package)=="existing package");
         assert(!dialogBody.empty());
         assert(!fs::exists(downloadPath));
+        // Completion failures must retain the host's reason instead of blaming
+        // the connection for disk errors, timeouts, or unsuccessful HTTP status.
+        for (const auto error : {HTTP_ERROR_IO, HTTP_ERROR_TIMEOUT, HTTP_ERROR_NETWORK}) {
+            request_update_check(nullptr,reinterpret_cast<void*>(1)); complete_check(json);
+            installAction(nullptr,0,nullptr); write(downloadPath,payload);
+            HttpResult failed{}; failed.error=error; failed.status_code=200;
+            failed.error_message="Native failure <details> & code 17";
+            completion(nullptr,2,&failed,nullptr); update_update_service();
+            assert(dialogTitle=="Update Failed" && read(package)=="existing package");
+            assert(dialogBody.find("Native failure &lt;details&gt; &amp; code 17")!=std::string::npos);
+            if (error==HTTP_ERROR_IO) assert(dialogBody.find("could not save")!=std::string::npos);
+            if (error==HTTP_ERROR_TIMEOUT) assert(dialogBody.find("timed out")!=std::string::npos);
+            assert(!fs::exists(downloadPath));
+        }
+        HttpResult rejected{}; rejected.error=HTTP_ERROR_NONE; rejected.status_code=403;
+        assert(download_error(&rejected)=="GitHub returned HTTP 403.");
+        assert(download_error(nullptr)=="Dusklight returned no download result.");
+        // Windows bypasses the host's file publisher and receives a bounded body.
+        for (int scenario=0; scenario<4; ++scenario) {
+            request_update_check(nullptr,reinterpret_cast<void*>(1)); complete_check(json);
+            confirm_update_with_transport(true);
+            assert(downloadPath.empty() && bodyLimit==payload.size());
+            std::string body=payload;
+            HttpResult buffered{}; buffered.error=HTTP_ERROR_NONE; buffered.status_code=200;
+            if (scenario==0) body.pop_back(); // Incomplete response cannot replace the package.
+            if (scenario==1) body.back()='y'; // Matching size still requires the published hash.
+            if (scenario==2) buffered.error=HTTP_ERROR_NETWORK;
+            buffered.body=body.data(); buffered.body_size=body.size();
+            completion(nullptr,2,&buffered,nullptr); update_update_service();
+            assert(!fs::exists(download_staging_path()));
+            if (scenario==3) {
+                assert(dialogTitle=="Update Complete" && read(package)==payload);
+                write(package,"existing package");
+            } else {
+                assert(dialogTitle=="Update Failed" && read(package)=="existing package");
+            }
+        }
+        request_update_check(nullptr,reinterpret_cast<void*>(1)); complete_check(json);
+        s_result.downloadSize=kMaxBufferedDownload+1;
+        confirm_update_with_transport(true); update_update_service();
+        assert(dialogTitle=="Update Failed" && dialogBody.find("download limit")!=std::string::npos);
+        assert(read(package)=="existing package");
         // Ambiguous existing packages cannot create or replace a duplicate.
         write(temp/"mods/twilight_hd_hud.dusk","second copy");
         request_update_check(nullptr,reinterpret_cast<void*>(1)); complete_check(json);

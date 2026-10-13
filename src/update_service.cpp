@@ -55,6 +55,13 @@ std::atomic<State> s_state{State::Idle};
 Result s_result;
 HttpRequestHandle s_request = 0;
 std::filesystem::path s_executablePath;
+bool s_bufferedDownload = false;
+constexpr std::uint64_t kMaxBufferedDownload = 64 * 1024 * 1024;
+#if defined(_WIN32)
+constexpr bool kBufferDownloads = true;
+#else
+constexpr bool kBufferDownloads = false;
+#endif
 
 void on_check_setting_changed(ModContext*, ConfigVarHandle,
     const ConfigVarValue* value, const ConfigVarValue*, void*) {
@@ -191,6 +198,38 @@ bool http_succeeded(const HttpResult* result) {
         result->status_code >= 200 && result->status_code < 300;
 }
 
+std::string download_error(const HttpResult* response) {
+    std::string message;
+    if (response == nullptr) {
+        message = "Dusklight returned no download result.";
+    } else if (response->error == HTTP_ERROR_NONE) {
+        message = "GitHub returned HTTP " + std::to_string(response->status_code) + ".";
+    } else {
+        switch (response->error) {
+        case HTTP_ERROR_TIMEOUT: message = "The download timed out."; break;
+        case HTTP_ERROR_IO: message = "Dusklight could not save the download."; break;
+        case HTTP_ERROR_TOO_LARGE: message = "Dusklight rejected the download size."; break;
+        case HTTP_ERROR_CANCELED: message = "The download was canceled."; break;
+        case HTTP_ERROR_INVALID_URL:
+        case HTTP_ERROR_UNSUPPORTED_SCHEME: message = "Dusklight rejected the download URL."; break;
+        default: message = "The download failed because of a network error."; break;
+        }
+        if (response->error_message != nullptr && response->error_message[0] != '\0') {
+            message += "<br/><br/>";
+            // Host errors are text, not dialog markup.
+            for (const char ch : std::string{response->error_message}) {
+                switch (ch) {
+                case '&': message += "&amp;"; break;
+                case '<': message += "&lt;"; break;
+                case '>': message += "&gt;"; break;
+                default: message += ch; break;
+                }
+            }
+        }
+    }
+    return message;
+}
+
 void finish_request(State readyState) {
     s_request = 0;
     s_state.store(readyState, std::memory_order_release);
@@ -215,11 +254,27 @@ void on_check_complete(ModContext*, HttpRequestHandle, const HttpResult* respons
     finish_request(State::CheckReady);
 }
 
+bool save_buffered_download(const HttpResult* response, const std::filesystem::path& path) {
+    if (response->body == nullptr || response->body_size != s_result.downloadSize ||
+        response->body_size > kMaxBufferedDownload)
+        return install_failed("The downloaded package has an unexpected size. Try downloading it again.");
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    if (ec) return install_failed("Twilight HD could not create its download folder. Check its access permissions and free space.");
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output.write(static_cast<const char*>(response->body),
+        static_cast<std::streamsize>(response->body_size));
+    output.close();
+    return output.good() || install_failed("Twilight HD could not save the download. Check its access permissions and free space.");
+}
+
 void on_download_complete(ModContext*, HttpRequestHandle, const HttpResult* response, void*) {
     if (s_state.load(std::memory_order_acquire) != State::Downloading) return;
     const std::filesystem::path downloaded = download_staging_path();
-    s_result.installSucceeded = http_succeeded(response) ? replace_download(downloaded)
-        : install_failed("The download failed. Check your connection and try again.");
+    const auto failure = http_succeeded(response) ? std::string{} : download_error(response);
+    s_result.installSucceeded = failure.empty()
+        ? ((!s_bufferedDownload || save_buffered_download(response, downloaded)) && replace_download(downloaded))
+        : install_failed(failure.c_str());
     if (!s_result.installSucceeded && !downloaded.empty()) {
         std::error_code ec;
         std::filesystem::remove(downloaded, ec);
@@ -244,10 +299,15 @@ void show_dialog(const char* title, const std::string& body, UiDialogVariant var
     if (svc_ui->dialog_push(mod_ctx, &desc, nullptr) != MOD_OK) dismiss_update(nullptr, 0, nullptr);
 }
 
-void confirm_update(ModContext*, UiDialogHandle, void*) {
+void confirm_update_with_transport(bool buffered) {
     if (!kCanSelfInstall) return;
     const std::string url = s_result.downloadUrl;
     if (url.empty() || svc_http == nullptr) return;
+    if (buffered && (s_result.downloadSize == 0 || s_result.downloadSize > kMaxBufferedDownload)) {
+        s_result.installSucceeded = install_failed("This update exceeds the Windows updater's download limit. Install the release manually.");
+        finish_request(State::DownloadReady);
+        return;
+    }
     const auto staging = download_staging_path();
     if (staging.empty()) {
         s_result.installSucceeded = install_failed("Twilight HD's download folder is unavailable.");
@@ -259,11 +319,15 @@ void confirm_update(ModContext*, UiDialogHandle, void*) {
 
     State expected = State::AwaitingChoice;
     if (!s_state.compare_exchange_strong(expected, State::Downloading)) return;
+    s_bufferedDownload = buffered;
     const auto stagingUtf8 = staging.u8string();
     const std::string stagingText(stagingUtf8.begin(), stagingUtf8.end());
     HttpRequestDesc request = HTTP_REQUEST_DESC_INIT;
     request.url = url.c_str();
-    request.download_path = stagingText.c_str();
+    // Dusklight's Windows file-download publisher can fail with ERROR_INVALID_PARAMETER.
+    // Receive a bounded body instead, then save it with the mod's own file I/O.
+    request.download_path = buffered ? nullptr : stagingText.c_str();
+    if (buffered) request.max_body_bytes = s_result.downloadSize;
     request.connect_timeout_ms = 8000;
     request.idle_timeout_ms = 30000;
     request.total_timeout_ms = 120000;
@@ -271,6 +335,10 @@ void confirm_update(ModContext*, UiDialogHandle, void*) {
         s_result.installSucceeded = install_failed("Dusklight could not start the download. Check your connection and try again.");
         finish_request(State::DownloadReady);
     }
+}
+
+void confirm_update(ModContext*, UiDialogHandle, void*) {
+    confirm_update_with_transport(kBufferDownloads);
 }
 
 }  // namespace
