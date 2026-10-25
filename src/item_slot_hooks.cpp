@@ -243,6 +243,7 @@ DEFINE_HOOK(&dMeter2Draw_c::drawKanteraScreen, MeterGaugeScreenHook);
 DEFINE_HOOK(&J2DScreen::draw, ScreenDrawHook);
 DEFINE_HOOK(&dMsgObject_c::_draw, MessageObjectDrawHook);
 DEFINE_HOOK(&dMsgScrnBase_c::draw, MessageScreenDrawHook);
+DEFINE_HOOK(&dMsgScrnItem_c::drawSelf, ItemMessageDrawHook);
 DEFINE_HOOK(&dMeter2Draw_c::setButtonIconMidonaAlpha, MeterMidnaAlphaHook);
 DEFINE_HOOK(&dMeterMap_c::draw, MeterMapDrawHook);
 DEFINE_HOOK(&dMeterMap_c::ctrlShowMap, MeterMapCtrlShowHook);
@@ -2260,16 +2261,17 @@ void lift_item_get_assignment_icons(dMsgScrnItem_c* itemScreen) {
         }
         const int type = icon->getType();
         const bool assignment = type == 5 || type == 6 || type == 7;
-        // Bombling instructions contain two inline action caps in addition to
-        // Y/X/R. Correct their acquisition-card baseline without moving the
-        // separate Next prompt or action caps on other screens.
-        const bool bomblingAction = type == 0 &&
-            itemScreen->mItemIndex == dItemNo_POKE_BOMB_e;
+        // All item cards can embed A/B instructions, including ordinary bombs
+        // and skill rewards. The separate Next prompt is not in this queue.
+        const bool inlineAction = type == 0 || type == 1;
         // Type 2 is the aiming stick on normal item cards, but the Dungeon Map
         // acquisition deliberately reuses it for D-pad Up.
         const bool aimingStick = (type == 2 && itemScreen->mItemIndex != dItemNo_MAP_e) ||
             type == 9 || type == 69;
-        if (!assignment && !aimingStick && !bomblingAction) continue;
+        // The map acquisition message uses the directional D-pad glyph 67.
+        // Keep its baseline correction local to this card.
+        const bool mapDpad = itemScreen->mItemIndex == dItemNo_MAP_e && type == 67;
+        if (!assignment && !aimingStick && !inlineAction && !mapDpad) continue;
         s_itemGetIconPositions[s_itemGetIconPositionCount++] =
             {icon, icon->getPosX(), icon->getPosY(), icon->getSizeX(), icon->getSizeY()};
 
@@ -2280,7 +2282,7 @@ void lift_item_get_assignment_icons(dMsgScrnItem_c* itemScreen) {
             // scale, before fitting the rectangular shoulder-button artwork.
             icon->mPosX -= icon->getSizeX() * 0.15f;
         }
-        if (bomblingAction) {
+        if (inlineAction) {
             icon->mPosX -= icon->getSizeX() * 0.15f;
         }
         if (type == 7) {
@@ -2307,9 +2309,11 @@ void lift_item_get_assignment_icons(dMsgScrnItem_c* itemScreen) {
                 icon->mSizeY = height;
             }
         }
-        // Assignment caps, Bombling action caps and the tall aiming-stick art
+        // Assignment caps, inline action caps and the tall aiming-stick art
         // sit below the body-text baseline in the native item-get queue.
-        icon->mPosY -= originalHeight * 0.40f;
+        // The map's D-pad needs a smaller lift to center on its instruction
+        // line while keeping the lower arm clear of the following line.
+        icon->mPosY -= originalHeight * (mapDpad ? 0.25f : 0.40f);
     }
 }
 
@@ -2582,7 +2586,12 @@ void replace_collect_background(J2DScreen* screen) {
 
     const JGeometry::TBox2<f32> bounds = background->getBounds();
     background->changeTexture(replacement, 0);
-    background->resize(bounds.getWidth(), bounds.getHeight());
+    // The original tiled pane's aspect ratio is unrelated to this painting.
+    // Establish the artwork's ratio before the viewport-cover transform.
+    const f32 width = replacement->height != 0 ?
+        bounds.getHeight() * static_cast<f32>(replacement->width) / replacement->height :
+        bounds.getWidth();
+    background->resize(width, bounds.getHeight());
     background->move(bounds.i.x, bounds.i.y);
     background->setTexCoord(background->getTexture(0), BIND15, MIRROR0, false);
     background->setBlackWhite(JUtility::TColor(0, 0, 0, 0),
@@ -4140,6 +4149,55 @@ void apply_button_layout_preference(dMeter2Draw_c* meter) {
     }
 }
 
+void shift_action_pane(J2DPane* pane, float deltaX, float deltaY);
+
+void separate_diamond_action_label(dMeter2Draw_c* meter) {
+    if (meter == nullptr || meter->mpButtonA == nullptr || meter->mpTextA == nullptr ||
+        meter->mpAText[0] == nullptr) return;
+    auto* text = static_cast<J2DTextBox*>(meter->mpAText[0]->getPanePtr());
+    if (text == nullptr || text->getFont() == nullptr) return;
+    CPaneMgr manager;
+    Mtx matrix;
+    const Vec top = manager.getGlobalVtx(text, &matrix, 0, false, 0);
+    const f32 textScale = std::abs(matrix[0][0]);
+    J2DTextBox::TFontSize fontSize;
+    text->getFontSize(fontSize);
+    auto* font = text->getFont();
+    if (font->getHeight() <= 0) return;
+    f32 width = 0.0f;
+    auto* cursor = reinterpret_cast<const unsigned char*>(text_box_string(text));
+    bool first = true;
+    while (cursor != nullptr && *cursor != 0) {
+        unsigned code = *cursor++;
+        if (font->isLeadByte(code) && *cursor != 0) code = (code << 8) | *cursor++;
+        if (!first) width += text->getCharSpace();
+        width += font->getWidth(code) * fontSize.mSizeX / font->getHeight();
+        first = false;
+    }
+    width *= textScale;
+    if (width <= 0.0f) return;
+    const Vec bottom = manager.getGlobalVtx(text, &matrix, 3, false, 0);
+    const f32 binding = text->getHBinding() == HBIND_LEFT ? 0.0f :
+        text->getHBinding() == HBIND_RIGHT ? 1.0f : 0.5f;
+    const f32 left = top.x + (bottom.x - top.x - width) * binding;
+    // The animated parent is larger than the face artwork. Measure the
+    // picture itself so its empty parent bounds do not create an oversized gap.
+    J2DPane* button = first_picture_pane(meter->mpButtonA->getPanePtr());
+    if (button == nullptr) button = meter->mpButtonA->getPanePtr();
+    const Vec buttonTop = manager.getGlobalVtx(button, &matrix, 0, false, 0);
+    const Vec buttonBottom = manager.getGlobalVtx(button, &matrix, 3, false, 0);
+    const f32 canvas = buttonBottom.x - buttonTop.x;
+    const f32 faceRight = (buttonTop.x + buttonBottom.x) * 0.5f +
+        canvas * action_prompt_layout::kFaceCoverage * 0.5f;
+    const f32 faceWidth = canvas * action_prompt_layout::kFaceCoverage;
+    const f32 desiredLeft = action_prompt_layout::bounded_label_left(left,
+        faceRight - faceWidth, faceRight, faceWidth, width,
+        mDoGph_gInf_c::getMaxXF() - faceWidth * 0.30f);
+    const f32 delta = desiredLeft - left;
+    if (std::abs(delta) > 0.001f)
+        shift_action_pane(meter->mpTextA->getPanePtr(), delta, 0.0f);
+}
+
 void restore_archive_face_button_diamond(dMeter2Draw_c* meter) {
     if (meter == nullptr) {
         return;
@@ -4280,6 +4338,7 @@ void restore_archive_face_button_diamond(dMeter2Draw_c* meter) {
                 text->getInitScaleY() * diamondTextCounter);
         }
     }
+    separate_diamond_action_label(meter);
 }
 
 void apply_wii_u_item_num_layout(dMeter2Draw_c* meter) {
@@ -5958,7 +6017,7 @@ bool z_item_has_ammo(const u8 itemNo) {
     }
 }
 
-bool z_item_ammo_values(const u8 itemNo, u8& itemNum, u8& itemMax) {
+bool item_ammo_values(const u8 itemNo, const u8 slot, u8& itemNum, u8& itemMax) {
     if (!z_item_has_ammo(itemNo)) {
         return false;
     }
@@ -5974,8 +6033,8 @@ bool z_item_ammo_values(const u8 itemNo, u8& itemNum, u8& itemMax) {
         itemMax = static_cast<u8>(dComIfGs_getArrowMax());
         return true;
     case dItemNo_BOMB_ARROW_e: {
-        itemNum = static_cast<u8>(std::max<s16>(0, dComIfGp_getSelectItemNum(kZItemSlot)));
-        itemMax = static_cast<u8>(std::max(0, dComIfGp_getSelectItemMaxNum(kZItemSlot)));
+        itemNum = static_cast<u8>(std::max<s16>(0, dComIfGp_getSelectItemNum(slot)));
+        itemMax = static_cast<u8>(std::max(0, dComIfGp_getSelectItemMaxNum(slot)));
         itemNum = std::min(itemNum, static_cast<u8>(dComIfGs_getArrowNum()));
         itemMax = std::max(itemMax, static_cast<u8>(dComIfGs_getArrowMax()));
         return true;
@@ -5985,9 +6044,32 @@ bool z_item_ammo_values(const u8 itemNo, u8& itemNum, u8& itemMax) {
         itemMax = static_cast<u8>(dComIfGs_getPachinkoMax());
         return true;
     default:
-        itemNum = static_cast<u8>(std::max<s16>(0, dComIfGp_getSelectItemNum(kZItemSlot)));
-        itemMax = static_cast<u8>(std::max(0, dComIfGp_getSelectItemMaxNum(kZItemSlot)));
+        itemNum = static_cast<u8>(std::max<s16>(0, dComIfGp_getSelectItemNum(slot)));
+        itemMax = static_cast<u8>(std::max(0, dComIfGp_getSelectItemMaxNum(slot)));
         return true;
+    }
+}
+
+bool z_item_ammo_values(const u8 itemNo, u8& itemNum, u8& itemMax) {
+    return item_ammo_values(itemNo, kZItemSlot, itemNum, itemMax);
+}
+
+void refresh_face_arrow_counts(dMeter2Draw_c* meter) {
+    if (meter == nullptr || daPy_py_c::checkNowWolf()) return;
+    for (u8 slot = 0; slot < 2; ++slot) {
+        const u8 item = dComIfGp_getSelectItem(slot);
+        switch (item) {
+        case dItemNo_BOW_e: case dItemNo_LIGHT_ARROW_e:
+        case dItemNo_ARROW_LV1_e: case dItemNo_ARROW_LV2_e:
+        case dItemNo_ARROW_LV3_e: case dItemNo_HAWK_ARROW_e:
+        case dItemNo_BOMB_ARROW_e: {
+            u8 count = 0, maximum = 0;
+            if (item_ammo_values(item, slot, count, maximum))
+                meter->setItemNum(slot, count, maximum);
+            break;
+        }
+        default: break;
+        }
     }
 }
 
@@ -10430,6 +10512,7 @@ HookAction before_meter_screen_draw(ModContext*, void* args, void*, void*) {
     // Prepare after dMeter2Draw_c::draw updates animations, before panes and
     // item counts render.
     s_pendingMeterDraw = nullptr;
+    refresh_face_arrow_counts(meter);
     if (s_dualScreenHost.active()) {
         apply_button_layout_preference(meter);
         if (meter->mpButtonCrossParent != nullptr) {
@@ -12066,8 +12149,17 @@ ModResult install_item_slot_hooks(ModError* error) {
     ADD_POST(MeterGaugeScreenHook, after_meter_gauge_screen, "oil and oxygen meter restore");
     ADD_PRE(MessageObjectDrawHook, before_message_object_draw,
         "item-get text and inline button metrics");
-    ADD_PRE(MessageScreenDrawHook, before_message_screen_draw, "Howl button prompt");
-    ADD_POST(MessageScreenDrawHook, after_message_screen_draw, "Restore dialogue draw geometry");
+    ADD_PRE(MessageScreenDrawHook, +[](ModContext* ctx, void* args, void* result, void* data) {
+        if (dynamic_cast<dMsgScrnItem_c*>(mods::arg<dMsgScrnBase_c*>(args, 0)) != nullptr)
+            return HOOK_CONTINUE;
+        return before_message_screen_draw(ctx, args, result, data);
+    }, "Howl button prompt");
+    ADD_POST(MessageScreenDrawHook, +[](ModContext* ctx, void* args, void* result, void* data) {
+        if (dynamic_cast<dMsgScrnItem_c*>(mods::arg<dMsgScrnBase_c*>(args, 0)) == nullptr)
+            after_message_screen_draw(ctx, args, result, data);
+    }, "Restore dialogue draw geometry");
+    ADD_PRE(ItemMessageDrawHook, before_message_screen_draw, "Item card final draw geometry");
+    ADD_POST(ItemMessageDrawHook, after_message_screen_draw, "Restore item card draw geometry");
     if (use_mod_item_slot()) {
         ADD_POST(MeterMidnaAlphaHook, after_meter_midna_alpha, "Midna icon opacity");
     }

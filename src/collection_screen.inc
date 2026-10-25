@@ -73,8 +73,11 @@ void collection_fill_physical_viewport(dMenu_Collect2D_c* menu, J2DPane* pane) {
         parentY *= parent->getScaleY();
     }
     if (std::fabs(parentX) < 0.001f || std::fabs(parentY) < 0.001f) return;
-    pane->scale((mDoGph_gInf_c::getWidthF() / pane->getWidth()) / parentX,
-        (mDoGph_gInf_c::getHeightF() / pane->getHeight()) / parentY);
+    // Cover the viewport without stretching the painting. Compensate for
+    // ancestor scales so the final on-screen scale is uniform on both axes.
+    const float cover = std::max(mDoGph_gInf_c::getWidthF() / pane->getWidth(),
+        mDoGph_gInf_c::getHeightF() / pane->getHeight());
+    pane->scale(cover / parentX, cover / parentY);
     const Vec center = menu->mpLinkPm->getGlobalVtxCenter(pane, false, 0);
     offset_diamond_group(std::array<J2DPane*, 1>{pane},
         mDoGph_gInf_c::getMinXF() + mDoGph_gInf_c::getWidthF() * 0.5f - center.x,

@@ -67,6 +67,7 @@ void apply_button_layout_preference(dMeter2Draw_c*) { ++artworkCalls; }
 void apply_hud_backing_visibility(dMeter2Draw_c*) { ++artworkCalls; }
 '''
 fixture += '\n'.join(f'template<class... T> void {name}(T...) {{ ++geometryCalls; }}' for name in calls)
+fixture += '\nvoid refresh_face_arrow_counts(dMeter2Draw_c*) {}\n'
 top_source=(root/'src/dual_screen_hud.inc').read_text()
 fixture += top_source.split('// Draw the same archive',1)[0]
 fixture += '\n' + callback

@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.7.5 - 2026-10-25
+
+- Fixed item-acquisition text and button icons overlapping at larger text sizes.
+- Fixed the dungeon map prompt’s D-pad icon overlapping the next line.
+- Improved action-label spacing on ultrawide displays and with larger text settings.
+- Fixed the Collection screen background stretching on ultrawide displays.
+
 ## v2.7.4 - 2026-10-13
 
 - Fixed built-in updates on Windows failing after a successful download.

@@ -21,7 +21,11 @@ for field in ('field_0x00', 'field_0x04', 'field_0x08', 'field_0x0c'):
 assert 'character.field_0x14 =' not in source  # never roll back halo animation
 assert 'setFontSize(' not in source and 'setString(' not in source
 assert 'mpSelect_c' not in source and 'mpPmP_c' not in source
-assert 'ADD_POST(MessageScreenDrawHook, after_message_screen_draw' in hooks
+assert 'ADD_PRE(ItemMessageDrawHook, before_message_screen_draw' in hooks
+assert 'ADD_POST(ItemMessageDrawHook, after_message_screen_draw' in hooks
+assert 'return before_message_screen_draw(ctx, args, result, data)' in hooks
+assert 'after_message_screen_draw(ctx, args, result, data)' in hooks
+assert 'dynamic_cast<dMsgScrnItem_c*>(mods::arg<dMsgScrnBase_c*>(args, 0)) == nullptr' in hooks
 assert 'scale_dialogue_for_draw(messageScreen)' in hooks
 assert 'dynamic_cast<dMsgScrnTalk_c*>(messageScreen)' in hooks
 assert 'apply_out_font_button_layout(talk->mpOutFont)' in hooks

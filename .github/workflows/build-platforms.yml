@@ -55,6 +55,8 @@ jobs:
           python3 tests/action_text_structure_test.py
           python3 tests/dialogue_text_structure_test.py
           python3 tests/message_text_scaling_behavior_test.py
+          python3 tests/item_card_and_ammo_behavior_test.py
+          python3 tests/diamond_label_behavior_test.py
           python3 tests/third_slot_cutscene_behavior_test.py
           python3 tests/playstation_colors_test.py
           python3 tests/third_slot_interactions_test.py

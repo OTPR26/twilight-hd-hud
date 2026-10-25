@@ -14,6 +14,21 @@ constexpr float kTriggerCoverage = 0.82f;
 // Give its visible silhouette a modest lift relative to the A-button face.
 constexpr float kBottleScale = 1.20f;
 
+// Minimum separation in rendered coordinates, independent of viewport width.
+constexpr float clearance_shift(float textLeft, float buttonRight, float faceWidth) {
+    const float delta = buttonRight + faceWidth * 0.30f - textLeft;
+    return delta > 0.0f ? delta : 0.0f;
+}
+
+constexpr float bounded_label_left(float textLeft, float buttonLeft,
+    float buttonRight, float faceWidth, float textWidth, float rightLimit) {
+    const float right = textLeft + clearance_shift(textLeft, buttonRight, faceWidth);
+    // Keep the icon at its native diamond anchor. When a label cannot fit on
+    // its right, put the complete label on the left with the same gap.
+    return right + textWidth <= rightLimit ? right :
+        buttonLeft - faceWidth * 0.30f - textWidth;
+}
+
 struct Row {
     float buttonCenter;
     float textLeft;

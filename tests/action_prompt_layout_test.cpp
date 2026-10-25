@@ -32,5 +32,14 @@ int main() {
         assert(std::abs((row.buttonCenter - row.faceWidth * 0.5f +
             row.textLeft + width) * 0.5f - center) < 0.001f);
     }
+    // A labels clear the button at standard and ultrawide anchors, including
+    // the larger text/diamond combinations that previously collided.
+    for (float edge : {500.f, 960.f, 1400.f, 2300.f})
+    for (float face : {24.f, 48.f, 96.f})
+    for (float left : {edge-60.f, edge, edge+60.f}) {
+        const float shift = action_prompt_layout::clearance_shift(left, edge, face);
+        assert(left+shift >= edge+face*0.30f-0.001f);
+        assert(action_prompt_layout::clearance_shift(left+shift,edge,face)<0.001f);
+    }
     std::cout << "PASS: A on left, TPHD size/gap, centered variable-length labels at all scales\n";
 }
