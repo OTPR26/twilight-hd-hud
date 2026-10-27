@@ -65,7 +65,6 @@ jobs:
           python3 tests/controller_texture_behavior_test.py
           python3 tests/epona_prompt_behavior_test.py
           python3 tests/save_title_behavior_test.py
-          python3 tests/game_over_choice_behavior_test.py
           python3 tests/item_get_font_behavior_test.py
           python3 tests/item_get_font_selection_test.py
           python3 tests/wolf_touch_icons_test.py

@@ -9284,31 +9284,8 @@ HookAction before_select_cursor_draw(ModContext*, void* args, void*, void*) {
     return HOOK_CONTINUE;
 }
 
-// Game Over owns an explanation dialog of type 2, including both Retry and
-// Return to title. Its choices must retain their native panes and animation.
-dMsgScrn3Select_c* s_gameOverChoices = nullptr;
-
-HookAction before_game_over_explain_draw(ModContext*, void* args, void*, void*) {
-    auto* screen = mods::arg<dMsgScrnExplain_c*>(args, 0);
-    s_gameOverChoices = screen != nullptr && screen->field_0x66 == 2 ?
-        screen->mpSelect_c : nullptr;
-    return HOOK_CONTINUE;
-}
-
-void after_game_over_explain_draw(ModContext*, void*, void*, void*) {
-    s_gameOverChoices = nullptr;
-}
-
 HookAction before_three_select_draw(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMsgScrn3Select_c*>(args, 0);
-    if (menu != nullptr && menu == s_gameOverChoices) {
-        // Clear the previous prompt's cursor target too: allocator reuse must
-        // not apply an old HD frame to the native Game Over cursor.
-        s_activeThreeSelectCursor = nullptr;
-        s_activeThreeSelectFrame = nullptr;
-        s_goldenBugsChoiceDraw = false;
-        return HOOK_CONTINUE;
-    }
     s_goldenBugsChoiceDraw =
         golden_bugs_explanation_active(s_activeGoldenBugsDrawMenu) &&
         s_activeGoldenBugsDrawMenu != nullptr &&
@@ -12253,10 +12230,6 @@ ModResult install_item_slot_hooks(ModError* error) {
         "field-map warp question TPHD scale");
     ADD_POST(ExplainDrawHook, after_fmap_explain_draw,
         "restore field-map warp question geometry");
-    ADD_PRE(ExplainDrawHook, before_game_over_explain_draw,
-        "preserve native Game Over choices");
-    ADD_POST(ExplainDrawHook, after_game_over_explain_draw,
-        "clear Game Over choice scope");
     ADD_PRE(FmapMoveHook, before_fmap_move, "field map portals L button mapping");
     ADD_POST(FmapMoveHook, after_fmap_move, "restore field map portal input");
     if (feature_enabled(Feature::DpadShortcuts)) {
