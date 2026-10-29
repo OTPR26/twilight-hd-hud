@@ -2255,11 +2255,14 @@ std::size_t s_itemGetIconPositionCount = 0;
 void lift_item_get_assignment_icons(dMsgScrnItem_c* itemScreen) {
     if (itemScreen == nullptr || itemScreen->mpOutFont == nullptr ||
         s_itemGetIconPositionCount != 0) return;
+    const bool hiddenSkill = itemScreen->isOugiID();
     for (auto* icon : itemScreen->mpOutFont->mpOfs) {
         if (icon == nullptr || s_itemGetIconPositionCount >= s_itemGetIconPositions.size()) {
             continue;
         }
         const int type = icon->getType();
+        const bool skillFace = hiddenSkill && (type == 0 || type == 1 || type == 5 || type == 6);
+        const bool skillShoulder = hiddenSkill && (type == 3 || type == 4 || type == 7);
         const bool assignment = type == 5 || type == 6 || type == 7;
         // All item cards can embed A/B instructions, including ordinary bombs
         // and skill rewards. The separate Next prompt is not in this queue.
@@ -2271,11 +2274,26 @@ void lift_item_get_assignment_icons(dMsgScrnItem_c* itemScreen) {
         // The map acquisition message uses the directional D-pad glyph 67.
         // Keep its baseline correction local to this card.
         const bool mapDpad = itemScreen->mItemIndex == dItemNo_MAP_e && type == 67;
-        if (!assignment && !aimingStick && !inlineAction && !mapDpad) continue;
+        if (!assignment && !aimingStick && !inlineAction && !mapDpad && !skillShoulder) continue;
         s_itemGetIconPositions[s_itemGetIconPositionCount++] =
             {icon, icon->getPosX(), icon->getPosY(), icon->getSizeX(), icon->getSizeY()};
 
         const f32 originalHeight = icon->getSizeY();
+        if (skillFace || skillShoulder) {
+            // Skill instructions put targeting and attack glyphs on adjacent
+            // lines. Moving only the face glyph stacks it onto the unadjusted
+            // shoulder glyph. Align both to the same text-line center, retaining
+            // the shoulder artwork's size and the parser's reserved advance.
+            icon->mPosY -= originalHeight * 0.40f;
+            if (skillFace) {
+                constexpr f32 faceScale = 0.72f;
+                icon->mPosX += icon->getSizeX() * (1.0f - faceScale) * 0.5f;
+                icon->mPosY += originalHeight * (1.0f - faceScale) * 0.5f;
+                icon->mSizeX *= faceScale;
+                icon->mSizeY *= faceScale;
+            }
+            continue;
+        }
         if (assignment) {
             // Leave space before punctuation on all item-acquisition cards.
             // Use the original cell width so Y/X/R shift equally at any HUD

@@ -1,2 +1,1 @@
-- Fixed built-in updates on Windows failing after a successful download.
-- Improved update failure messages to show the underlying error.
+- Fixed overlapping button icons in Hidden Skill completion messages.

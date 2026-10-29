@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.7.6 - 2026-10-29
+
+- Fixed overlapping button icons in Hidden Skill completion messages.
+
 ## v2.7.5 - 2026-10-25
 
 - Fixed item-acquisition text and button icons overlapping at larger text sizes.

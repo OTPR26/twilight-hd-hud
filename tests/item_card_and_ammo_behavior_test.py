@@ -30,7 +30,7 @@ struct COutFontSet_c {int type=0;float mPosX=40,mPosY=80,mSizeX=20,mSizeY=20;
  int getType(){return type;}float getPosX(){return mPosX;}float getPosY(){return mPosY;}
  float getSizeX(){return mSizeX;}float getSizeY(){return mSizeY;}};
 struct OutFont {std::array<COutFontSet_c*,35> mpOfs{};};
-struct dMsgScrnItem_c {OutFont* mpOutFont=nullptr;u8 mItemIndex=dItemNo_MAP_e;};
+struct dMsgScrnItem_c {OutFont* mpOutFont=nullptr;u8 mItemIndex=dItemNo_MAP_e;bool skill=false;bool isOugiID(){return skill;}};
 '''
 checks=r'''
 int main(){
@@ -59,6 +59,23 @@ int main(){
    assert(icon.mPosX==x&&icon.mPosY==y&&icon.mSizeX==w&&icon.mSizeY==h);
    restore_item_get_assignment_icons();
   }
+ }
+ // Adjacent skill lines must retain separation and restore their original geometry.
+ for(float scale:{0.5f,1.f,1.25f,1.5f}) {
+  COutFontSet_c shoulder,face;shoulder.type=3;face.type=0;
+  shoulder.mSizeX=shoulder.mSizeY=face.mSizeX=face.mSizeY=20*scale;
+  shoulder.mPosY=80;face.mPosY=80+24*scale;
+  OutFont out;out.mpOfs[0]=&shoulder;out.mpOfs[1]=&face;
+  dMsgScrnItem_c card;card.mpOutFont=&out;card.skill=true;
+  lift_item_get_assignment_icons(&card);
+  assert(shoulder.mPosY+shoulder.mSizeY < face.mPosY);
+  assert(shoulder.mSizeY==20*scale && face.mSizeY<20*scale);
+  restore_item_get_assignment_icons();
+  assert(shoulder.mPosY==80 && face.mPosY==80+24*scale);
+  assert(shoulder.mSizeY==20*scale && face.mSizeY==20*scale);
+  card.skill=false;lift_item_get_assignment_icons(&card);
+  assert(shoulder.mPosY==80 && shoulder.mSizeY==20*scale);
+  restore_item_get_assignment_icons();
  }
  COutFontSet_c next;next.type=0x47;OutFont out;out.mpOfs[0]=&next;
  dMsgScrnItem_c card;card.mpOutFont=&out;lift_item_get_assignment_icons(&card);
