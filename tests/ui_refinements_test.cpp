@@ -115,15 +115,20 @@ int main() {
         "drink it with " + layoutTag + icon(16) + layoutTag + " or " + layoutTag +
         icon(15) + " to replenish 8 hearts.";
     assert(three_button_item_help(taggedSoup + '\0').empty());
-    assert(three_button_soup_item_help(taggedSoup + '\0') ==
-        "Set it to and drink it with " + trio + " to replenish 8 hearts.");
-    assert(three_button_soup_item_help(taggedPhraseSoup + '\0') ==
-        "Set it " + layoutTag + "to and " + layoutTag + "drink it with " + trio +
-        " to replenish 8 hearts.");
-    assert(three_button_soup_item_help(superbSoup + '\0') ==
-        "Set it to and drink it with " + trio + " to replenish 8 hearts.");
-    assert(three_button_soup_item_help(multilineSuperbSoup + '\0') ==
-        "Set it to and drink it with\n" + trio + " to replenish 8 hearts.");
+    for (const auto& original : {taggedSoup, taggedPhraseSoup, superbSoup, multilineSuperbSoup}) {
+        assert(three_button_soup_item_help(original + '\0') ==
+            "Drink with " + trio + "\nto replenish 8 hearts.");
+    }
+    assert(three_button_item_get_help(soup + '\0') ==
+        "Drink with " + trio + "\nto restore 2 hearts.");
+    const std::string colorTag("\x1a\x06\0\0\x01\x02", 6);
+    const auto simpleSoup = "You put simple soup in your\nbottle! It smells like fish broth.\n" +
+        std::string("Set it to and drink it with ") + icon(16) + " or " + icon(15) +
+        " to " + colorTag + "replenish 2 hearts!";
+    const auto fixedSoup = three_button_item_get_help(simpleSoup + '\0');
+    assert(fixedSoup == "You put simple soup in your\nbottle! It smells like fish broth.\nDrink with " +
+        trio + "\nto " + colorTag + "replenish 2 hearts!");
+    assert(three_button_item_get_help(fixedSoup + '\0').empty());
     const auto ooccoo = "Set her to and call her with " + icon(16) + " or " +
         icon(15) + ".";
     assert(three_button_soup_item_help(ooccoo + '\0') ==

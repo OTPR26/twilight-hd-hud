@@ -14,6 +14,7 @@ fixture=r'''
 using u8=unsigned char;using s16=short;using f32=float;
 '''+ 'enum {'+','.join(items)+'};\n'+r'''
 constexpr u8 kZItemSlot=2;
+bool playstation=false;int button_layout(){return 0;}bool is_playstation_layout(int){return playstation;}
 bool wolf=false;struct daPy_py_c {static bool checkNowWolf(){return wolf;}};
 u8 arrows=12,arrowMax=60,selected[3]={dItemNo_BOW_e,dItemNo_MAP_e,dItemNo_BOMB_ARROW_e};
 s16 counts[3]={12,40,9};int maxima[3]={60,60,30};
@@ -44,6 +45,19 @@ int main(){
  arrows=3;refresh_face_arrow_counts(&meter);assert(meter.value[1]==3);
  u8 count=0,maximum=0;assert(z_item_ammo_values(dItemNo_BOMB_ARROW_e,count,maximum));
  assert(count==3&&maximum==100);
+ // The R renderer must read current inventory even when the host slot cache
+ // remains at the equipped value. Cover every native bow ID and quiver limits.
+ for (u8 item : {dItemNo_BOW_e,dItemNo_LIGHT_ARROW_e,dItemNo_ARROW_LV1_e,
+                 dItemNo_ARROW_LV2_e,dItemNo_ARROW_LV3_e,dItemNo_HAWK_ARROW_e}) {
+  selected[2]=item;counts[2]=25;
+  for (u8 cap : {30,60,100}) {
+   arrowMax=cap;
+   for (u8 live : {0,9,10,25,30}) {
+    arrows=live;assert(z_item_ammo_values(item,count,maximum));
+    assert(count==live && maximum==cap && counts[2]==25);
+   }
+  }
+ }
  const int calls=meter.calls[0];wolf=true;refresh_face_arrow_counts(&meter);
  assert(meter.calls[0]==calls);wolf=false;
  // Normal bomb and skill cards now align action/back caps, not only Bomblings.
@@ -60,6 +74,18 @@ int main(){
    restore_item_get_assignment_icons();
   }
  }
+ for(bool ps : {false,true}) {
+  playstation=ps;
+  for(int type : {0,1,5,6}) {
+   COutFontSet_c icon;icon.type=type;OutFont out;out.mpOfs[0]=&icon;
+   dMsgScrnItem_c card;card.mpOutFont=&out;
+   lift_item_get_assignment_icons(&card);
+   assert(icon.mSizeX==20*(ps?0.72f:1.f));
+   assert(icon.mSizeY==20*(ps?0.72f:1.f));
+   restore_item_get_assignment_icons();assert(icon.mSizeX==20&&icon.mSizeY==20);
+  }
+ }
+ playstation=false;
  // Adjacent skill lines must retain separation and restore their original geometry.
  for(float scale:{0.5f,1.f,1.25f,1.5f}) {
   COutFontSet_c shoulder,face;shoulder.type=3;face.type=0;

@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.7.7 - 2026-11-24
+
+- Fixed soup acquisition text overflowing its message box.
+- Reduced oversized PlayStation button icons in item-acquisition messages.
+- Added a Skills-menu fallback for Twilit Essentials’ Flurry Rush, preserving its layout and navigation.
+- Added an option to disable dual-screen compatibility for troubleshooting Switch ports. Restart required.
+
 ## v2.7.6 - 2026-10-29
 
 - Fixed overlapping button icons in Hidden Skill completion messages.

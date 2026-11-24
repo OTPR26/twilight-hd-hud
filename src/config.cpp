@@ -27,6 +27,8 @@ ConfigVarHandle s_swapMenuButtons = 0;
 ConfigVarHandle s_checkForUpdates = 0;
 ConfigVarHandle s_combinedMap = 0;
 ConfigVarHandle s_wolfTouchIcons = 0;
+ConfigVarHandle s_dualCompatibility = 0;
+bool s_activeDualCompatibility = true;
 ConfigVarHandle s_dualTopButtons = 0;
 ConfigVarHandle s_dualTopMidna = 0;
 ConfigVarHandle s_dualTopDpad = 0;
@@ -138,6 +140,7 @@ ModResult register_config(ModError* error) {
         register_bool("check-for-updates", true, s_checkForUpdates) != MOD_OK ||
         register_bool("combined-map-control", true, s_combinedMap) != MOD_OK ||
         register_bool("wolf-touch-icons", true, s_wolfTouchIcons) != MOD_OK ||
+        register_bool("dual-screen-compatibility", true, s_dualCompatibility) != MOD_OK ||
         register_int("dual-top-buttons", 0, s_dualTopButtons) != MOD_OK ||
         register_bool("dual-top-midna", false, s_dualTopMidna) != MOD_OK ||
         register_bool("dual-top-dpad", true, s_dualTopDpad) != MOD_OK)
@@ -145,6 +148,8 @@ ModResult register_config(ModError* error) {
         return mods::set_error(
             error, MOD_ERROR, "failed to register Twilight HD settings");
     }
+    if (svc_config->get_bool(mod_ctx, s_dualCompatibility, &s_activeDualCompatibility) != MOD_OK)
+        return mods::set_error(error, MOD_ERROR, "failed to read dual-screen compatibility setting");
     return MOD_OK;
 }
 
@@ -290,6 +295,8 @@ bool check_for_updates_enabled() { return get_bool(s_checkForUpdates, true); }
 bool wolf_touch_icons_enabled() { return get_bool(s_wolfTouchIcons, true); }
 ConfigVarHandle wolf_touch_icons_config_var() { return s_wolfTouchIcons; }
 
+bool dual_screen_compatibility_enabled() { return s_activeDualCompatibility; }
+ConfigVarHandle dual_screen_compatibility_config_var() { return s_dualCompatibility; }
 bool dual_screen_full_diamond() { return get_int(s_dualTopButtons, 0) == 1; }
 bool dual_screen_show_midna() { return get_bool(s_dualTopMidna, false); }
 bool dual_screen_show_dpad() { return get_bool(s_dualTopDpad, true); }

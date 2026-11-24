@@ -148,6 +148,14 @@ bool (*s_companionItemUsable)(dMeter2Draw_c*, int) = nullptr;
 
 
 void resolve_dual_screen_host() {
+    s_dualScreenHost = {};
+    s_companionItemUsable = nullptr;
+    s_companionMeasureText = nullptr;
+    s_companionWolfBlend = nullptr;
+    if (!dual_screen_compatibility_enabled()) {
+        svc_log->info(mod_ctx, "Dual-screen compatibility disabled by setting");
+        return;
+    }
     s_dualScreenHost.hudOnCompanion = reinterpret_cast<DualScreenHost::HudQuery>(
         resolve_host_symbol("dusk::dualscreen::hudOnCompanion"));
     s_dualScreenHost.slotTriggerBits = reinterpret_cast<DualScreenHost::SlotQuery>(
@@ -161,7 +169,7 @@ void resolve_dual_screen_host() {
         resolve_host_symbol("dusk::companion::measureText"));
     s_companionWolfBlend = static_cast<f32*>(resolve_host_symbol("dusk::companion::s_wolfBlend"));
     if (s_dualScreenHost.hudOnCompanion != nullptr) {
-        svc_log->info(mod_ctx, "Dual-screen HUD compatibility enabled");
+        svc_log->info(mod_ctx, "Dual-screen host interface detected; HUD mode follows host settings");
     }
 }
 
@@ -2302,6 +2310,16 @@ void lift_item_get_assignment_icons(dMsgScrnItem_c* itemScreen) {
         }
         if (inlineAction) {
             icon->mPosX -= icon->getSizeX() * 0.15f;
+        }
+        if (is_playstation_layout(button_layout()) &&
+            (type == 0 || type == 1 || type == 5 || type == 6)) {
+            // Match the compact face glyphs used on skill cards. Keep the
+            // parser's advance unchanged so surrounding text cannot overlap.
+            constexpr f32 faceScale = 0.72f;
+            icon->mPosX += icon->getSizeX() * (1.0f - faceScale) * 0.5f;
+            icon->mPosY += originalHeight * (1.0f - faceScale) * 0.5f;
+            icon->mSizeX *= faceScale;
+            icon->mSizeY *= faceScale;
         }
         if (type == 7) {
             // Out-font symbols reserve a square cell. Shoulder-button art is
@@ -8502,7 +8520,41 @@ void position_hidden_skill_cursor(dMenu_Skill_c* menu, J2DPane* group) {
     position_cursor_outside_frame(menu->mpDrawCursor, frame, 4.0f, 3.0f);
 }
 
+// Compare the host/mod count with the save's native unlocks, rather than
+// testing only for an eighth skill: an added skill can appear before all seven
+// original skills have been learned. The fallback is latched to this screen's
+// lifetime so another mod can own paging, descriptions, cursor and input.
+bool hidden_skills_use_native_menu(dMenu_Skill_c* menu) {
+    if (menu == nullptr || menu->mpMenuScreen == nullptr) return false;
+    constexpr u64 fallbackTag = MULTI_CHAR('hd_hsfb');
+    if (menu->mpMenuScreen->search(fallbackTag) != nullptr) return true;
+    constexpr u32 nativeEvents[] = {339, 338, 340, 341, 342, 343, 344};
+    unsigned nativeCount = 0;
+    for (const u32 event : nativeEvents)
+        nativeCount += dComIfGs_isEventBit(dSv_event_flag_c::saveBitLabels[event]) ? 1 : 0;
+    if (menu->getSkillNum() <= nativeCount && menu->mTotalSkillNum <= nativeCount)
+        return false;
+
+    auto* marker = JKR_NEW J2DPane(fallbackTag,
+        JGeometry::TBox2<f32>(0, 0, 0, 0));
+    marker->hide();
+    menu->mpMenuScreen->appendChild(marker);
+    if (auto* overlay = menu->mpMenuScreen->search(MULTI_CHAR('hd_hsov'))) {
+        overlay->hide();
+        if (menu->mpParent != nullptr) menu->mpParent->show();
+        if (menu->mpIconScreen != nullptr) menu->mpIconScreen->show();
+        // Native process 0 is the list; reading states deliberately have no A label.
+        if (menu->mProcess == 0) menu->setAButtonString(0x40C);
+        if (menu->mIndex < 7 && menu->mpLetterParent[menu->mIndex] != nullptr &&
+            menu->mpDrawCursor != nullptr)
+            menu->setCursorPos();
+    }
+    s_hiddenSkillInput = {};
+    return true;
+}
+
 void ensure_hidden_skills_overlay(dMenu_Skill_c* menu) {
+    if (hidden_skills_use_native_menu(menu)) return;
     if (menu == nullptr || menu->mpMenuScreen == nullptr || menu->mpArchive == nullptr) return;
     J2DPane* group = menu->mpMenuScreen->search(MULTI_CHAR('hd_hsov'));
     if (group == nullptr) {
@@ -8687,6 +8739,7 @@ void ensure_hidden_skills_overlay(dMenu_Skill_c* menu) {
 
 HookAction before_skill_wait_move(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Skill_c*>(args, 0);
+    if (hidden_skills_use_native_menu(menu)) return HOOK_CONTINUE;
     if (menu == nullptr) return HOOK_CONTINUE;
     if (s_hiddenSkillInput.menu != menu) {
         s_hiddenSkillInput = {};
@@ -8723,6 +8776,7 @@ HookAction before_skill_wait_move(ModContext*, void* args, void*, void*) {
 
 void after_skill_create(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Skill_c*>(args, 0);
+    if (hidden_skills_use_native_menu(menu)) return;
     if (menu != nullptr) {
         apply_collection_submenu_button_layout(menu->mpIconScreen,
             menu->mpArchive, menu->mpString);
@@ -8732,6 +8786,7 @@ void after_skill_create(ModContext*, void* args, void*, void*) {
 
 void after_skill_move(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Skill_c*>(args, 0);
+    if (hidden_skills_use_native_menu(menu)) return;
     if (menu == nullptr) return;
     ensure_hidden_skills_overlay(menu);
 #if TARGET_PC
@@ -9220,6 +9275,7 @@ HookAction before_fishing_draw(ModContext*, void* args, void*, void*) {
 
 HookAction before_skill_draw(ModContext*, void* args, void*, void*) {
     auto* menu = mods::arg<dMenu_Skill_c*>(args, 0);
+    if (hidden_skills_use_native_menu(menu)) return HOOK_CONTINUE;
     ensure_hidden_skills_overlay(menu);
     refresh_collect_prompt_width(menu != nullptr ? menu->mpIconScreen : nullptr);
     return HOOK_CONTINUE;
@@ -11504,7 +11560,7 @@ void initialize_wolf_action_icons() {
 }
 
 void initialize_face_button_textures() {
-    if (dual_screen_available() &&
+    if (dual_screen_compatibility_enabled() && dual_screen_available() &&
         svc_resource->load(mod_ctx, "hud/companion-wolf.bti", &s_companionWolfPortraitResource) != MOD_OK)
         svc_log->warn(mod_ctx, "Unable to load the companion wolf portrait");
     for (std::size_t style = 0; style < 2; ++style) {

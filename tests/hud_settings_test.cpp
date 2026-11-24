@@ -391,6 +391,15 @@ int main() {
         for (int i = 0; i < 3; ++i)
             assert(feature_enabled(static_cast<Feature>(i)) == ((mask & (1 << i)) != 0));
     }
+    assert(dual_screen_compatibility_enabled());
+    assert(set_bool(nullptr, dual_screen_compatibility_config_var(), false) == MOD_OK);
+    assert(dual_screen_compatibility_enabled()); // Routing remains consistent until restart.
+    assert(register_config(nullptr) == MOD_OK);
+    assert(!dual_screen_compatibility_enabled());
+    assert(set_bool(nullptr, dual_screen_compatibility_config_var(), true) == MOD_OK);
+    assert(!dual_screen_compatibility_enabled());
+    assert(register_config(nullptr) == MOD_OK);
+    assert(dual_screen_compatibility_enabled());
     assert(!dual_screen_full_diamond() && !dual_screen_show_midna() && dual_screen_show_dpad());
     controls.clear();
     assert(hudBuilder(nullptr, 1, 2, 3, nullptr, nullptr) == MOD_OK);
@@ -401,7 +410,10 @@ int main() {
     int dualControls = 0;
     for (const auto& control : controls) {
         const std::string label = control.label;
-        if (label == "Top Screen Buttons") {
+        if (label == "Dual-Screen Compatibility (restart required)") {
+            ++dualControls;
+            assert(control.config_var == dual_screen_compatibility_config_var());
+        } else if (label == "Top Screen Buttons") {
             ++dualControls;
             assert(control.option_count == 2);
             assert(std::string(control.options[1]) == "Full Diamond + R");
@@ -418,6 +430,6 @@ int main() {
             assert(std::string(control.help_rml).find("All D-Pad controls keep working") != std::string::npos);
         }
     }
-    assert(dualControls == 3);
+    assert(dualControls == 4);
     std::cout << "PASS: settings, optional feature combinations, and restart snapshots\n";
 }

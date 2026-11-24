@@ -275,6 +275,9 @@ ModResult build_hud_tab(
     if (dual_screen_available()) {
         static constexpr const char* kTopButtons[] = {"A + B", "Full Diamond + R"};
         if (add_section(ctx, left, "Dual Screen") != MOD_OK ||
+            add_toggle(ctx, left, "Dual-Screen Compatibility (restart required)",
+                dual_screen_compatibility_config_var(),
+                "Adapt Twilight HD to the host’s dual-screen controls and HUD. Turn off to use the normal HUD and item controls. Restart Dusklight to apply.") != MOD_OK ||
             add_select(ctx, left, "Top Screen Buttons", dual_screen_buttons_config_var(),
                 kTopButtons, std::size(kTopButtons),
                 "Choose the buttons shown on the top screen. Bottom-screen controls stay available.") != MOD_OK ||

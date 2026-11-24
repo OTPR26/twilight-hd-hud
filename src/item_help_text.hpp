@@ -183,14 +183,25 @@ inline std::string three_button_soup_item_help(std::string_view data) {
         result += "Set and call her with";
         result += message.substr(phrase.end, replacementAt - phrase.end);
     } else {
-        result = message.substr(0, replacementAt);
+        // The third assignment makes the original soup instruction wider than
+        // the acquisition card. Keep the action and benefit on separate lines;
+        // retain the authored benefit text and its color/control tags below.
+        result = message.substr(0, phrase.begin);
+        result += "Drink with ";
     }
     result.append("\x1a\x05\x00\x00\x10", 5);
     result += ", ";
     result.append("\x1a\x05\x00\x00\x0f", 5);
     result += " or ";
     result.append("\x1a\x05\x00\x00\x11", 5);
-    result += message.substr(secondEnd);
+    if (ooccoo) {
+        result += message.substr(secondEnd);
+    } else {
+        auto suffix = secondEnd;
+        while (suffix < message.size() && space(message[suffix])) ++suffix;
+        result += '\n';
+        result += message.substr(suffix);
+    }
     return result;
 }
 

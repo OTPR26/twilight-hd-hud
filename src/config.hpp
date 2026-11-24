@@ -100,6 +100,8 @@ bool check_for_updates_enabled();
 bool wolf_touch_icons_enabled();
 ConfigVarHandle wolf_touch_icons_config_var();
 bool dual_screen_available();
+bool dual_screen_compatibility_enabled();
+ConfigVarHandle dual_screen_compatibility_config_var();
 bool dual_screen_full_diamond();
 bool dual_screen_show_midna();
 bool dual_screen_show_dpad();
